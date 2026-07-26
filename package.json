@@ -1,0 +1,61 @@
+{
+  "name": "@coderifts/agent-guard",
+  "version": "1.0.0",
+  "description": "Fail-closed guard for AI agent tool calls — preflight contract changes before they execute. Security core frozen (agent-guard-api v1.0).",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build:cjs": "tsc -p tsconfig.cjs.json",
+    "build:esm": "tsc -p tsconfig.esm.json",
+    "build": "npm run clean && npm run build:cjs && npm run build:esm",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "coderifts",
+    "agent",
+    "guard",
+    "governance",
+    "ai-agent",
+    "tool-safety",
+    "fail-closed",
+    "preflight"
+  ],
+  "author": "CodeRifts <hello@coderifts.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/coderifts/agent-guard.git"
+  },
+  "homepage": "https://coderifts.com",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@coderifts/sdk": "^1.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}

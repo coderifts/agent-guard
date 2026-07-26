@@ -1,0 +1,196 @@
+'use strict';
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { guardToolCall } = require('../dist/cjs/index.js');
+
+// ── fixtures ────────────────────────────────────────────────────────────────────
+const TRIGGER = { toolName: 'Edit', arguments: {}, artifacts: [{ id: 'a', type: 'openapi', before: 'x', after: 'y' }] };
+const SKIP = { toolName: 'Read', arguments: { path: 'README.md' } };
+const RESULT = { ok: true };
+const okFactory = async () => RESULT;
+const throwFactory = async () => { throw new Error('boom'); };
+
+function envelope(execution_action, decision, opts = {}) {
+  return {
+    spec_version: 'decision-result.v1.1', decision, execution_action,
+    decision_id: 'dec_1', correlation_id: 'c', evaluated_at: new Date().toISOString(),
+    expires_at: opts.expires_at || new Date(Date.now() + 900000).toISOString(),
+    receipt: opts.noReceipt ? undefined : { token: 'tok', format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' },
+  };
+}
+function response(execution_action, decision, opts) {
+  return { decision, decision_result: envelope(execution_action, decision, opts) };
+}
+function mockClient({ preflight, verify } = {}) {
+  return {
+    async preflightChangeSet() { return preflight ? preflight() : response('CONTINUE', 'ALLOW'); },
+    async verifyReceipt() { return verify ? verify() : { valid: true, status: 'VERIFIED_CURRENT' }; },
+  };
+}
+
+// ── SKIPPED ──────────────────────────────────────────────────────────────────────
+test('SKIPPED: non-contract call executes enforced:false, preflighted:false', async () => {
+  const o = await guardToolCall(SKIP, okFactory, { client: mockClient() });
+  assert.equal(o.verdict.kind, 'SKIPPED');
+  assert.equal(o.executionAttempted, true);
+  assert.equal(o.executed, true);
+  assert.equal(o.enforced, false);
+  assert.equal(o.preflighted, false);
+  assert.deepEqual(o.result, RESULT);
+});
+
+// ── ALLOW enforced ────────────────────────────────────────────────────────────────
+test('ALLOW + verified receipt => enforced:true, executed', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient() });
+  assert.equal(o.verdict.kind, 'ALLOW');
+  assert.equal(o.enforced, true);
+  assert.equal(o.executed, true);
+  assert.equal(o.preflighted, true);
+  assert.equal(o.verdict.receiptVerified, true);
+});
+
+// ── BLOCK / APPROVAL: no execution ──────────────────────────────────────────────
+test('BLOCK: factory NEVER runs (executionAttempted:false)', async () => {
+  let ran = false;
+  const o = await guardToolCall(TRIGGER, async () => { ran = true; return RESULT; }, { client: mockClient({ preflight: () => response('STOP', 'BLOCK') }) });
+  assert.equal(o.verdict.kind, 'BLOCK');
+  assert.equal(ran, false);
+  assert.equal(o.executionAttempted, false);
+  assert.equal(o.executed, false);
+  assert.equal(o.enforced, false);
+});
+test('APPROVAL: non-executable, factory never runs', async () => {
+  const o = await guardToolCall(TRIGGER, throwFactory, { client: mockClient({ preflight: () => response('REQUEST_APPROVAL', 'REQUIRE_APPROVAL') }) });
+  assert.equal(o.verdict.kind, 'APPROVAL');
+  assert.equal(o.executionAttempted, false);
+});
+
+// ── MONITOR: sink vs no-sink ──────────────────────────────────────────────────────
+test('MONITOR + wired sink (onEvent) => enforced:true', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient({ preflight: () => response('CONTINUE_WITH_MONITORING', 'WARN') }), onEvent: () => {} });
+  assert.equal(o.verdict.kind, 'MONITOR');
+  assert.equal(o.enforced, true);
+  assert.equal(o.executed, true);
+});
+test('MONITOR without a sink => executes but enforced:false (monitoring_unwired)', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient({ preflight: () => response('CONTINUE_WITH_MONITORING', 'WARN') }) });
+  assert.equal(o.verdict.kind, 'MONITOR');
+  assert.equal(o.executed, true);
+  assert.equal(o.enforced, false);
+});
+
+// ── observeOnly ────────────────────────────────────────────────────────────────────
+test('observeOnly: executes but never enforces', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient(), observeOnly: true, onEvent: () => {} });
+  assert.equal(o.executed, true);
+  assert.equal(o.enforced, false);
+  assert.equal(o.verdict.kind, 'ALLOW');
+});
+
+// ── fail-closed (availability, closed policy) ──────────────────────────────────────
+test('transport NETWORK error + closed policy => STOP, factory never runs', async () => {
+  const o = await guardToolCall(TRIGGER, throwFactory, { client: mockClient({ preflight: () => { throw Object.assign(new Error('fetch failed'), { name: 'TypeError' }); } }) });
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.resolution, 'CLOSED');
+  assert.equal(o.verdict.action, 'STOP');
+  assert.equal(o.executionAttempted, false);
+});
+
+// ── fail-open (availability, open policy) ──────────────────────────────────────────
+test('NETWORK error + open policy => OPEN_PASSTHROUGH executes enforced:false', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient({ preflight: () => { throw Object.assign(new Error('fetch failed'), { name: 'TypeError' }); } }), failPolicy: 'open' });
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.resolution, 'OPEN_PASSTHROUGH');
+  assert.equal(o.executed, true);
+  assert.equal(o.enforced, false);
+});
+
+// ── integrity ALWAYS closed even under open ───────────────────────────────────────
+test('413 PAYLOAD_TOO_LARGE (integrity) + open policy => CLOSED (never permissive)', async () => {
+  const o = await guardToolCall(TRIGGER, throwFactory, { client: mockClient({ preflight: () => { throw Object.assign(new Error('too large'), { status: 413, name: 'ApiError' }); } }), failPolicy: 'open' });
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.cause, 'PAYLOAD_TOO_LARGE');
+  assert.equal(o.verdict.resolution, 'CLOSED');
+  assert.equal(o.executionAttempted, false);
+});
+test('422 REQUEST_REJECTED (integrity) + open policy => CLOSED', async () => {
+  const o = await guardToolCall(TRIGGER, throwFactory, { client: mockClient({ preflight: () => { throw Object.assign(new Error('unprocessable'), { status: 422, name: 'ApiError' }); } }), failPolicy: 'open' });
+  assert.equal(o.verdict.cause, 'REQUEST_REJECTED');
+  assert.equal(o.verdict.resolution, 'CLOSED');
+  assert.equal(o.executionAttempted, false);
+});
+
+// ── detector error => fail-closed ─────────────────────────────────────────────────
+test('detector throw => fail-closed (DETECTOR_ERROR), factory never runs', async () => {
+  const badDetector = { version: 'x', detect() { throw new Error('detector boom'); } };
+  const o = await guardToolCall(TRIGGER, throwFactory, { client: mockClient(), detector: badDetector });
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.cause, 'DETECTOR_ERROR');
+  assert.equal(o.executionAttempted, false);
+});
+
+// ── receipt verification gates ────────────────────────────────────────────────────
+test('receipt fails verification (attack signal) => integrity closed, no execution', async () => {
+  const o = await guardToolCall(TRIGGER, throwFactory, { client: mockClient({ verify: () => ({ valid: false, status: 'INVALID_SIGNATURE' }) }) });
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.cause, 'RECEIPT_UNVERIFIED');
+  assert.equal(o.executionAttempted, false);
+});
+test('verifyReceipts:false => executes but enforced:false (fail-closed by type on opt-out)', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient(), verifyReceipts: false });
+  assert.equal(o.executed, true);
+  assert.equal(o.enforced, false);
+  assert.equal(o.verdict.kind, 'ALLOW');
+});
+
+// ── retry safety (executionAttempted split) ───────────────────────────────────────
+test('factory throws AFTER enforced approval => executionAttempted:true, executed:false, enforced:true', async () => {
+  const o = await guardToolCall(TRIGGER, throwFactory, { client: mockClient() });
+  assert.equal(o.executionAttempted, true);  // NOT safe to retry — the side effect may have landed
+  assert.equal(o.executed, false);
+  assert.equal(o.enforced, true);             // audit chain preserved
+  assert.ok('error' in o);
+});
+test('a blocked (never-run) outcome IS safe to retry (executionAttempted:false)', async () => {
+  const o = await guardToolCall(TRIGGER, throwFactory, { client: mockClient({ preflight: () => response('STOP', 'BLOCK') }) });
+  assert.equal(o.executionAttempted, false); // safe to retry after resolving the block
+});
+
+// ── transport retry on availability ───────────────────────────────────────────────
+test('one NETWORK failure then success (retries:1) => enforced ALLOW', async () => {
+  let n = 0;
+  const client = {
+    async preflightChangeSet() { n++; if (n === 1) throw Object.assign(new Error('fetch failed'), { name: 'TypeError' }); return response('CONTINUE', 'ALLOW'); },
+    async verifyReceipt() { return { valid: true }; },
+  };
+  const o = await guardToolCall(TRIGGER, okFactory, { client, retries: 1 });
+  assert.equal(n, 2);
+  assert.equal(o.enforced, true);
+});
+
+// ── expiry ────────────────────────────────────────────────────────────────────────
+test('expired decision cannot be honored => closed', async () => {
+  const o = await guardToolCall(TRIGGER, throwFactory, { client: mockClient({ preflight: () => response('CONTINUE', 'ALLOW', { expires_at: new Date(Date.now() - 1000).toISOString() }) }) });
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.executionAttempted, false);
+});
+
+// ── lkg dormant (binding fields absent => closed) ────────────────────────────────
+test('failPolicy:lkg with a cached envelope => UNUSABLE (bindings absent) => closed', async () => {
+  const cached = envelope('CONTINUE', 'ALLOW');
+  const lkg = { async get() { return cached; }, async put() {} };
+  const o = await guardToolCall(TRIGGER, throwFactory, {
+    client: mockClient({ preflight: () => { throw Object.assign(new Error('fetch failed'), { name: 'TypeError' }); } }),
+    failPolicy: 'lkg', lkg,
+  });
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.resolution, 'CLOSED'); // dormant: no live LKG path in v1
+  assert.equal(o.executionAttempted, false);
+});
+
+// ── onEvent never throws out ──────────────────────────────────────────────────────
+test('onEvent that throws does not break guardToolCall', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient(), onEvent: () => { throw new Error('sink boom'); } });
+  assert.equal(o.executed, true);
+});
