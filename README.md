@@ -2,7 +2,7 @@
 
 Fail-closed guard for AI agent tool calls — preflight contract changes before they execute.
 
-Security core **FROZEN** (agent-guard-api v1.0). Built on [`@coderifts/sdk`](https://www.npmjs.com/package/@coderifts/sdk) `^1.1.0`.
+Security core **FROZEN** (agent-guard-api v1.0). Built on [`@coderifts/sdk`](https://www.npmjs.com/package/@coderifts/sdk) `^1.1.1`.
 
 ```bash
 npm install @coderifts/agent-guard @coderifts/sdk
