@@ -18,8 +18,8 @@
  * ```
  */
 
-export { guardToolCall } from './guard';
-export { builtinDetector, DETECTOR_VERSION } from './detector';
+export { guardToolCall } from './guard.js';
+export { builtinDetector, DETECTOR_VERSION } from './detector.js';
 export { readDecision } from '@coderifts/sdk';
 
 export type {
@@ -41,4 +41,4 @@ export type {
   DecisionResultEnvelope,
   ExecutionAction,
   Artifact,
-} from './types';
+} from './types.js';

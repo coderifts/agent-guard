@@ -14,8 +14,8 @@ import type {
   GuardConfig, GuardOutcome, GuardVerdict, ApprovedVerdict, UnavailableCause, AvailabilityCause,
   IntegrityCause, ToolCallDescriptor, ExecuteFactory, GuardEvent, ReceiptVerifiedEnvelope,
   DecisionResultEnvelope, UnavailableVerdict,
-} from './types';
-import { builtinDetector } from './detector';
+} from './types.js';
+import { builtinDetector } from './detector.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();

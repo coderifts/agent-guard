@@ -7,7 +7,7 @@
  * mandatory fixture set; this detector passes all 68 (46 trigger, 22 no-trigger).
  */
 
-import type { TriggerDetector, ToolCallDescriptor, Artifact } from './types';
+import type { TriggerDetector, ToolCallDescriptor, Artifact } from './types.js';
 
 export const DETECTOR_VERSION = 'builtin/1.0.0';
 
