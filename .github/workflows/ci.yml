@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # npm ci requires the committed package-lock.json (it resolves @coderifts/sdk@1.1.1 from the
+      # public npm registry with an integrity hash — reproducible).
+      - name: Install
+        run: npm ci
+
+      # Separate steps so a failure is visibly its own red step (lint, build, and test each gate).
+      - name: Lint (tsc --noEmit)
+        run: npm run lint
+
+      - name: Build (dual CJS/ESM + dist type markers)
+        run: npm run build
+
+      - name: Test (node --test)
+        run: npm test
