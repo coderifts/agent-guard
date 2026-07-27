@@ -21,6 +21,14 @@
 export { guardToolCall } from './guard.js';
 export { builtinDetector, DETECTOR_VERSION } from './detector.js';
 export { readDecision } from '@coderifts/sdk';
+// Additive session-taint surface (SEPARATE from the frozen single-call detector; own version).
+export {
+  SessionTaintTracker, SESSION_TAINT_VERSION, updateSession, evaluate, computeTainted,
+  emptySessionState, projectState, classifyCommand, pathClass, deriveKeySignal,
+} from './session-taint.js';
+export type {
+  SessionState, SessionTaintConfig, SessionTaintObservation, SessionEval, PendingRename, PathClass, CmdClass,
+} from './session-taint.js';
 
 export type {
   ReceiptVerifiedEnvelope,

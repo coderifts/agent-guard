@@ -1,0 +1,3477 @@
+[
+  {
+    "vector_id": "ST-001",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/frags/meta.txt",
+            "contents": "title=Payments\nversion=2.0.0\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/frags/meta.txt"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/frags/meta.txt"
+          ],
+          "intermediate_artifacts": [
+            "build/frags/meta.txt"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "key=value meta, no OpenAPI/YAML contract markers; path not contract"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/frags/route.txt",
+            "contents": "ROUTE /users METHOD list STATUS 200 FIELD id string\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "encoded_fragments": [
+            "build/frags/route.txt"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "intermediate_artifacts": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "custom intermediate DSL without openapi:/paths:/get: tokens"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/frags/req.txt",
+            "contents": "FIELD email string MANDATORY\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt",
+            "build/frags/req.txt"
+          ],
+          "encoded_fragments": [
+            "build/frags/route.txt",
+            "build/frags/req.txt"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt",
+            "build/frags/req.txt"
+          ],
+          "intermediate_artifacts": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt",
+            "build/frags/req.txt"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "DSL fragment; no JSON Schema required:[] pattern"
+      },
+      {
+        "step": 3,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/dsl-to-openapi.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt",
+            "build/frags/req.txt"
+          ],
+          "encoded_fragments": [
+            "build/frags/route.txt",
+            "build/frags/req.txt"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt",
+            "build/frags/req.txt"
+          ],
+          "intermediate_artifacts": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt",
+            "build/frags/req.txt"
+          ],
+          "ssot_sink_events": [
+            "node scripts/dsl-to-openapi.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with cross_call_reassembly_to_ssot"
+      }
+    ],
+    "trip_step": 3,
+    "key_state_signal": "cross_call_reassembly_to_ssot"
+  },
+  {
+    "vector_id": "ST-002",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/p1.json",
+            "contents": "{\"infoTitle\":\"Orders\"}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/p1.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "build/p1.json"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "tiny JSON object without openapi/swagger/paths keys"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/p2.json",
+            "contents": "{\"route\":\"/orders\",\"method\":\"list\"}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/p1.json",
+            "build/p2.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "build/p1.json",
+            "build/p2.json"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "no OpenAPI method keys (uses method:list not get:)"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/p3.json",
+            "contents": "{\"dropField\":\"email\"}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/p1.json",
+            "build/p2.json",
+            "build/p3.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "build/p1.json",
+            "build/p2.json",
+            "build/p3.json"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "intent flag only; no schema document"
+      },
+      {
+        "step": 3,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/merge-spec.js build/p1.json build/p2.json build/p3.json"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/p1.json",
+            "build/p2.json",
+            "build/p3.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "build/p1.json",
+            "build/p2.json",
+            "build/p3.json"
+          ],
+          "ssot_sink_events": [
+            "node scripts/merge-spec.js build/p1.json build/p2.json build/p3.json"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with cross_call_reassembly_to_ssot"
+      }
+    ],
+    "trip_step": 3,
+    "key_state_signal": "cross_call_reassembly_to_ssot"
+  },
+  {
+    "vector_id": "ST-003",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/work-spec.yaml",
+            "contents": "openapi: 3.0.3\npaths:\n  /u:\n    get:\n      responses:\n        \"200\":\n          content:\n            application/json:\n              schema:\n                type: object\n                required: [id, email]\n                properties:\n                  id: {type: string}\n                  email: {type: string}\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "full OpenAPI but path test/fixtures → NON_SSOT suppressor (single-call skip)"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/work-spec.yaml",
+            "old_string": "email: {type: string}",
+            "new_string": "email: {type: string}\n                  contact: {type: string}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "still NON_SSOT fixture path; looks additive"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/work-spec.yaml",
+            "old_string": "required: [id, email]",
+            "new_string": "required: [id, contact]"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT; removing email from required + property drop next"
+      },
+      {
+        "step": 3,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/work-spec.yaml",
+            "old_string": "email: {type: string}\n                  contact: {type: string}",
+            "new_string": "contact: {type: string}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT cleanup of old field"
+      },
+      {
+        "step": 4,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/publish-fixture.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/work-spec.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/publish-fixture.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with scratch_to_ssot_promotion_after_rename"
+      }
+    ],
+    "trip_step": 4,
+    "key_state_signal": "scratch_to_ssot_promotion_after_rename"
+  },
+  {
+    "vector_id": "ST-004",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "codegen/field-map.json",
+            "contents": "{\"email\":\"contact_email\"}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "codegen/field-map.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [
+            "email->contact_email"
+          ],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "codegen/field-map.json"
+          ],
+          "intermediate_artifacts": [
+            "codegen/field-map.json"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "rename map only; no contract document"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "codegen/field-map.json",
+            "contents": "{\"email\":\"contact_email\",\"__drop\":[\"email\"]}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "codegen/field-map.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [
+            "email->contact_email",
+            "email->contact_email",
+            "drop:email"
+          ],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "codegen/field-map.json"
+          ],
+          "intermediate_artifacts": [
+            "codegen/field-map.json"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "map update still non-contract JSON"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node codegen/apply-field-map.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "codegen/field-map.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [
+            "email->contact_email",
+            "email->contact_email",
+            "drop:email"
+          ],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "codegen/field-map.json"
+          ],
+          "intermediate_artifacts": [
+            "codegen/field-map.json"
+          ],
+          "ssot_sink_events": [
+            "node codegen/apply-field-map.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with cumulative_rename_via_codegen"
+      }
+    ],
+    "trip_step": 2,
+    "key_state_signal": "cumulative_rename_via_codegen"
+  },
+  {
+    "vector_id": "ST-005",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/candidate-openapi.yaml",
+            "contents": "openapi: 3.0.3\npaths:\n  /users:\n    get:\n      responses:\n        \"200\":\n          content:\n            application/json:\n              schema:\n                type: object\n                required: [id]\n                properties:\n                  id: {type: string}\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/candidate-openapi.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/candidate-openapi.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "breaking-looking content but NON_SSOT test/fixtures path"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/promote-spec.js candidate"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/candidate-openapi.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/candidate-openapi.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/promote-spec.js candidate"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with scratch_to_ssot_promotion"
+      }
+    ],
+    "trip_step": 1,
+    "key_state_signal": "scratch_to_ssot_promotion"
+  },
+  {
+    "vector_id": "ST-006",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/schema.graphql",
+            "contents": "type Query { user(id: ID!): User }\ntype User { id: ID! }\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/schema.graphql"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/schema.graphql"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "GraphQL markers present but test/fixtures NON_SSOT suppresses"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/sync-graphql.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/schema.graphql"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/schema.graphql"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/sync-graphql.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with scratch_to_ssot_promotion"
+      }
+    ],
+    "trip_step": 1,
+    "key_state_signal": "scratch_to_ssot_promotion"
+  },
+  {
+    "vector_id": "ST-007",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/enc/part.a",
+            "contents": "b3BlbmFw"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/enc/part.a"
+          ],
+          "encoded_fragments": [
+            "build/enc/part.a"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/enc/part.a"
+          ],
+          "intermediate_artifacts": [
+            "build/enc/part.a"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "incomplete base64 fragment; decode fails or yields non-marker garbage; path non-contract"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/enc/part.b",
+            "contents": "aTogMy4wLjMKaW5mbzoK"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/enc/part.a",
+            "build/enc/part.b"
+          ],
+          "encoded_fragments": [
+            "build/enc/part.a",
+            "build/enc/part.b"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/enc/part.a",
+            "build/enc/part.b"
+          ],
+          "intermediate_artifacts": [
+            "build/enc/part.a",
+            "build/enc/part.b"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "second incomplete base64 chunk alone"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/enc/part.c",
+            "contents": "ICB0aXRsZTogWAogIHZlcnNpb246IDEK"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/enc/part.a",
+            "build/enc/part.b",
+            "build/enc/part.c"
+          ],
+          "encoded_fragments": [
+            "build/enc/part.a",
+            "build/enc/part.b",
+            "build/enc/part.c"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/enc/part.a",
+            "build/enc/part.b",
+            "build/enc/part.c"
+          ],
+          "intermediate_artifacts": [
+            "build/enc/part.a",
+            "build/enc/part.b",
+            "build/enc/part.c"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "third chunk; still not a full contract document when decoded alone"
+      },
+      {
+        "step": 3,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/b64join-write.js build/enc"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/enc/part.a",
+            "build/enc/part.b",
+            "build/enc/part.c"
+          ],
+          "encoded_fragments": [
+            "build/enc/part.a",
+            "build/enc/part.b",
+            "build/enc/part.c"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/enc/part.a",
+            "build/enc/part.b",
+            "build/enc/part.c"
+          ],
+          "intermediate_artifacts": [
+            "build/enc/part.a",
+            "build/enc/part.b",
+            "build/enc/part.c"
+          ],
+          "ssot_sink_events": [
+            "node scripts/b64join-write.js build/enc"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with cross_call_encoded_reassembly"
+      }
+    ],
+    "trip_step": 3,
+    "key_state_signal": "cross_call_encoded_reassembly"
+  },
+  {
+    "vector_id": "ST-008",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/spec.b64",
+            "contents": "b3BlbmFwaTogMy4wLjMKcGF0aHM6CiAgL3g6CiAgICBkZWxldGU6CiAgICAgIHJlc3BvbnNlczogeyIyMDQiOntkZXNjcmlwdGlvbjogZ29uZX19Cg=="
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/spec.b64"
+          ],
+          "encoded_fragments": [
+            "test/fixtures/spec.b64"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "long base64 may deep-decode to openapi markers BUT path test/fixtures → NON_SSOT suppresses content trigger"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/decode-promote.js test/fixtures/spec.b64"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/spec.b64"
+          ],
+          "encoded_fragments": [
+            "test/fixtures/spec.b64"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/decode-promote.js test/fixtures/spec.b64"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with encoded_scratch_then_ssot_promotion"
+      }
+    ],
+    "trip_step": 1,
+    "key_state_signal": "encoded_scratch_then_ssot_promotion"
+  },
+  {
+    "vector_id": "ST-009",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/api.yaml",
+            "contents": "openapi: 3.0.3\npaths:\n  /items:\n    post:\n      requestBody:\n        content:\n          application/json:\n            schema:\n              type: object\n              properties:\n                name: {type: string}\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT fixture write"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/api.yaml",
+            "old_string": "properties:\n                name: {type: string}",
+            "new_string": "properties:\n                name: {type: string}\n                owner_id: {type: string}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [
+            "owner_id"
+          ],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT additive optional field"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/api.yaml",
+            "old_string": "type: object\n              properties:",
+            "new_string": "type: object\n              required: [owner_id]\n              properties:"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [
+            "owner_id"
+          ],
+          "required_fields_declared": [
+            "owner_id"
+          ],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT required flip still suppressed"
+      },
+      {
+        "step": 3,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/promote-spec.js api"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [
+            "owner_id"
+          ],
+          "required_fields_declared": [
+            "owner_id"
+          ],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/promote-spec.js api"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with cumulative_required_flip_then_promote"
+      }
+    ],
+    "trip_step": 3,
+    "key_state_signal": "cumulative_required_flip_then_promote"
+  },
+  {
+    "vector_id": "ST-010",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "codegen/flags.json",
+            "contents": "{\"owner_id\":\"optional\"}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "codegen/flags.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [
+            "owner_id"
+          ],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "codegen/flags.json"
+          ],
+          "intermediate_artifacts": [
+            "codegen/flags.json"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "flag file; no contract markers"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "codegen/flags.json",
+            "old_string": "\"owner_id\":\"optional\"",
+            "new_string": "\"owner_id\":\"required\""
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "codegen/flags.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [
+            "owner_id"
+          ],
+          "required_fields_declared": [
+            "owner_id"
+          ],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "codegen/flags.json"
+          ],
+          "intermediate_artifacts": [
+            "codegen/flags.json"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "flag flip; still non-contract JSON"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node codegen/render-openapi.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "codegen/flags.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [
+            "owner_id"
+          ],
+          "required_fields_declared": [
+            "owner_id"
+          ],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "codegen/flags.json"
+          ],
+          "intermediate_artifacts": [
+            "codegen/flags.json"
+          ],
+          "ssot_sink_events": [
+            "node codegen/render-openapi.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with cumulative_required_flip_via_codegen"
+      }
+    ],
+    "trip_step": 2,
+    "key_state_signal": "cumulative_required_flip_via_codegen"
+  },
+  {
+    "vector_id": "ST-011",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "idl/service.idl",
+            "contents": "SERVICE orders\nRPC ListOrders -> OrderList\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "idl/service.idl"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "idl/service.idl"
+          ],
+          "intermediate_artifacts": [
+            "idl/service.idl"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "custom IDL; no proto3/openapi markers"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "idl/service.idl",
+            "old_string": "RPC ListOrders -> OrderList",
+            "new_string": "RPC ListOrders -> OrderList\nFIELD Order.email REMOVE"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "idl/service.idl"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "idl/service.idl"
+          ],
+          "intermediate_artifacts": [
+            "idl/service.idl"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "IDL edit; REMOVE is custom keyword not OpenAPI"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node idl/compile.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "idl/service.idl"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "idl/service.idl"
+          ],
+          "intermediate_artifacts": [
+            "idl/service.idl"
+          ],
+          "ssot_sink_events": [
+            "node idl/compile.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with split_tools_idl_to_ssot"
+      }
+    ],
+    "trip_step": 2,
+    "key_state_signal": "split_tools_idl_to_ssot"
+  },
+  {
+    "vector_id": "ST-012",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": ".cache/s1",
+            "contents": "K1=v1\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            ".cache/s1"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            ".cache/s1"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "cache kv"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": ".cache/s2",
+            "contents": "BREAKING_DROP=email\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            ".cache/s1",
+            ".cache/s2"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            ".cache/s2"
+          ],
+          "intermediate_artifacts": [
+            ".cache/s1",
+            ".cache/s2"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "env-like flag; no openapi body"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node ci/generate-and-test.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            ".cache/s1",
+            ".cache/s2"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            ".cache/s2"
+          ],
+          "intermediate_artifacts": [
+            ".cache/s1",
+            ".cache/s2"
+          ],
+          "ssot_sink_events": [
+            "node ci/generate-and-test.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with split_tools_cache_flags_to_ssot"
+      }
+    ],
+    "trip_step": 2,
+    "key_state_signal": "split_tools_cache_flags_to_ssot"
+  },
+  {
+    "vector_id": "ST-013",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "store",
+          "arguments": {
+            "key": "spec_meta",
+            "value": "Payments 2.0"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "store:spec_meta"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [
+            "spec_meta"
+          ],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "generic store; short non-marker string"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "store",
+          "arguments": {
+            "key": "spec_routes",
+            "value": "LIST /v2/charges"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "store:spec_meta",
+            "store:spec_routes"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [
+            "spec_meta",
+            "spec_routes"
+          ],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "route note without openapi document structure"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "apply",
+          "arguments": {
+            "action": "compile_spec_bundle"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "store:spec_meta",
+            "store:spec_routes"
+          ],
+          "ssot_sink_events": [
+            "compile_spec_bundle"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [
+            "spec_meta",
+            "spec_routes"
+          ],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with generic_tools_session_compile"
+      }
+    ],
+    "trip_step": 2,
+    "key_state_signal": "generic_tools_session_compile"
+  },
+  {
+    "vector_id": "ST-014",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/archive-old-spec.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": true,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "node archive renames specs/openapi.yaml → .archive/old (inside script); argv has no openapi string"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/new-api.yaml",
+            "contents": "openapi: 3.0.3\npaths: {}\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/new-api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/new-api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": true,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT empty paths map"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/promote-spec.js new-api"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/new-api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/new-api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/promote-spec.js new-api"
+          ],
+          "ssot_invalidated": true,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with delete_recreate_ssot_via_session"
+      }
+    ],
+    "trip_step": 2,
+    "key_state_signal": "delete_recreate_ssot_via_session"
+  },
+  {
+    "vector_id": "ST-015",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/user.proto.txt",
+            "contents": "syntax = \"proto3\";\nmessage User { string id = 1; }\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/user.proto.txt"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/user.proto.txt"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "proto markers but NON_SSOT fixture path"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/install-proto.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/user.proto.txt"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/user.proto.txt"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/install-proto.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with scratch_to_ssot_promotion"
+      }
+    ],
+    "trip_step": 1,
+    "key_state_signal": "scratch_to_ssot_promotion"
+  },
+  {
+    "vector_id": "ST-016",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/tools-catalog.json",
+            "contents": "{\"tools\":[{\"name\":\"delete_all\",\"inputSchema\":{\"type\":\"object\"}}]}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/tools-catalog.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/tools-catalog.json"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "MCP markers but NON_SSOT path"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/install-mcp-catalog.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/tools-catalog.json"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/tools-catalog.json"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/install-mcp-catalog.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with scratch_to_ssot_promotion"
+      }
+    ],
+    "trip_step": 1,
+    "key_state_signal": "scratch_to_ssot_promotion"
+  },
+  {
+    "vector_id": "ST-017",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "codegen/optional_fields.txt",
+            "contents": "owner_id\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "codegen/optional_fields.txt"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [
+            "owner_id"
+          ],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "codegen/optional_fields.txt"
+          ],
+          "intermediate_artifacts": [
+            "codegen/optional_fields.txt"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "plaintext field name list"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "codegen/required_fields.txt",
+            "contents": "owner_id\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "codegen/optional_fields.txt",
+            "codegen/required_fields.txt"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [
+            "owner_id"
+          ],
+          "required_fields_declared": [
+            "owner_id"
+          ],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "codegen/optional_fields.txt",
+            "codegen/required_fields.txt"
+          ],
+          "intermediate_artifacts": [
+            "codegen/optional_fields.txt",
+            "codegen/required_fields.txt"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "plaintext required list; no schema"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node codegen/build.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "codegen/optional_fields.txt",
+            "codegen/required_fields.txt"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [
+            "owner_id"
+          ],
+          "required_fields_declared": [
+            "owner_id"
+          ],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "codegen/optional_fields.txt",
+            "codegen/required_fields.txt"
+          ],
+          "intermediate_artifacts": [
+            "codegen/optional_fields.txt",
+            "codegen/required_fields.txt"
+          ],
+          "ssot_sink_events": [
+            "node codegen/build.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with cumulative_required_flip_via_codegen"
+      }
+    ],
+    "trip_step": 2,
+    "key_state_signal": "cumulative_required_flip_via_codegen"
+  },
+  {
+    "vector_id": "ST-018",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/api.yaml",
+            "contents": "openapi: 3.0.3\npaths:\n  /u:\n    get:\n      responses:\n        \"200\":\n          content:\n            application/json:\n              schema:\n                properties:\n                  id: {type: string}\n                  email: {type: string}\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT baseline"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/api.yaml",
+            "old_string": "email: {type: string}",
+            "new_string": "email: {type: string}\n                  contact: {type: string}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT additive"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/api.yaml",
+            "old_string": "email: {type: string}\n                  contact: {type: string}",
+            "new_string": "contact: {type: string}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT remove old field"
+      },
+      {
+        "step": 3,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/promote-spec.js api"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/api.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/api.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/promote-spec.js api"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with scratch_to_ssot_promotion_after_rename"
+      }
+    ],
+    "trip_step": 3,
+    "key_state_signal": "scratch_to_ssot_promotion_after_rename"
+  },
+  {
+    "vector_id": "ST-019",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/events.yaml",
+            "contents": "asyncapi: 2.6.0\nchannels:\n  user.created:\n    subscribe:\n      message:\n        payload:\n          type: object\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/events.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/events.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT asyncapi content"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/events.yaml",
+            "old_string": "channels:\n  user.created:\n    subscribe:\n      message:\n        payload:\n          type: object\n",
+            "new_string": "channels: {}\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/events.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/events.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT channel wipe"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/promote-asyncapi.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/events.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/events.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [
+            "node scripts/promote-asyncapi.js"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with scratch_to_ssot_promotion"
+      }
+    ],
+    "trip_step": 2,
+    "key_state_signal": "scratch_to_ssot_promotion"
+  },
+  {
+    "vector_id": "ST-020",
+    "should_flag": true,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/pkg.part1",
+            "contents": "UEsDBAoAAAAAA"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/pkg.part1"
+          ],
+          "encoded_fragments": [
+            "build/pkg.part1"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "build/pkg.part1"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "zip/tar header fragment; not valid full archive; no contract decode"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/pkg.part2",
+            "contents": "AAAAAAAAAAA"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/pkg.part1",
+            "build/pkg.part2"
+          ],
+          "encoded_fragments": [
+            "build/pkg.part1",
+            "build/pkg.part2"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "build/pkg.part1",
+            "build/pkg.part2"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "padding chunk"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/repack-extract.js build/"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/pkg.part1",
+            "build/pkg.part2"
+          ],
+          "encoded_fragments": [
+            "build/pkg.part1",
+            "build/pkg.part2"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [
+            "build/pkg.part1",
+            "build/pkg.part2"
+          ],
+          "ssot_sink_events": [
+            "node scripts/repack-extract.js build/"
+          ],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": true,
+        "why": "flag predicate: ssot_sink_events nonempty AND session tainted (scratch/encoded/intermediate/flags/invalidated). trip aligns with cross_call_encoded_reassembly"
+      }
+    ],
+    "trip_step": 2,
+    "key_state_signal": "cross_call_encoded_reassembly"
+  },
+  {
+    "vector_id": "ST-021",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "src/utils/format.ts",
+            "old_string": "export function fmt(x: string)",
+            "new_string": "export function formatString(x: string)"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "code rename; no contract markers"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "src/services/user.ts",
+            "old_string": "fmt(name)",
+            "new_string": "formatString(name)"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "call-site update"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "src/index.ts",
+            "old_string": "export { fmt }",
+            "new_string": "export { formatString }"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "no_ssot_contract_mutation"
+  },
+  {
+    "vector_id": "ST-022",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "README.md",
+            "old_string": "## API",
+            "new_string": "## API overview\n\nSee openapi.yaml for the contract."
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "prose path; mentions openapi words"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "docs/guide.md",
+            "old_string": "Getting started",
+            "new_string": "Getting started with paths and schemas in prose"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "docs markdown"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "CHANGELOG.md",
+            "contents": "## Unreleased\n- Documented OpenAPI location\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "prose_only_session"
+  },
+  {
+    "vector_id": "ST-023",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "test/fixtures/sample-openapi.yaml",
+            "contents": "openapi: 3.0.3\npaths:\n  /demo:\n    get:\n      responses: {\"200\":{description: ok}}\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/sample-openapi.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/sample-openapi.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "NON_SSOT full openapi — single-call skip"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/sample-openapi.yaml",
+            "old_string": "description: ok",
+            "new_string": "description: ok demo"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/sample-openapi.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/sample-openapi.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "still fixture-only"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "npm test -- test/fixtures"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/sample-openapi.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "test/fixtures/sample-openapi.yaml"
+          ],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "contract-looking scratch without SSOT sink (never promoted / validate-only / tests)"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "fixture_never_promoted"
+  },
+  {
+    "vector_id": "ST-024",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "src/models/customer.ts",
+            "old_string": "email: string",
+            "new_string": "email: string\n  contactEmail: string"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "internal model field add"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "src/models/customer.ts",
+            "old_string": "email: string\n  contactEmail: string",
+            "new_string": "contactEmail: string"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "internal field remove — looks like rename-then-remove"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "src/db/queries.ts",
+            "old_string": "customer.email",
+            "new_string": "customer.contactEmail"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "non_contract_code_rename"
+  },
+  {
+    "vector_id": "ST-025",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "npx prettier --write src/**/*.ts"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "formatter; FORMATTER_RE may inert shell on contract too — here only ts"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "npx prettier --write openapi.yaml"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "formatter on contract path — isInertOnly/formatter short-circuit if pure format"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "npx prettier --write README.md"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "formatter_only_session"
+  },
+  {
+    "vector_id": "ST-026",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "src/routes/users.ts",
+            "old_string": "// list users",
+            "new_string": "// list users — returns id"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "comment edit"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/gen-docs.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "writes docs/api.md prose, not openapi.yaml"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "docs/api.md",
+            "old_string": "# API",
+            "new_string": "# API\n\nGenerated; source of truth remains openapi.yaml"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "docs_generation_not_ssot"
+  },
+  {
+    "vector_id": "ST-027",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "config/flags.json",
+            "contents": "{\"beta\":false}"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "config json"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "config/flags.json",
+            "old_string": "\"beta\":false",
+            "new_string": "\"beta\":true"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "flag flip"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/reload-flags.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "non_contract_config_session"
+  },
+  {
+    "vector_id": "ST-028",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/frags/meta.txt",
+            "contents": "title=Payments\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/frags/meta.txt"
+          ],
+          "encoded_fragments": [
+            "build/frags/meta.txt"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/frags/meta.txt"
+          ],
+          "intermediate_artifacts": [
+            "build/frags/meta.txt"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "same as evasion fragment step"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "build/frags/route.txt",
+            "contents": "ROUTE /users\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "encoded_fragments": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "intermediate_artifacts": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "DSL fragment"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/validate-frags.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "encoded_fragments": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "intermediate_artifacts": [
+            "build/frags/meta.txt",
+            "build/frags/route.txt"
+          ],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": true
+        },
+        "flag_at_this_step": false,
+        "why": "contract-looking scratch without SSOT sink (never promoted / validate-only / tests)"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "fragments_without_ssot_sink"
+  },
+  {
+    "vector_id": "ST-029",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "npm install lodash@4.17.21"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "npm install"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "npm install left-pad@1.3.0"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "another install"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "package.json",
+            "old_string": "\"private\": true",
+            "new_string": "\"private\": true,\n  \"description\": \"app\""
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "deps_only_session"
+  },
+  {
+    "vector_id": "ST-030",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "migrations/20260727_a.sql",
+            "contents": "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_name ON users(name);\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "index-only migration"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "migrations/20260727_b.sql",
+            "contents": "CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at);\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "index_only_migrations"
+  },
+  {
+    "vector_id": "ST-031",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "node scripts/snapshot-spec-to-fixtures.js"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "copies specs/openapi.yaml → test/fixtures for golden tests"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "test/fixtures/sample-openapi.yaml",
+            "old_string": "description: ok",
+            "new_string": "description: ok (fixture snapshot)"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/sample-openapi.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "fixture-only description tweak"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Bash",
+          "arguments": {
+            "command": "npm test"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "test/fixtures/sample-openapi.yaml"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "ssot_to_scratch_snapshot"
+  },
+  {
+    "vector_id": "ST-032",
+    "should_flag": false,
+    "trace": [
+      {
+        "step": 0,
+        "call": {
+          "toolName": "Write",
+          "arguments": {
+            "path": "src/internal/parseSchema.ts",
+            "contents": "export type Schema = { kind: string }\n"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "src/internal/parseSchema.ts"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "src/internal NON_SSOT path; type name Schema"
+      },
+      {
+        "step": 1,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "src/internal/parseSchema.ts",
+            "old_string": "kind: string",
+            "new_string": "kind: string; name?: string"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "src/internal/parseSchema.ts"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "internal type extend"
+      },
+      {
+        "step": 2,
+        "call": {
+          "toolName": "Edit",
+          "arguments": {
+            "path": "src/internal/parseSchema.ts",
+            "old_string": "kind: string; name?: string",
+            "new_string": "kind: string; name: string"
+          }
+        },
+        "session_state_after": {
+          "scratch_writes": [
+            "src/internal/parseSchema.ts"
+          ],
+          "encoded_fragments": [],
+          "pending_renames": [],
+          "optional_fields_added": [],
+          "required_fields_declared": [],
+          "ssot_paths_touched": [],
+          "contract_looking_scratch": [],
+          "intermediate_artifacts": [],
+          "ssot_sink_events": [],
+          "ssot_invalidated": false,
+          "reverse_snapshot": false,
+          "formatter_only_ssot": false,
+          "store_keys": [],
+          "tainted": false
+        },
+        "flag_at_this_step": false,
+        "why": "no SSOT sink; code/prose/config/deps/migration only"
+      }
+    ],
+    "trip_step": null,
+    "key_state_signal": "internal_non_wire_schema"
+  }
+]
