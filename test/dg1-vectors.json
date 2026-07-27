@@ -1,0 +1,749 @@
+[
+  {
+    "description": "DG1-EV-01 non-whitelist key 'spec': full OpenAPI YAML write with no path/filesTouched/diff — whitelist-only detector never reads 'spec'",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "spec": "openapi: 3.0.3\ninfo:\n  title: Orders\n  version: 1.0.0\npaths:\n  /orders:\n    get:\n      responses:\n        '200':\n          description: ok\n          content:\n            application/json:\n              schema:\n                type: object\n                required: [id]\n                properties:\n                  id: { type: string }\n"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nonwhitelist_openapi_marker"
+    }
+  },
+  {
+    "description": "DG1-EV-02 non-whitelist key 'body': OpenAPI JSON contract mutation buried as request body",
+    "input": {
+      "toolName": "apply",
+      "arguments": {
+        "body": "{\"openapi\":\"3.0.3\",\"paths\":{\"/users/{id}\":{\"get\":{\"parameters\":[{\"name\":\"id\",\"in\":\"path\",\"required\":true,\"schema\":{\"type\":\"string\"}}],\"responses\":{\"200\":{\"description\":\"ok\"}}},\"delete\":{\"responses\":{\"204\":{\"description\":\"removed\"}}}}}}"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nonwhitelist_openapi_json"
+    }
+  },
+  {
+    "description": "DG1-EV-03 non-whitelist key 'payload': GraphQL SDL with required field (!)",
+    "input": {
+      "toolName": "update",
+      "arguments": {
+        "payload": "type Query {\n  user(id: ID!): User\n}\ntype User {\n  id: ID!\n  email: String!\n}\n"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nonwhitelist_graphql_sdl"
+    }
+  },
+  {
+    "description": "DG1-EV-04 non-whitelist key 'data': protobuf wire definition",
+    "input": {
+      "toolName": "store",
+      "arguments": {
+        "data": "syntax = \"proto3\";\nmessage Order { string id = 1; string status = 2; }\n"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nonwhitelist_protobuf"
+    }
+  },
+  {
+    "description": "DG1-EV-05 non-whitelist key 'config': AsyncAPI channels spec",
+    "input": {
+      "toolName": "set_config",
+      "arguments": {
+        "config": "asyncapi: 2.6.0\nchannels:\n  order.created:\n    subscribe:\n      message:\n        payload:\n          type: object\n"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nonwhitelist_asyncapi"
+    }
+  },
+  {
+    "description": "DG1-EV-06 non-whitelist key 'definition': MCP tools[] + inputSchema destructive tool",
+    "input": {
+      "toolName": "run",
+      "arguments": {
+        "definition": "{\"tools\":[{\"name\":\"delete_all\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}]}"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nonwhitelist_mcp_inputSchema"
+    }
+  },
+  {
+    "description": "DG1-EV-07 non-whitelist key 'schema': swagger 2.0 delete path",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "schema": "{\"swagger\":\"2.0\",\"paths\":{\"/v1/items\":{\"delete\":{\"responses\":{\"204\":{\"description\":\"gone\"}}}}}}"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nonwhitelist_swagger"
+    }
+  },
+  {
+    "description": "DG1-EV-08 non-whitelist key 'document': OpenAPI with required field tightening",
+    "input": {
+      "toolName": "Edit",
+      "arguments": {
+        "document": "openapi: 3.0.3\npaths:\n  /v1/payments:\n    post:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [amount]\n              properties:\n                amount: { type: number }\n"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nonwhitelist_openapi_required"
+    }
+  },
+  {
+    "description": "DG1-EV-09 nested arguments.request.body.spec — OpenAPI beyond edits[]-only nesting",
+    "input": {
+      "toolName": "apply",
+      "arguments": {
+        "request": {
+          "body": {
+            "spec": "openapi: 3.0.3\ninfo:\n  title: Orders\n  version: 1.0.0\npaths:\n  /orders:\n    get:\n      responses:\n        '200':\n          description: ok\n          content:\n            application/json:\n              schema:\n                type: object\n                required: [id]\n                properties:\n                  id: { type: string }\n"
+          }
+        }
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nested_openapi_marker"
+    }
+  },
+  {
+    "description": "DG1-EV-10 nested arguments.params.payload.document — GraphQL SDL three levels deep",
+    "input": {
+      "toolName": "update",
+      "arguments": {
+        "params": {
+          "payload": {
+            "document": "type Query {\n  user(id: ID!): User\n}\ntype User {\n  id: ID!\n  email: String!\n}\n"
+          }
+        }
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nested_graphql"
+    }
+  },
+  {
+    "description": "DG1-EV-11 array of objects: arguments.items[1].content holds full OpenAPI (array walk)",
+    "input": {
+      "toolName": "store",
+      "arguments": {
+        "items": [
+          {
+            "name": "readme",
+            "text": "noop"
+          },
+          {
+            "name": "api",
+            "content": "{\"openapi\":\"3.0.3\",\"paths\":{\"/users/{id}\":{\"get\":{\"parameters\":[{\"name\":\"id\",\"in\":\"path\",\"required\":true,\"schema\":{\"type\":\"string\"}}],\"responses\":{\"200\":{\"description\":\"ok\"}}},\"delete\":{\"responses\":{\"204\":{\"description\":\"removed\"}}}}}}"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_array_element_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-12 deeply nested arguments.ctx.meta.envelope.value — AsyncAPI string",
+    "input": {
+      "toolName": "set_config",
+      "arguments": {
+        "ctx": {
+          "meta": {
+            "envelope": {
+              "value": "asyncapi: 2.6.0\nchannels:\n  order.created:\n    subscribe:\n      message:\n        payload:\n          type: object\n"
+            }
+          }
+        }
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_deep_nested_asyncapi"
+    }
+  },
+  {
+    "description": "DG1-EV-13 contract PATH in arguments.target (not path) + OpenAPI in non-wl 'spec' — path collector misses target",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "target": "specs/openapi.yaml",
+        "spec": "openapi: 3.0.3\npaths:\n  /v1/payments:\n    post:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [amount]\n              properties:\n                amount: { type: number }\n"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_alt_path_target_plus_spec"
+    }
+  },
+  {
+    "description": "DG1-EV-14 arguments.file points at service-definition.json with swagger in 'payload'",
+    "input": {
+      "toolName": "Edit",
+      "arguments": {
+        "file": "config/service-definition.json",
+        "payload": "{\"swagger\":\"2.0\",\"paths\":{\"/v1/items\":{\"delete\":{\"responses\":{\"204\":{\"description\":\"gone\"}}}}}}"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_alt_path_file_plus_payload"
+    }
+  },
+  {
+    "description": "DG1-EV-15 arguments.dest holds .proto path and 'data' holds proto3 syntax",
+    "input": {
+      "toolName": "apply",
+      "arguments": {
+        "dest": "idl/orders.proto",
+        "data": "syntax = \"proto3\";\nmessage Order { string id = 1; string status = 2; }\n"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_alt_path_dest_plus_proto"
+    }
+  },
+  {
+    "description": "DG1-EV-16 arguments.filename only (mcp.json) with MCP tools in 'config' — no whitelist path key",
+    "input": {
+      "toolName": "update",
+      "arguments": {
+        "filename": "mcp.json",
+        "config": "{\"tools\":[{\"name\":\"delete_all\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}]}"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_alt_path_filename_mcp"
+    }
+  },
+  {
+    "description": "DG1-EV-17 base64 OpenAPI YAML in non-whitelist key 'spec' — plaintext regex sees only base64 alphabet",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "encoding": "base64",
+        "spec": "b3BlbmFwaTogMy4wLjMKaW5mbzoKICB0aXRsZTogT3JkZXJzCiAgdmVyc2lvbjogMS4wLjAKcGF0aHM6CiAgL29yZGVyczoKICAgIGdldDoKICAgICAgcmVzcG9uc2VzOgogICAgICAgICcyMDAnOgogICAgICAgICAgZGVzY3JpcHRpb246IG9rCiAgICAgICAgICBjb250ZW50OgogICAgICAgICAgICBhcHBsaWNhdGlvbi9qc29uOgogICAgICAgICAgICAgIHNjaGVtYToKICAgICAgICAgICAgICAgIHR5cGU6IG9iamVjdAogICAgICAgICAgICAgICAgcmVxdWlyZWQ6IFtpZF0KICAgICAgICAgICAgICAgIHByb3BlcnRpZXM6CiAgICAgICAgICAgICAgICAgIGlkOiB7IHR5cGU6IHN0cmluZyB9Cg=="
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_base64_decode_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-18 base64 OpenAPI JSON in whitelisted key 'contents' — whitelist reads string but markers hidden by encoding",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "contents": "eyJvcGVuYXBpIjoiMy4wLjMiLCJwYXRocyI6eyIvdXNlcnMve2lkfSI6eyJnZXQiOnsicGFyYW1ldGVycyI6W3sibmFtZSI6ImlkIiwiaW4iOiJwYXRoIiwicmVxdWlyZWQiOnRydWUsInNjaGVtYSI6eyJ0eXBlIjoic3RyaW5nIn19XSwicmVzcG9uc2VzIjp7IjIwMCI6eyJkZXNjcmlwdGlvbiI6Im9rIn19fSwiZGVsZXRlIjp7InJlc3BvbnNlcyI6eyIyMDQiOnsiZGVzY3JpcHRpb24iOiJyZW1vdmVkIn19fX19fQ=="
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_base64_in_whitelist_contents"
+    }
+  },
+  {
+    "description": "DG1-EV-19 hex-encoded protobuf in arguments.payload",
+    "input": {
+      "toolName": "store",
+      "arguments": {
+        "payload": "73796e746178203d202270726f746f33223b0a6d657373616765204f72646572207b20737472696e67206964203d20313b20737472696e6720737461747573203d20323b207d0a"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_hex_decode_protobuf"
+    }
+  },
+  {
+    "description": "DG1-EV-20 hex-encoded GraphQL in arguments.data",
+    "input": {
+      "toolName": "run",
+      "arguments": {
+        "data": "74797065205175657279207b0a2020757365722869643a20494421293a20557365720a7d0a747970652055736572207b0a202069643a204944210a2020656d61696c3a20537472696e67210a7d0a"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_hex_decode_graphql"
+    }
+  },
+  {
+    "description": "DG1-EV-21 gzip+base64 OpenAPI YAML in arguments.body — requires bounded gunzip then re-scan",
+    "input": {
+      "toolName": "apply",
+      "arguments": {
+        "body": "H4sIAAAAAAAAE2WPQU4DMQxF9znF33U3DXSXS3AAxCIkpnUpsbFdJIR692oKqAP16vu/J0sWpVGVCzZTnjaJx4uUBATHgQoerJN5Aj7InGUU3E15yklr7Hz21nIx5ghsKb4DYOQqw8l/C2B1n/PqugKdvBlrXO7K64I0GUEjljJQVQ/c6qyv9y7jLwW87eit/m+B+FQqkOc9tbiBRu9HNuoFj9yfbrCaKFnw8o/rcC/4+rnvYTy2OKUzOaocA1EBAAA=",
+        "content_encoding": "gzip+base64"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_gzip_base64_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-22 URL-encoded OpenAPI JSON in arguments.config",
+    "input": {
+      "toolName": "set_config",
+      "arguments": {
+        "config": "%7B%22openapi%22%3A%223.0.3%22%2C%22paths%22%3A%7B%22%2Fusers%2F%7Bid%7D%22%3A%7B%22get%22%3A%7B%22parameters%22%3A%5B%7B%22name%22%3A%22id%22%2C%22in%22%3A%22path%22%2C%22required%22%3Atrue%2C%22schema%22%3A%7B%22type%22%3A%22string%22%7D%7D%5D%2C%22responses%22%3A%7B%22200%22%3A%7B%22description%22%3A%22ok%22%7D%7D%7D%2C%22delete%22%3A%7B%22responses%22%3A%7B%22204%22%3A%7B%22description%22%3A%22removed%22%7D%7D%7D%7D%7D%7D"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_urldecode_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-23 base64 AsyncAPI in nested arguments.request.data.blob",
+    "input": {
+      "toolName": "update",
+      "arguments": {
+        "request": {
+          "data": {
+            "blob": "YXN5bmNhcGk6IDIuNi4wCmNoYW5uZWxzOgogIG9yZGVyLmNyZWF0ZWQ6CiAgICBzdWJzY3JpYmU6CiAgICAgIG1lc3NhZ2U6CiAgICAgICAgcGF5bG9hZDoKICAgICAgICAgIHR5cGU6IG9iamVjdAo="
+          }
+        }
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_nested_base64_asyncapi"
+    }
+  },
+  {
+    "description": "DG1-EV-24 base64 MCP manifest in arguments.patch (whitelisted key but encoded — structure regex blind)",
+    "input": {
+      "toolName": "Edit",
+      "arguments": {
+        "patch": "eyJ0b29scyI6W3sibmFtZSI6ImRlbGV0ZV9hbGwiLCJpbnB1dFNjaGVtYSI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6e319fV19"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_base64_in_whitelist_patch"
+    }
+  },
+  {
+    "description": "DG1-EV-25 double-encoded: OpenAPI JSON as a JSON-string value inside arguments.body (escaped quotes)",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "body": "\"{\\\"openapi\\\":\\\"3.0.3\\\",\\\"paths\\\":{\\\"/users/{id}\\\":{\\\"get\\\":{\\\"parameters\\\":[{\\\"name\\\":\\\"id\\\",\\\"in\\\":\\\"path\\\",\\\"required\\\":true,\\\"schema\\\":{\\\"type\\\":\\\"string\\\"}}],\\\"responses\\\":{\\\"200\\\":{\\\"description\\\":\\\"ok\\\"}}},\\\"delete\\\":{\\\"responses\\\":{\\\"204\\\":{\\\"description\\\":\\\"removed\\\"}}}}}}\""
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_double_encoded_json_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-26 double-encoded GraphQL: JSON.stringify of SDL string in arguments.payload",
+    "input": {
+      "toolName": "store",
+      "arguments": {
+        "payload": "\"type Query {\\n  user(id: ID!): User\\n}\\ntype User {\\n  id: ID!\\n  email: String!\\n}\\n\""
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_double_encoded_graphql"
+    }
+  },
+  {
+    "description": "DG1-EV-27 triple-ish: base64 of JSON-stringified OpenAPI in arguments.data",
+    "input": {
+      "toolName": "apply",
+      "arguments": {
+        "data": "IntcIm9wZW5hcGlcIjpcIjMuMC4zXCIsXCJwYXRoc1wiOntcIi91c2Vycy97aWR9XCI6e1wiZ2V0XCI6e1wicGFyYW1ldGVyc1wiOlt7XCJuYW1lXCI6XCJpZFwiLFwiaW5cIjpcInBhdGhcIixcInJlcXVpcmVkXCI6dHJ1ZSxcInNjaGVtYVwiOntcInR5cGVcIjpcInN0cmluZ1wifX1dLFwicmVzcG9uc2VzXCI6e1wiMjAwXCI6e1wiZGVzY3JpcHRpb25cIjpcIm9rXCJ9fX0sXCJkZWxldGVcIjp7XCJyZXNwb25zZXNcIjp7XCIyMDRcIjp7XCJkZXNjcmlwdGlvblwiOlwicmVtb3ZlZFwifX19fX19Ig=="
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_base64_of_json_string_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-28 generic toolName 'apply' with only arguments.definition = full OpenAPI (no path/diff/filesTouched)",
+    "input": {
+      "toolName": "apply",
+      "arguments": {
+        "definition": "openapi: 3.0.3\npaths:\n  /v1/payments:\n    post:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [amount]\n              properties:\n                amount: { type: number }\n"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_generic_tool_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-29 generic toolName 'run' writing swagger via arguments.input",
+    "input": {
+      "toolName": "run",
+      "arguments": {
+        "input": "{\"swagger\":\"2.0\",\"paths\":{\"/v1/items\":{\"delete\":{\"responses\":{\"204\":{\"description\":\"gone\"}}}}}}"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_generic_tool_swagger"
+    }
+  },
+  {
+    "description": "DG1-EV-30 generic toolName 'set_config' with proto in arguments.value",
+    "input": {
+      "toolName": "set_config",
+      "arguments": {
+        "value": "syntax = \"proto3\";\nmessage Order { string id = 1; string status = 2; }\n"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_generic_tool_proto"
+    }
+  },
+  {
+    "description": "DG1-EV-31 write-config shape: toolName store, arguments.key=api_spec + arguments.value=OpenAPI — looks like config KV not a contract write",
+    "input": {
+      "toolName": "store",
+      "arguments": {
+        "key": "api_spec",
+        "value": "openapi: 3.0.3\ninfo:\n  title: Orders\n  version: 1.0.0\npaths:\n  /orders:\n    get:\n      responses:\n        '200':\n          description: ok\n          content:\n            application/json:\n              schema:\n                type: object\n                required: [id]\n                properties:\n                  id: { type: string }\n"
+      },
+      "intent": "persist runtime config"
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_config_kv_openapi_value"
+    }
+  },
+  {
+    "description": "DG1-EV-32 cache put: arguments.namespace + arguments.blob base64 OpenAPI — cache-looking API, contract payload",
+    "input": {
+      "toolName": "update",
+      "arguments": {
+        "namespace": "schema-cache",
+        "blob": "eyJvcGVuYXBpIjoiMy4wLjMiLCJwYXRocyI6eyIvdXNlcnMve2lkfSI6eyJnZXQiOnsicGFyYW1ldGVycyI6W3sibmFtZSI6ImlkIiwiaW4iOiJwYXRoIiwicmVxdWlyZWQiOnRydWUsInNjaGVtYSI6eyJ0eXBlIjoic3RyaW5nIn19XSwicmVzcG9uc2VzIjp7IjIwMCI6eyJkZXNjcmlwdGlvbiI6Im9rIn19fSwiZGVsZXRlIjp7InJlc3BvbnNlcyI6eyIyMDQiOnsiZGVzY3JpcHRpb24iOiJyZW1vdmVkIn19fX19fQ=="
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_cache_blob_base64_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-33 multi-part array write: arguments.files is array of {path, body} with contract only in body (path key nested, not top-level arguments.path)",
+    "input": {
+      "toolName": "apply",
+      "arguments": {
+        "files": [
+          {
+            "path": "README.md",
+            "body": "# hi"
+          },
+          {
+            "path": "openapi.yaml",
+            "body": "openapi: 3.0.3\npaths:\n  /v1/payments:\n    post:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [amount]\n              properties:\n                amount: { type: number }\n"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_array_files_nested_path_body"
+    }
+  },
+  {
+    "description": "DG1-EV-34 RPC-style: arguments.method=PutObject arguments.object=base64 OpenAPI — object store mutation of contract",
+    "input": {
+      "toolName": "run",
+      "arguments": {
+        "method": "PutObject",
+        "object": "b3BlbmFwaTogMy4wLjMKaW5mbzoKICB0aXRsZTogT3JkZXJzCiAgdmVyc2lvbjogMS4wLjAKcGF0aHM6CiAgL29yZGVyczoKICAgIGdldDoKICAgICAgcmVzcG9uc2VzOgogICAgICAgICcyMDAnOgogICAgICAgICAgZGVzY3JpcHRpb246IG9rCiAgICAgICAgICBjb250ZW50OgogICAgICAgICAgICBhcHBsaWNhdGlvbi9qc29uOgogICAgICAgICAgICAgIHNjaGVtYToKICAgICAgICAgICAgICAgIHR5cGU6IG9iamVjdAogICAgICAgICAgICAgICAgcmVxdWlyZWQ6IFtpZF0KICAgICAgICAgICAgICAgIHByb3BlcnRpZXM6CiAgICAgICAgICAgICAgICAgIGlkOiB7IHR5cGU6IHN0cmluZyB9Cg==",
+        "bucket": "contracts"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_object_store_base64_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-35 long base64 blob in arguments.payload (repeated OpenAPI) — opacity/scan-cap path must confident:false trigger not SKIP",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "payload": "b3BlbmFwaTogMy4wLjMKaW5mbzoKICB0aXRsZTogT3JkZXJzCiAgdmVyc2lvbjogMS4wLjAKcGF0aHM6CiAgL29yZGVyczoKICAgIGdldDoKICAgICAgcmVzcG9uc2VzOgogICAgICAgICcyMDAnOgogICAgICAgICAgZGVzY3JpcHRpb246IG9rCiAgICAgICAgICBjb250ZW50OgogICAgICAgICAgICBhcHBsaWNhdGlvbi9qc29uOgogICAgICAgICAgICAgIHNjaGVtYToKICAgICAgICAgICAgICAgIHR5cGU6IG9iamVjdAogICAgICAgICAgICAgICAgcmVxdWlyZWQ6IFtpZF0KICAgICAgICAgICAgICAgIHByb3BlcnRpZXM6CiAgICAgICAgICAgICAgICAgIGlkOiB7IHR5cGU6IHN0cmluZyB9Cm9wZW5hcGk6IDMuMC4zCmluZm86CiAgdGl0bGU6IE9yZGVycwogIHZlcnNpb246IDEuMC4wCnBhdGhzOgogIC9vcmRlcnM6CiAgICBnZXQ6CiAgICAgIHJlc3BvbnNlczoKICAgICAgICAnMjAwJzoKICAgICAgICAgIGRlc2NyaXB0aW9uOiBvawogICAgICAgICAgY29udGVudDoKICAgICAgICAgICAgYXBwbGljYXRpb24vanNvbjoKICAgICAgICAgICAgICBzY2hlbWE6CiAgICAgICAgICAgICAgICB0eXBlOiBvYmplY3QKICAgICAgICAgICAgICAgIHJlcXVpcmVkOiBbaWRdCiAgICAgICAgICAgICAgICBwcm9wZXJ0aWVzOgogICAgICAgICAgICAgICAgICBpZDogeyB0eXBlOiBzdHJpbmcgfQpvcGVuYXBpOiAzLjAuMwppbmZvOgogIHRpdGxlOiBPcmRlcnMKICB2ZXJzaW9uOiAxLjAuMApwYXRoczoKICAvb3JkZXJzOgogICAgZ2V0OgogICAgICByZXNwb25zZXM6CiAgICAgICAgJzIwMCc6CiAgICAgICAgICBkZXNjcmlwdGlvbjogb2sKICAgICAgICAgIGNvbnRlbnQ6CiAgICAgICAgICAgIGFwcGxpY2F0aW9uL2pzb246CiAgICAgICAgICAgICAgc2NoZW1hOgogICAgICAgICAgICAgICAgdHlwZTogb2JqZWN0CiAgICAgICAgICAgICAgICByZXF1aXJlZDogW2lkXQogICAgICAgICAgICAgICAgcHJvcGVydGllczoKICAgICAgICAgICAgICAgICAgaWQ6IHsgdHlwZTogc3RyaW5nIH0Kb3BlbmFwaTogMy4wLjMKaW5mbzoKICB0aXRsZTogT3JkZXJzCiAgdmVyc2lvbjogMS4wLjAKcGF0aHM6CiAgL29yZGVyczoKICAgIGdldDoKICAgICAgcmVzcG9uc2VzOgogICAgICAgICcyMDAnOgogICAgICAgICAgZGVzY3JpcHRpb246IG9rCiAgICAgICAgICBjb250ZW50OgogICAgICAgICAgICBhcHBsaWNhdGlvbi9qc29uOgogICAgICAgICAgICAgIHNjaGVtYToKICAgICAgICAgICAgICAgIHR5cGU6IG9iamVjdAogICAgICAgICAgICAgICAgcmVxdWlyZWQ6IFtpZF0KICAgICAgICAgICAgICAgIHByb3BlcnRpZXM6CiAgICAgICAgICAgICAgICAgIGlkOiB7IHR5cGU6IHN0cmluZyB9Cg=="
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_opaque_or_decoded_openapi"
+    }
+  },
+  {
+    "description": "DG1-EV-36 arguments.destination + arguments.contents empty but arguments.source_bytes hex OpenAPI — alt path + hex-only payload",
+    "input": {
+      "toolName": "Edit",
+      "arguments": {
+        "destination": "api/openapi.yaml",
+        "source_bytes": "6f70656e6170693a20332e302e330a696e666f3a0a20207469746c653a204f72646572730a202076657273696f6e3a20312e302e300a70617468733a0a20202f6f72646572733a0a202020206765743a0a202020202020726573706f6e7365733a0a202020202020202027323030273a0a202020202020202020206465736372697074696f6e3a206f6b0a20202020202020202020636f6e74656e743a0a2020202020202020202020206170706c69636174696f6e2f6a736f6e3a0a2020202020202020202020202020736368656d613a0a20202020202020202020202020202020747970653a206f626a6563740a2020202020202020202020202020202072657175697265643a205b69645d0a2020202020202020202020202020202070726f706572746965733a0a20202020202020202020202020202020202069643a207b20747970653a20737472696e67207d0a"
+      }
+    },
+    "expected": {
+      "trigger": true,
+      "keySignal": "deep_arg_alt_path_hex_payload"
+    }
+  },
+  {
+    "description": "DG1-FP-01 read-only Read tool with OpenAPI text in non-wl 'spec' — read-only short-circuit must still SKIP",
+    "input": {
+      "toolName": "Read",
+      "arguments": {
+        "path": "specs/openapi.yaml",
+        "spec": "openapi: 3.0.3\ninfo:\n  title: Orders\n  version: 1.0.0\npaths:\n  /orders:\n    get:\n      responses:\n        '200':\n          description: ok\n          content:\n            application/json:\n              schema:\n                type: object\n                required: [id]\n                properties:\n                  id: { type: string }\n"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_read_only_short_circuit"
+    }
+  },
+  {
+    "description": "DG1-FP-02 read-only cat with nested contract-looking payload",
+    "input": {
+      "toolName": "cat",
+      "arguments": {
+        "request": {
+          "body": {
+            "data": "{\"openapi\":\"3.0.3\",\"paths\":{\"/users/{id}\":{\"get\":{\"parameters\":[{\"name\":\"id\",\"in\":\"path\",\"required\":true,\"schema\":{\"type\":\"string\"}}],\"responses\":{\"200\":{\"description\":\"ok\"}}},\"delete\":{\"responses\":{\"204\":{\"description\":\"removed\"}}}}}}"
+          }
+        }
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_read_only_short_circuit"
+    }
+  },
+  {
+    "description": "DG1-FP-03 read-only Get with openapi path in arguments.target and full payload",
+    "input": {
+      "toolName": "Get",
+      "arguments": {
+        "target": "openapi.yaml",
+        "payload": "openapi: 3.0.3\npaths:\n  /v1/payments:\n    post:\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [amount]\n              properties:\n                amount: { type: number }\n"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_read_only_short_circuit"
+    }
+  },
+  {
+    "description": "DG1-FP-04 README prose in non-wl 'body' mentioning openapi: and paths: as documentation — prose-path suppressor",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "target": "README.md",
+        "body": "# API docs\n\nOur contract starts with `openapi: 3.0.3` and a `paths:` map.\nSee openapi.yaml for the real SSOT.\n"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_prose_path_readme"
+    }
+  },
+  {
+    "description": "DG1-FP-05 markdown changelog with swagger/asyncapi words in arguments.document + path .md",
+    "input": {
+      "toolName": "Edit",
+      "arguments": {
+        "file": "docs/CHANGELOG.md",
+        "document": "## Changed\n- Updated swagger descriptions\n- asyncapi channel docs only\n"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_prose_path_markdown"
+    }
+  },
+  {
+    "description": "DG1-FP-06 test fixture path under test/fixtures with full OpenAPI in arguments.spec — non-SSOT suppressor",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "target": "test/fixtures/sample-openapi.yaml",
+        "spec": "openapi: 3.0.3\ninfo:\n  title: Orders\n  version: 1.0.0\npaths:\n  /orders:\n    get:\n      responses:\n        '200':\n          description: ok\n          content:\n            application/json:\n              schema:\n                type: object\n                required: [id]\n                properties:\n                  id: { type: string }\n"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_non_ssot_test_fixture"
+    }
+  },
+  {
+    "description": "DG1-FP-07 __mocks__ path with GraphQL SDL in nested arguments.data.schema — non-SSOT",
+    "input": {
+      "toolName": "store",
+      "arguments": {
+        "dest": "src/__mocks__/schema.graphql",
+        "data": {
+          "schema": "type Query {\n  user(id: ID!): User\n}\ntype User {\n  id: ID!\n  email: String!\n}\n"
+        }
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_non_ssot_mocks"
+    }
+  },
+  {
+    "description": "DG1-FP-08 *.test.ts path with swagger JSON in arguments.payload — non-SSOT test file",
+    "input": {
+      "toolName": "Edit",
+      "arguments": {
+        "file": "src/api.contract.test.ts",
+        "payload": "{\"swagger\":\"2.0\",\"paths\":{\"/v1/items\":{\"delete\":{\"responses\":{\"204\":{\"description\":\"gone\"}}}}}}"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_non_ssot_test_file"
+    }
+  },
+  {
+    "description": "DG1-FP-09 short base64 that decodes to non-contract id (usr_abc123) in arguments.token — bounded-decode must not cry wolf",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "token": "dXNyX2FiYzEyMw==",
+        "path": "config/session.json",
+        "contents": "{\"session\":\"ok\"}"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_short_opaque_non_contract"
+    }
+  },
+  {
+    "description": "DG1-FP-10 short hex deadbeef id in arguments.data — not a contract after decode",
+    "input": {
+      "toolName": "update",
+      "arguments": {
+        "data": "6465616462656566",
+        "key": "correlation_id"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_short_hex_non_contract"
+    }
+  },
+  {
+    "description": "DG1-FP-11 short base64 session token in nested arguments.auth.blob — opaque but non-contract",
+    "input": {
+      "toolName": "set_config",
+      "arguments": {
+        "auth": {
+          "blob": "c2Vzc2lvbi10b2tlbi14eXo="
+        }
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_short_opaque_token"
+    }
+  },
+  {
+    "description": "DG1-FP-12 description-only OpenAPI change: inert metadata via old_string/new_string — isInertOnly",
+    "input": {
+      "toolName": "Edit",
+      "arguments": {
+        "target": "openapi.yaml",
+        "old_string": "description: old help text about the schema",
+        "new_string": "description: new help text mentioning required fields in prose"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_is_inert_only_description"
+    }
+  },
+  {
+    "description": "DG1-FP-13 comment/prose-only value in arguments.note with schema keywords — documentation note, no wire change; no contract path",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "note": "TODO: the openapi paths map should document GET /orders; this is a comment not a spec write"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_inert_prose_no_ssot"
+    }
+  },
+  {
+    "description": "DG1-FP-14 example-only payload under paths tree language but only examples: values — isInertOnly examples",
+    "input": {
+      "toolName": "Edit",
+      "arguments": {
+        "path": "openapi.yaml",
+        "old_string": "examples:\n  sample:\n    value: { id: \"1\" }",
+        "new_string": "examples:\n  sample:\n    value: { id: \"2\" }"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_is_inert_only_examples"
+    }
+  },
+  {
+    "description": "DG1-FP-15 List tool with base64 OpenAPI in arguments.data — read-only wins over deep decode",
+    "input": {
+      "toolName": "List",
+      "arguments": {
+        "data": "b3BlbmFwaTogMy4wLjMKaW5mbzoKICB0aXRsZTogT3JkZXJzCiAgdmVyc2lvbjogMS4wLjAKcGF0aHM6CiAgL29yZGVyczoKICAgIGdldDoKICAgICAgcmVzcG9uc2VzOgogICAgICAgICcyMDAnOgogICAgICAgICAgZGVzY3JpcHRpb246IG9rCiAgICAgICAgICBjb250ZW50OgogICAgICAgICAgICBhcHBsaWNhdGlvbi9qc29uOgogICAgICAgICAgICAgIHNjaGVtYToKICAgICAgICAgICAgICAgIHR5cGU6IG9iamVjdAogICAgICAgICAgICAgICAgcmVxdWlyZWQ6IFtpZF0KICAgICAgICAgICAgICAgIHByb3BlcnRpZXM6CiAgICAgICAgICAgICAgICAgIGlkOiB7IHR5cGU6IHN0cmluZyB9Cg=="
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_read_only_over_decode"
+    }
+  },
+  {
+    "description": "DG1-FP-16 node_modules path with MCP-looking JSON in arguments.config — non-SSOT dependency tree",
+    "input": {
+      "toolName": "Write",
+      "arguments": {
+        "target": "node_modules/some-pkg/mcp.json",
+        "config": "{\"tools\":[{\"name\":\"delete_all\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}]}"
+      }
+    },
+    "expected": {
+      "trigger": false,
+      "keySignal": "suppressor_non_ssot_node_modules"
+    }
+  }
+]

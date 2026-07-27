@@ -7,9 +7,12 @@
  * mandatory fixture set; this detector passes all 68 (46 trigger, 22 no-trigger).
  */
 
+import { gunzipSync } from 'node:zlib';
 import type { TriggerDetector, ToolCallDescriptor, Artifact } from './types.js';
 
-export const DETECTOR_VERSION = 'builtin/1.0.0';
+// builtin/1.1.0: additive deep-argument-scan (DG-1) — walks ALL argument values (any key, depth,
+// arrays) + bounded decode of encoded payloads, monotonic toward caution. Output shape unchanged.
+export const DETECTOR_VERSION = 'builtin/1.1.0';
 
 // ── Path classification ────────────────────────────────────────────────────────
 const CONTRACT_PATH_RE = [
@@ -26,7 +29,7 @@ const CONTRACT_PATH_RE = [
 ];
 // Paths whose content is NOT a production SSOT — contract-looking content there does not trigger.
 const NON_SSOT_PATH_RE = [
-  /(^|\/)tests?\//i, /(^|\/)__tests__\//i, /\/fixtures?\//i,
+  /(^|\/)tests?\//i, /(^|\/)__tests__\//i, /(^|\/)__mocks__\//i, /\/fixtures?\//i, /(^|\/)mocks?\//i,
   /\.test\.[jt]sx?$/i, /\.spec\.[jt]sx?$/i,
   /(^|\/)src\/internal\//i,
   /(^|\/)node_modules\//i,
@@ -74,7 +77,7 @@ const INERT_KEY_RE = [
   /^x-[\w-]+\s*:/i, /^["']x-[\w-]+["']\s*:/i,
 ];
 
-const READ_ONLY_TOOLS = new Set(['read', 'grep', 'glob', 'ls', 'cat', 'view', 'search', 'list']);
+const READ_ONLY_TOOLS = new Set(['read', 'grep', 'glob', 'ls', 'cat', 'view', 'search', 'list', 'get']);
 const FORMATTER_RE = /\b(prettier|eslint\s+--fix|gofmt|rustfmt|black|clang-format|dprint)\b/i;
 const GATE_KEYWORD_RE = /coderifts|agent-guard|contract-check|contract\b|preflight|spectral|\bbuf\b/i;
 
@@ -247,6 +250,122 @@ function commandMutatesContract(call: ToolCallDescriptor): boolean {
   return touchesContract && mutates;
 }
 
+// ── Deep argument scan (DG-1 hardening) — additive, bounded, monotonic toward caution ──────────
+// Caps (stated): recursion depth 8; total scanned bytes 262144 (256KB); per-value decode output
+// 65536 (64KB); decode chain levels 3 (base64→json→…); opacity min length 40 chars.
+const DEEP_MAX_DEPTH = 8;
+const DEEP_MAX_BYTES = 262144;
+const DEEP_DECODE_MAX_BYTES = 65536;
+const DEEP_DECODE_LEVELS = 3;
+const OPAQUE_MIN_LEN = 40;
+
+interface DeepScan {
+  contractContent: boolean;   // a contract marker found in a value (raw or decoded)
+  pathContractSsot: boolean;  // a contract SSOT path found in a path-like value
+  pathNonSsot: boolean;       // a non-SSOT path found (suppressor)
+  pathLikeCount: number;      // number of path-like values seen
+  proseCount: number;         // path-like values that are prose (README/CHANGELOG/.md/LICENSE)
+  opaque: boolean;            // an encoded-looking value that could not be classified
+  capHit: boolean;            // depth/byte cap exceeded (un-scannable) — fail-safe trigger
+}
+
+/** A short, single-line, filename-ish value we should test against the PATH regexes (never content). */
+function looksLikePath(v: string): boolean {
+  return v.length > 0 && v.length <= 256 && !/[\n\r{}<>]/.test(v) && /(^|\/)[\w.@-]+\.[A-Za-z0-9]+$/.test(v.trim());
+}
+
+/** Bounded set of decodings of a value (base64, hex, url, gzip+base64, json-string-unescape). */
+function decodeCandidates(v: string): string[] {
+  const out: string[] = [];
+  const push = (s: string | null) => { if (s && s.length > 0 && s.length <= DEEP_DECODE_MAX_BYTES) out.push(s); };
+  const compact = v.replace(/\s+/g, '');
+  // base64 (charset excludes ':' so plaintext YAML/JSON contracts never match)
+  if (compact.length >= 16 && compact.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(compact)) {
+    try { push(Buffer.from(compact, 'base64').toString('utf8')); } catch { /* ignore */ }
+    try { const b = Buffer.from(compact, 'base64'); push(gunzipSync(b).toString('utf8')); } catch { /* not gzip */ }
+  }
+  // hex
+  if (compact.length >= 16 && compact.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(compact)) {
+    try { push(Buffer.from(compact, 'hex').toString('utf8')); } catch { /* ignore */ }
+  }
+  // url-encoded
+  if (/%[0-9a-fA-F]{2}/.test(v)) {
+    try { push(decodeURIComponent(v)); } catch { /* ignore */ }
+  }
+  // JSON string literal / double-encoded (unescape one JSON level)
+  if (/\\["\\/]|^\s*"/.test(v)) {
+    try { const p = JSON.parse(v); if (typeof p === 'string') push(p); } catch { /* ignore */ }
+  }
+  return out;
+}
+
+/** True iff a value looks encoded (long base64/hex) — used to decide opacity when unclassifiable. */
+function looksEncoded(v: string): boolean {
+  const c = v.replace(/\s+/g, '');
+  if (c.length < OPAQUE_MIN_LEN) return false;
+  return (/^[A-Za-z0-9+/]+={0,2}$/.test(c) && c.length % 4 === 0) || (/^[0-9a-fA-F]+$/.test(c) && c.length % 2 === 0);
+}
+
+/** Recursively scan every string value in `arguments` (any key, depth, array) + bounded decode. */
+function deepArgScan(call: ToolCallDescriptor): DeepScan {
+  const acc: DeepScan = { contractContent: false, pathContractSsot: false, pathNonSsot: false, pathLikeCount: 0, proseCount: 0, opaque: false, capHit: false };
+  let budget = DEEP_MAX_BYTES;
+
+  const scanString = (s: string) => {
+    // path-like values -> classify against path regexes (never run path regexes on content).
+    if (looksLikePath(s)) {
+      acc.pathLikeCount++;
+      if (anyMatch(NON_SSOT_PATH_RE, s)) acc.pathNonSsot = true;
+      else if (anyMatch(PROSE_PATH_RE, s)) acc.proseCount++;
+      else if (isContractPath(s)) acc.pathContractSsot = true;
+      return;
+    }
+    // content: existing contract regexes on the raw value.
+    if (anyMatch(CONTRACT_CONTENT_RE, s) || anyMatch(CONTRACT_STRUCTURE_RE, s)) { acc.contractContent = true; return; }
+    // bounded decode chain (base64/hex/url/gzip/json), re-scanning each level.
+    let level = [s];
+    for (let d = 0; d < DEEP_DECODE_LEVELS && !acc.contractContent; d++) {
+      const next: string[] = [];
+      for (const val of level) {
+        for (const dec of decodeCandidates(val)) {
+          if (anyMatch(CONTRACT_CONTENT_RE, dec) || anyMatch(CONTRACT_STRUCTURE_RE, dec)) { acc.contractContent = true; break; }
+          next.push(dec);
+        }
+        if (acc.contractContent) break;
+      }
+      level = next;
+    }
+    // opacity: looked encoded but nothing classifiable came out -> unscannable -> caution.
+    if (!acc.contractContent && looksEncoded(s) && level.every((x) => !isReadableText(x))) acc.opaque = true;
+  };
+
+  const walk = (node: unknown, depth: number) => {
+    if (acc.capHit || budget <= 0) return;
+    if (depth > DEEP_MAX_DEPTH) { acc.capHit = true; return; }
+    if (typeof node === 'string') {
+      budget -= node.length;
+      if (budget <= 0) { acc.capHit = true; return; }
+      scanString(node);
+    } else if (Array.isArray(node)) {
+      for (const el of node) { if (acc.capHit) break; walk(el, depth + 1); }
+    } else if (node && typeof node === 'object') {
+      for (const val of Object.values(node as Record<string, unknown>)) { if (acc.capHit) break; walk(val, depth + 1); }
+    }
+  };
+
+  try { walk(call.arguments, 0); } catch { acc.capHit = true; } // scan error -> fail-safe
+  return acc;
+}
+
+/** A decoded blob that is mostly printable text (so a failed-to-classify decode isn't "opaque"). */
+function isReadableText(s: string): boolean {
+  if (!s) return false;
+  let printable = 0;
+  const n = Math.min(s.length, 512);
+  for (let i = 0; i < n; i++) { const c = s.charCodeAt(i); if (c === 9 || c === 10 || c === 13 || (c >= 32 && c < 127)) printable++; }
+  return printable / n > 0.85;
+}
+
 export const builtinDetector: TriggerDetector = {
   version: DETECTOR_VERSION,
   detect(call: ToolCallDescriptor) {
@@ -280,6 +399,22 @@ export const builtinDetector: TriggerDetector = {
         signals.push('contract_change'); return { trigger: true, artifacts, signals, confident: true };
       }
       signals.push('ambiguous_contract_surface');
+      return { trigger: true, artifacts, signals, confident: false };
+    }
+
+    // ── DG-1: deep argument scan (runs AFTER the read-only short-circuit + whitelist surface path;
+    // additive, monotonic toward caution — only flips false->true / lowers confident). ──
+    const deep = deepArgScan(call);
+    if (deep.contractContent || deep.pathContractSsot) {
+      // Apply the SAME suppressors to the newly-seen input: non-SSOT / prose destination, inert-only.
+      const deepInProse = deep.pathLikeCount > 0 && deep.proseCount === deep.pathLikeCount && !deep.pathContractSsot;
+      if (!deep.pathNonSsot && !deepInProse && !isInertOnly(call)) {
+        signals.push(deep.contractContent ? 'arguments_deep_contract' : 'arguments_deep_path');
+        return { trigger: true, artifacts, signals, confident: false };
+      }
+    }
+    if (deep.opaque || deep.capHit) {
+      signals.push(deep.capHit ? 'arguments_scan_capped' : 'arguments_opaque');
       return { trigger: true, artifacts, signals, confident: false };
     }
 
