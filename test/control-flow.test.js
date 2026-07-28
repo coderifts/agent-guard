@@ -89,11 +89,14 @@ test('MONITOR + wired sink (onEvent) => enforced:true', async () => {
   assert.equal(o.enforced, true);
   assert.equal(o.executed, true);
 });
-test('MONITOR without a sink => executes but enforced:false (monitoring_unwired)', async () => {
+// P0-c (CE-CC-04 + enforced⟺executed invariant): MONITOR without a monitoring sink can no longer
+// enforce the monitoring obligation, so it FAILS CLOSED (does NOT execute) — was executed:true/enforced:false.
+test('MONITOR without a sink => FAIL-CLOSED (not executed) — MONITORING_UNWIRED', async () => {
   const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient({ preflight: () => response('CONTINUE_WITH_MONITORING', 'WARN') }) });
-  assert.equal(o.verdict.kind, 'MONITOR');
-  assert.equal(o.executed, true);
+  assert.equal(o.executed, false);
   assert.equal(o.enforced, false);
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.cause, 'MONITORING_UNWIRED');
 });
 
 // ── observeOnly ────────────────────────────────────────────────────────────────────
@@ -153,11 +156,14 @@ test('receipt fails verification (attack signal) => integrity closed, no executi
   assert.equal(o.verdict.cause, 'RECEIPT_UNVERIFIED');
   assert.equal(o.executionAttempted, false);
 });
-test('verifyReceipts:false => executes but enforced:false (fail-closed by type on opt-out)', async () => {
+// P0-b (CE-EP-08 + enforced⟺executed invariant): verifyReceipts:false cannot produce a bound
+// receipt on a contract change → cannot enforce → FAILS CLOSED (does NOT execute) — was executed:true.
+test('verifyReceipts:false on a contract change => FAIL-CLOSED (not executed) — RECEIPT_MISSING', async () => {
   const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient(), verifyReceipts: false });
-  assert.equal(o.executed, true);
+  assert.equal(o.executed, false);
   assert.equal(o.enforced, false);
-  assert.equal(o.verdict.kind, 'ALLOW');
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.cause, 'RECEIPT_MISSING');
 });
 
 // ── retry safety (executionAttempted split) ───────────────────────────────────────

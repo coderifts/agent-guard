@@ -23,6 +23,10 @@ export { builtinDetector, DETECTOR_VERSION } from './detector.js';
 // P0 receipt-substitution fix: client-side receipt→envelope binding (mirrors server §106).
 export { bindReceiptToEnvelope, computeBodyHash, canonicalJson } from './receipt-binding.js';
 export type { BindResult, BindCause, BindContext, VerifyReceiptResultLike } from './receipt-binding.js';
+// P0-b/c client-enforcement gate: decision↔action reconciliation, §111 degraded, §115 safe_for_agent,
+// and local artifact_digest / input_fingerprint recomputation.
+export { evaluateEnvelope, computeArtifactDigest, computeBundleFingerprint } from './enforcement-gate.js';
+export type { GateResult } from './enforcement-gate.js';
 export { readDecision } from '@coderifts/sdk';
 // Additive session-taint surface (SEPARATE from the frozen single-call detector; own version).
 export {

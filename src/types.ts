@@ -107,7 +107,13 @@ export type IntegrityCause =
   | 'RECEIPT_UNVERIFIED' | 'DETECTOR_ERROR' | 'CONFIG_ERROR'
   | 'PAYLOAD_TOO_LARGE'   // 413 or local maxPayloadBytes cap
   | 'REQUEST_REJECTED'    // 422 and other request-attributable rejections
-  | 'RECEIPT_ENVELOPE_MISMATCH';  // P0: valid receipt NOT bound to THIS envelope (substitution/replay/scope)
+  | 'RECEIPT_ENVELOPE_MISMATCH'   // P0-a: valid receipt NOT bound to THIS envelope (substitution/replay/scope)
+  // P0-b/c client-enforcement gates (§106/§111/§115 mirrored client-side):
+  | 'DECISION_INCONSISTENT'       // decision↔execution_action mismatch, missing decision, or safe_for_agent=false on allow-class
+  | 'ANALYSIS_DEGRADED'           // analysis_complete=false / degraded_reasons / degraded / coverage_gap (§111)
+  | 'ARTIFACT_MISMATCH'           // envelope artifact_digest / input_fingerprint ≠ locally-recomputed value
+  | 'RECEIPT_MISSING'             // contract-triggering executable decision with no verifiable receipt (no unenforced execute)
+  | 'MONITORING_UNWIRED';         // CONTINUE_WITH_MONITORING but no onEvent sink → cannot enforce monitoring
 export type UnavailableCause = AvailabilityCause | IntegrityCause;
 
 // D-detector — fail-safe + versioned (the trust core; the Grok corpus of 68

@@ -18,6 +18,7 @@ import type {
 import { builtinDetector } from './detector.js';
 import { bindReceiptToEnvelope } from './receipt-binding.js';
 import type { BindCause, VerifyReceiptResultLike } from './receipt-binding.js';
+import { evaluateEnvelope } from './enforcement-gate.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();
@@ -276,33 +277,46 @@ export async function guardToolCall<T>(
     return closedIntegrity(config, bindResult.cause ?? 'RECEIPT_UNVERIFIED', failPolicy);
   }
 
-  const action = rd.executionAction;
-
-  // Non-executable decisions.
-  if (action === 'STOP') return blocked({ kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true);
-  if (action === 'REQUEST_APPROVAL') return blocked({ kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true);
+  // ── Client-side authorization gate (P0-b/c): mirror §106/§111/§115 before honoring any action. ──
+  // A raw execution_action is NEVER trusted alone. The gate reconciles decision↔action (stricter
+  // wins), honors safe_for_agent, fails closed on degraded, and binds the analyzed artifacts to what
+  // we actually sent. Only an allow-class, safe, non-degraded, artifact-bound verdict is executable.
+  const gate = evaluateEnvelope(pf.response, envelope as unknown as Record<string, unknown>, rd.executionAction, detection.artifacts);
+  if (gate.verdict === 'fail-closed') {
+    breakerRecord(config);
+    return closedIntegrity(config, gate.cause, failPolicy);
+  }
+  if (gate.verdict === 'block-strict') {
+    // A real (or stricter-reconciled) BLOCK / REQUIRE_APPROVAL — clean block; the factory never runs.
+    return gate.decision === 'BLOCK'
+      ? blocked({ kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true)
+      : blocked({ kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true);
+  }
+  const kind = gate.kind; // 'ALLOW' | 'MONITOR' — allow-class, safe, non-degraded, artifact-bound.
 
   // An expired decision cannot be honored fresh => closed (integrity: wrong-time state).
   if (expired) { breakerRecord(config); return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy); }
 
-  // Executable: CONTINUE (ALLOW) or CONTINUE_WITH_MONITORING (MONITOR).
-  const kind = action === 'CONTINUE' ? 'ALLOW' : 'MONITOR';
   const sinkWired = !!config.onEvent; // v1: onEvent is the telemetry sink for MONITOR.
   if (kind === 'MONITOR') {
     if (sinkWired) emit(config, { type: 'monitoring_required', at: iso(), decisionId: envelope.decision_id });
     else emit(config, { type: 'monitoring_unwired', at: iso(), decisionId: envelope.decision_id });
   }
 
-  // observeOnly executes but never enforces.
+  // observeOnly is an EXPLICIT report-only opt-in: execute but never enforce (the one sanctioned
+  // unenforced-execution mode alongside failPolicy=open; both are documented opt-ins, not the default).
   if (config.observeOnly) {
-    emit(config, { type: 'observe_only_passthrough', at: iso(), action });
+    emit(config, { type: 'observe_only_passthrough', at: iso(), action: rd.executionAction });
     const verdict: GuardVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
     return runUnenforced(config, executeFactory, envelope, verdict, true, redacted);
   }
 
-  // enforced:true requires a LIVE receipt-verified ALLOW/MONITOR, and (MONITOR) a wired sink.
+  // ── enforced ⟺ executed INVARIANT (contract-triggering path): execute ONLY when we can ENFORCE. ──
+  // enforceable = a bound-verified receipt AND (MONITOR) a wired sink. Anything else FAILS CLOSED —
+  // the guard NEVER runs the factory unenforced on a contract change. Closes CE-EP-06 (no receipt),
+  // CE-EP-08 (verifyReceipts:false), CE-CC-04 (MONITOR without a monitoring sink).
   const enforceable = receiptVerified && (kind === 'ALLOW' || sinkWired);
   if (enforceable) {
     const approved: ApprovedVerdict = kind === 'ALLOW'
@@ -310,11 +324,8 @@ export async function guardToolCall<T>(
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified: true };
     return runEnforced(config, executeFactory, approved, redacted);
   }
-  // MONITOR with no sink (monitoring_unwired): execute but enforced:false.
-  const verdict: GuardVerdict = kind === 'ALLOW'
-    ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
-    : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
-  return runUnenforced(config, executeFactory, envelope, verdict, true, redacted);
+  breakerRecord(config);
+  return closedIntegrity(config, receiptVerified ? 'MONITORING_UNWIRED' : 'RECEIPT_MISSING', failPolicy);
 }
 
 function closedIntegrity<T>(config: GuardConfig, cause: IntegrityCause, failPolicy: 'closed' | 'open' | 'lkg'): GuardOutcome<T> {
