@@ -2,7 +2,12 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { guardToolCall } = require('../dist/cjs/index.js');
+const { guardToolCall, computeBodyHash } = require('../dist/cjs/index.js');
+
+// P0 receipt-binding: a mock verifyReceipt must now return a receipt BOUND to the envelope — the
+// signed fp/bh matching the locally-recomputed body hash. `signedFor` mirrors what the server signs.
+function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env) }; }
+function boundVerify(env) { return { valid: true, status: 'VERIFIED_CURRENT', payload: signedFor(env) }; }
 
 // ── fixtures ────────────────────────────────────────────────────────────────────
 const TRIGGER = { toolName: 'Edit', arguments: {}, artifacts: [{ id: 'a', type: 'openapi', before: 'x', after: 'y' }] };
@@ -16,6 +21,9 @@ function envelope(execution_action, decision, opts = {}) {
     spec_version: 'decision-result.v1.1', decision, execution_action,
     decision_id: 'dec_1', correlation_id: 'c', evaluated_at: new Date().toISOString(),
     expires_at: opts.expires_at || new Date(Date.now() + 900000).toISOString(),
+    // P0: envelope carries a fingerprint so the receipt binding has something to bind.
+    fingerprint: opts.fingerprint || ('sha256:' + 'a'.repeat(64)),
+    input_fingerprint: 'sha256:' + 'b'.repeat(64),
     receipt: opts.noReceipt ? undefined : { token: 'tok', format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' },
   };
 }
@@ -23,9 +31,17 @@ function response(execution_action, decision, opts) {
   return { decision, decision_result: envelope(execution_action, decision, opts) };
 }
 function mockClient({ preflight, verify } = {}) {
+  let lastEnv = null; // the envelope the preflight returned — the receipt must bind to IT.
   return {
-    async preflightChangeSet() { return preflight ? preflight() : response('CONTINUE', 'ALLOW'); },
-    async verifyReceipt() { return verify ? verify() : { valid: true, status: 'VERIFIED_CURRENT' }; },
+    async preflightChangeSet() {
+      const resp = preflight ? preflight() : response('CONTINUE', 'ALLOW');
+      lastEnv = resp && resp.decision_result;
+      return resp;
+    },
+    async verifyReceipt() {
+      if (verify) return verify();
+      return lastEnv ? boundVerify(lastEnv) : { valid: true, status: 'VERIFIED_CURRENT' };
+    },
   };
 }
 
@@ -160,9 +176,10 @@ test('a blocked (never-run) outcome IS safe to retry (executionAttempted:false)'
 // ── transport retry on availability ───────────────────────────────────────────────
 test('one NETWORK failure then success (retries:1) => enforced ALLOW', async () => {
   let n = 0;
+  const okEnv = envelope('CONTINUE', 'ALLOW');
   const client = {
-    async preflightChangeSet() { n++; if (n === 1) throw Object.assign(new Error('fetch failed'), { name: 'TypeError' }); return response('CONTINUE', 'ALLOW'); },
-    async verifyReceipt() { return { valid: true }; },
+    async preflightChangeSet() { n++; if (n === 1) throw Object.assign(new Error('fetch failed'), { name: 'TypeError' }); return { decision: 'ALLOW', decision_result: okEnv }; },
+    async verifyReceipt() { return boundVerify(okEnv); },
   };
   const o = await guardToolCall(TRIGGER, okFactory, { client, retries: 1 });
   assert.equal(n, 2);

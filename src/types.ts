@@ -106,7 +106,8 @@ export type IntegrityCause =
   'INVALID_RESPONSE' | 'UNSUPPORTED_VERSION' | 'SCHEMA_INVALID'
   | 'RECEIPT_UNVERIFIED' | 'DETECTOR_ERROR' | 'CONFIG_ERROR'
   | 'PAYLOAD_TOO_LARGE'   // 413 or local maxPayloadBytes cap
-  | 'REQUEST_REJECTED';   // 422 and other request-attributable rejections
+  | 'REQUEST_REJECTED'    // 422 and other request-attributable rejections
+  | 'RECEIPT_ENVELOPE_MISMATCH';  // P0: valid receipt NOT bound to THIS envelope (substitution/replay/scope)
 export type UnavailableCause = AvailabilityCause | IntegrityCause;
 
 // D-detector — fail-safe + versioned (the trust core; the Grok corpus of 68

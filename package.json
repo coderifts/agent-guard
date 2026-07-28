@@ -1,7 +1,7 @@
 {
   "name": "@coderifts/agent-guard",
-  "version": "1.0.0",
-  "description": "Fail-closed guard for AI agent tool calls — preflight contract changes before they execute. Security core frozen (agent-guard-api v1.0).",
+  "version": "1.1.0",
+  "description": "Fail-closed guard for AI agent tool calls — preflight contract changes before they execute. Security core frozen (agent-guard-api v1.0); v1.1 adds client-side receipt→envelope binding (P0 substitution fix).",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
   "types": "./dist/cjs/index.d.ts",

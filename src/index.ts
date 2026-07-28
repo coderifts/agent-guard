@@ -20,6 +20,9 @@
 
 export { guardToolCall } from './guard.js';
 export { builtinDetector, DETECTOR_VERSION } from './detector.js';
+// P0 receipt-substitution fix: client-side receipt→envelope binding (mirrors server §106).
+export { bindReceiptToEnvelope, computeBodyHash, canonicalJson } from './receipt-binding.js';
+export type { BindResult, BindCause, BindContext, VerifyReceiptResultLike } from './receipt-binding.js';
 export { readDecision } from '@coderifts/sdk';
 // Additive session-taint surface (SEPARATE from the frozen single-call detector; own version).
 export {

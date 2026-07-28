@@ -16,6 +16,8 @@ import type {
   DecisionResultEnvelope, UnavailableVerdict,
 } from './types.js';
 import { builtinDetector } from './detector.js';
+import { bindReceiptToEnvelope } from './receipt-binding.js';
+import type { BindCause, VerifyReceiptResultLike } from './receipt-binding.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();
@@ -86,17 +88,37 @@ async function preflightWithRetry(config: GuardConfig, request: unknown): Promis
   return { ok: false, ...last };
 }
 
-/** Verify the envelope's receipt via the SDK. Returns the BRANDED envelope only when verified. */
-async function verifyEnvelope(config: GuardConfig, envelope: DecisionResultEnvelope | null): Promise<ReceiptVerifiedEnvelope | null> {
-  if (!envelope) return null;
-  if (config.verifyReceipts === false) return null; // opt-out => cannot brand => unenforceable + LKG unusable
+/**
+ * Verify the envelope's receipt AND bind it to THIS envelope (P0 substitution fix). Returns the
+ * BRANDED envelope only when the receipt is valid, current, AND the LOCALLY-recomputed decision body
+ * hash + fingerprint + operation/environment/audience scope all match. On a valid-but-unbound receipt
+ * the `cause` is RECEIPT_ENVELOPE_MISMATCH; on a bad signature it is RECEIPT_UNVERIFIED. Fail-closed:
+ * any mismatch returns { verified: null }.
+ */
+async function verifyEnvelope(
+  config: GuardConfig,
+  envelope: DecisionResultEnvelope | null,
+): Promise<{ verified: ReceiptVerifiedEnvelope | null; cause?: BindCause }> {
+  if (!envelope) return { verified: null };
+  if (config.verifyReceipts === false) return { verified: null }; // opt-out => cannot brand => unenforceable + LKG unusable
   const token = envelope.receipt?.token;
-  if (!token) return null;
+  if (!token) return { verified: null };
   try {
-    const r = await (config.client as { verifyReceipt(t: string): Promise<{ valid?: boolean }> }).verifyReceipt(token);
-    if (r && r.valid === true) return envelope as ReceiptVerifiedEnvelope;
-  } catch { /* verification failure is handled as RECEIPT_UNVERIFIED by the caller */ }
-  return null;
+    const r = await (config.client as unknown as {
+      verifyReceipt(t: string): Promise<VerifyReceiptResultLike>;
+    }).verifyReceipt(token);
+    const bind = bindReceiptToEnvelope(
+      envelope as unknown as Record<string, unknown>,
+      r,
+      { operation: config.operation, environment: config.environment, audience: config.audience },
+    );
+    if (bind.ok) return { verified: envelope as ReceiptVerifiedEnvelope };
+    emit(config, { type: 'receipt_unverified', at: iso(), decisionId: envelope.decision_id, cause: bind.detail });
+    return { verified: null, cause: bind.cause };
+  } catch {
+    // verification threw => treat as unverified (bad signature / transport)
+    return { verified: null, cause: 'RECEIPT_UNVERIFIED' };
+  }
 }
 
 // ── Outcome builders (keep the discriminated union satisfied) ────────────────────
@@ -239,15 +261,19 @@ export async function guardToolCall<T>(
   // 5. expiry check before honoring any decision.
   const expired = isExpired(envelope);
 
-  const verified = await verifyEnvelope(config, envelope);
+  const bindResult = await verifyEnvelope(config, envelope);
+  const verified = bindResult.verified;
   const receiptVerified = !!verified;
   if (!receiptVerified) emit(config, { type: 'receipt_unverified', at: iso(), decisionId: envelope.decision_id });
   emit(config, { type: 'preflight_result', at: iso(), action: rd.executionAction, decisionId: envelope.decision_id });
 
-  // A bad signature (verifyReceipts on, token present, verify failed) is an INTEGRITY attack signal.
+  // A receipt that fails to verify OR fails to BIND to this envelope (P0 substitution/replay/scope) is
+  // an INTEGRITY attack signal => fail closed. RECEIPT_ENVELOPE_MISMATCH names a valid-but-unbound
+  // receipt (e.g. a real BLOCK receipt wrapped in a forged ALLOW envelope); RECEIPT_UNVERIFIED a bad
+  // signature. Both trip the breaker and STOP — the guard NEVER executes off an unbound receipt.
   if (config.verifyReceipts !== false && !receiptVerified && envelope.receipt?.token) {
     breakerRecord(config);
-    return closedIntegrity(config, 'RECEIPT_UNVERIFIED', failPolicy);
+    return closedIntegrity(config, bindResult.cause ?? 'RECEIPT_UNVERIFIED', failPolicy);
   }
 
   const action = rd.executionAction;
@@ -312,8 +338,9 @@ async function tryLkg(config: GuardConfig, inputFp: string): Promise<{ envelope:
   let cached: DecisionResultEnvelope | null;
   try { cached = await config.lkg.get(inputFp); } catch { return null; }
   if (!cached) return null;
-  // Receipt verification is UNCONDITIONAL for LKG (with verifyReceipts:false it cannot brand => unusable).
-  const verified = await verifyEnvelope(config, cached);
+  // Receipt verification + BINDING is UNCONDITIONAL for LKG (verifyReceipts:false => cannot brand =>
+  // unusable). An LKG envelope whose receipt does not bind to it (substitution) is also unusable.
+  const { verified } = await verifyEnvelope(config, cached);
   if (!verified) return null;
   // Eligibility (rule 15): decision ALLOW|WARN, unexpired, age<lkgMaxAgeMs, fingerprint + ruleset_hash
   // + environment + operation + audience all match. Any binding that cannot be evaluated => UNUSABLE.
