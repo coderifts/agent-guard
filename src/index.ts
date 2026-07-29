@@ -94,3 +94,11 @@ export type {
   DeployGateInput, DeployGateDecision, DeployReceiptView, DeployRequiredContext,
   DeployEnforcementState, DeployTarget, DeployGateReason,
 } from './deploy-gate.js';
+
+// enforcement-coverage report (#9) — the PURE tetrad aggregator. No I/O; reads the primitives' states.
+export { coverageReport } from './coverage-report.js';
+export type {
+  CoverageReportInput, CoverageReport, Applicability, PlacementId, PlacementStrength,
+  OverallCoverage, HonestClaimKey, PerPlacementRow,
+  RuntimePlacementInput, MergePlacementInput, DeployPlacementInput, ContentPlacementInput,
+} from './coverage-report.js';

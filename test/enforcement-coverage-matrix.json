@@ -1,0 +1,381 @@
+{
+  "meta": {
+    "version": "enforcement-coverage-matrix/1.0-PROPOSAL",
+    "date": "2026-07-29",
+    "companion_spec": "enforcement-coverage-SPEC.md",
+    "scope": "PURE coverageReport only",
+    "count": 14,
+    "validation_rule": "INVALID if FULLY_ENFORCED with any applicable WEAK/UNKNOWN; if deploy not applicable adds deploy residual; if admin_bypass still FULLY; if may_claim_full_tetrad disagrees with overall"
+  },
+  "rows": [
+    {
+      "id": "EC-001",
+      "title": "THE CLEAN ROW: all applicable ENFORCING non-bypassable → FULLY_ENFORCED",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": true, "content": true },
+        "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true, "residuals": [] },
+        "merge": {
+          "enforcement_state": "ENFORCING",
+          "inescapable_merge": true,
+          "residuals": []
+        },
+        "deploy": {
+          "enforcement_state": "ENFORCING",
+          "inescapable_deploy": true,
+          "residuals": []
+        },
+        "content": { "coverage": "COMPLETE", "artifacts_ready": true, "residuals": [] }
+      },
+      "expected": {
+        "overall_coverage": "FULLY_ENFORCED",
+        "residuals": [],
+        "honest_claim_key": "claim_fully_enforced",
+        "flags": {
+          "may_claim_inescapable_runtime": true,
+          "may_claim_inescapable_merge": true,
+          "may_claim_inescapable_deploy": true,
+          "may_claim_full_tetrad": true
+        },
+        "per_placement_strength": {
+          "runtime": "ENFORCING",
+          "merge": "ENFORCING",
+          "deploy": "ENFORCING",
+          "content": "ENFORCING"
+        }
+      },
+      "derivation": "All applicable ENFORCING → FULLY; C1"
+    },
+    {
+      "id": "EC-002",
+      "title": "Merge ENFORCING but deploy ABSENT while deploy applicable → PARTIAL + deploy residual",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": true, "content": true },
+        "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
+        "merge": { "enforcement_state": "ENFORCING", "inescapable_merge": true },
+        "deploy": {
+          "enforcement_state": "ABSENT",
+          "inescapable_deploy": false,
+          "residuals": []
+        },
+        "content": { "coverage": "COMPLETE" }
+      },
+      "expected": {
+        "overall_coverage": "PARTIALLY_ENFORCED",
+        "residuals_include": ["deploy_path_ungated"],
+        "honest_claim_key": "claim_partially_enforced",
+        "flags": {
+          "may_claim_inescapable_runtime": true,
+          "may_claim_inescapable_merge": true,
+          "may_claim_inescapable_deploy": false,
+          "may_claim_full_tetrad": false
+        },
+        "per_placement_strength": {
+          "runtime": "ENFORCING",
+          "merge": "ENFORCING",
+          "deploy": "WEAK",
+          "content": "ENFORCING"
+        }
+      },
+      "derivation": "Weakest applicable WEAK caps; synthetic deploy_path_ungated"
+    },
+    {
+      "id": "EC-003",
+      "title": "Deploy not applicable + deploy ABSENT → still FULLY (no deploy residual)",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": false, "content": true },
+        "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
+        "merge": { "enforcement_state": "ENFORCING", "inescapable_merge": true },
+        "deploy": {
+          "enforcement_state": "ABSENT",
+          "inescapable_deploy": false
+        },
+        "content": { "coverage": "COMPLETE" }
+      },
+      "expected": {
+        "overall_coverage": "FULLY_ENFORCED",
+        "residuals": [],
+        "residuals_must_not_include": ["deploy_path_ungated"],
+        "honest_claim_key": "claim_fully_enforced",
+        "flags": { "may_claim_full_tetrad": true, "may_claim_inescapable_deploy": false },
+        "per_placement_strength": {
+          "runtime": "ENFORCING",
+          "merge": "ENFORCING",
+          "deploy": "EXCLUDED",
+          "content": "ENFORCING"
+        }
+      },
+      "derivation": "C4/C5 applicability excludes deploy"
+    },
+    {
+      "id": "EC-004",
+      "title": "admin_bypass_open: merge ENFORCING but inescapable_merge false → not FULLY",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": false, "content": true },
+        "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
+        "merge": {
+          "enforcement_state": "ENFORCING",
+          "inescapable_merge": false,
+          "residuals": ["admin_bypass_open"]
+        },
+        "content": { "coverage": "COMPLETE" }
+      },
+      "expected": {
+        "overall_coverage": "PARTIALLY_ENFORCED",
+        "residuals_include": ["admin_bypass_open"],
+        "honest_claim_key": "claim_partially_enforced",
+        "flags": {
+          "may_claim_inescapable_merge": false,
+          "may_claim_full_tetrad": false
+        },
+        "per_placement_strength": {
+          "runtime": "ENFORCING",
+          "merge": "WEAK",
+          "content": "ENFORCING"
+        }
+      },
+      "derivation": "Weakest caps; bypass residual named"
+    },
+    {
+      "id": "EC-005",
+      "title": "Resolver UNRESOLVED → CONTENT_BLOCKED",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": false, "content": true },
+        "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
+        "merge": { "enforcement_state": "ENFORCING", "inescapable_merge": true },
+        "content": {
+          "coverage": "UNRESOLVED",
+          "artifacts_ready": false,
+          "residuals": ["missing_ref_target"]
+        }
+      },
+      "expected": {
+        "overall_coverage": "CONTENT_BLOCKED",
+        "residuals_include": ["content_unresolved", "missing_ref_target"],
+        "honest_claim_key": "claim_content_blocked",
+        "flags": { "may_claim_full_tetrad": false },
+        "per_placement_strength": {
+          "runtime": "ENFORCING",
+          "merge": "ENFORCING",
+          "content": "WEAK"
+        }
+      },
+      "derivation": "§4.2 CONTENT_BLOCKED when content UNRESOLVED with other ENFORCING"
+    },
+    {
+      "id": "EC-006",
+      "title": "Runtime BYPASSED → PARTIAL + runtime residual",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": false, "content": true },
+        "runtime": {
+          "coverage": "BYPASSED",
+          "inescapable_runtime": false,
+          "residuals": ["force_readonly_on_mutator_heuristic:Write"]
+        },
+        "merge": { "enforcement_state": "ENFORCING", "inescapable_merge": true },
+        "content": { "coverage": "COMPLETE" }
+      },
+      "expected": {
+        "overall_coverage": "PARTIALLY_ENFORCED",
+        "residuals_include": [
+          "runtime_bypassed",
+          "force_readonly_on_mutator_heuristic:Write"
+        ],
+        "honest_claim_key": "claim_partially_enforced",
+        "flags": {
+          "may_claim_inescapable_runtime": false,
+          "may_claim_full_tetrad": false
+        }
+      },
+      "derivation": "runtime WEAK"
+    },
+    {
+      "id": "EC-007",
+      "title": "All applicable ADVISORY/ABSENT → ADVISORY_ONLY",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": true, "content": true },
+        "runtime": { "coverage": "PARTIAL", "inescapable_runtime": false },
+        "merge": {
+          "enforcement_state": "ADVISORY",
+          "inescapable_merge": false,
+          "residuals": ["merge_gate_advisory"]
+        },
+        "deploy": {
+          "enforcement_state": "ABSENT",
+          "inescapable_deploy": false
+        },
+        "content": { "coverage": "PARTIAL", "residuals": ["content_partial"] }
+      },
+      "expected": {
+        "overall_coverage": "ADVISORY_ONLY",
+        "residuals_include": [
+          "merge_gate_advisory",
+          "deploy_path_ungated",
+          "content_partial"
+        ],
+        "honest_claim_key": "claim_advisory_only",
+        "flags": { "may_claim_full_tetrad": false }
+      },
+      "derivation": "No ENFORCING applicable → ADVISORY_ONLY"
+    },
+    {
+      "id": "EC-008",
+      "title": "Applicable merge state missing → UNKNOWN observation",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": false, "content": true },
+        "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
+        "merge": null,
+        "content": { "coverage": "COMPLETE" }
+      },
+      "expected": {
+        "overall_coverage": "UNKNOWN",
+        "residuals_include": ["merge_state_missing"],
+        "honest_claim_key": "claim_unknown",
+        "per_placement_strength": {
+          "runtime": "ENFORCING",
+          "merge": "UNKNOWN",
+          "content": "ENFORCING"
+        },
+        "flags": { "may_claim_full_tetrad": false }
+      },
+      "derivation": "Missing applicable state → UNKNOWN; C3"
+    },
+    {
+      "id": "EC-009",
+      "title": "Content EMPTY (no contracts) is ENFORCING vacuous — can FULLY",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": false, "content": true },
+        "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
+        "merge": { "enforcement_state": "ENFORCING", "inescapable_merge": true },
+        "content": { "coverage": "EMPTY", "artifacts_ready": true }
+      },
+      "expected": {
+        "overall_coverage": "FULLY_ENFORCED",
+        "residuals": [],
+        "honest_claim_key": "claim_fully_enforced",
+        "per_placement_strength": { "content": "ENFORCING" }
+      },
+      "derivation": "EMPTY content not a gap §3.4"
+    },
+    {
+      "id": "EC-010",
+      "title": "No placements applicable → NOT_APPLICABLE",
+      "input": {
+        "applicability": {
+          "runtime": false,
+          "merge": false,
+          "deploy": false,
+          "content": false
+        }
+      },
+      "expected": {
+        "overall_coverage": "NOT_APPLICABLE",
+        "residuals": [],
+        "honest_claim_key": "claim_not_applicable",
+        "flags": { "may_claim_full_tetrad": false }
+      },
+      "derivation": "S empty"
+    },
+    {
+      "id": "EC-011",
+      "title": "Merge ABSENT while merge applicable + runtime COMPLETE → PARTIAL",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": false, "content": true },
+        "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
+        "merge": {
+          "enforcement_state": "ABSENT",
+          "inescapable_merge": false
+        },
+        "content": { "coverage": "COMPLETE" }
+      },
+      "expected": {
+        "overall_coverage": "PARTIALLY_ENFORCED",
+        "residuals_include": ["merge_gate_not_configured"],
+        "honest_claim_key": "claim_partially_enforced",
+        "flags": {
+          "may_claim_inescapable_runtime": true,
+          "may_claim_inescapable_merge": false,
+          "may_claim_full_tetrad": false
+        }
+      },
+      "derivation": "App installed ≠ merge enforcing"
+    },
+    {
+      "id": "EC-012",
+      "title": "Only content UNRESOLVED applicable others false → CONTENT_BLOCKED",
+      "input": {
+        "applicability": {
+          "runtime": false,
+          "merge": false,
+          "deploy": false,
+          "content": true
+        },
+        "content": {
+          "coverage": "UNRESOLVED",
+          "residuals": ["ambiguous_ssot"]
+        }
+      },
+      "expected": {
+        "overall_coverage": "CONTENT_BLOCKED",
+        "residuals_include": ["content_unresolved", "ambiguous_ssot"],
+        "honest_claim_key": "claim_content_blocked"
+      },
+      "derivation": "All WEAK are content unresolved path"
+    },
+    {
+      "id": "EC-013",
+      "title": "Deploy ENFORCING + merge ENFORCING + runtime BYPASSED → PARTIAL (weakest)",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": true, "content": true },
+        "runtime": { "coverage": "BYPASSED", "inescapable_runtime": false },
+        "merge": { "enforcement_state": "ENFORCING", "inescapable_merge": true },
+        "deploy": { "enforcement_state": "ENFORCING", "inescapable_deploy": true },
+        "content": { "coverage": "COMPLETE" }
+      },
+      "expected": {
+        "overall_coverage": "PARTIALLY_ENFORCED",
+        "residuals_include": ["runtime_bypassed"],
+        "flags": {
+          "may_claim_inescapable_merge": true,
+          "may_claim_inescapable_deploy": true,
+          "may_claim_inescapable_runtime": false,
+          "may_claim_full_tetrad": false
+        }
+      },
+      "derivation": "One weak placement caps overall"
+    },
+    {
+      "id": "EC-014",
+      "title": "UNKNOWN deploy observation only → UNKNOWN overall if rest ENFORCING",
+      "input": {
+        "applicability": { "runtime": true, "merge": true, "deploy": true, "content": true },
+        "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
+        "merge": { "enforcement_state": "ENFORCING", "inescapable_merge": true },
+        "deploy": {
+          "enforcement_state": "UNKNOWN",
+          "inescapable_deploy": false
+        },
+        "content": { "coverage": "COMPLETE" }
+      },
+      "expected": {
+        "overall_coverage": "UNKNOWN",
+        "honest_claim_key": "claim_unknown",
+        "flags": { "may_claim_full_tetrad": false },
+        "per_placement_strength": {
+          "deploy": "UNKNOWN",
+          "runtime": "ENFORCING",
+          "merge": "ENFORCING",
+          "content": "ENFORCING"
+        }
+      },
+      "derivation": "No WEAK but UNKNOWN present → not FULLY; C3"
+    }
+  ],
+  "validation_checklist": [
+    "EC-001 only full tetrad with all four applicable ENFORCING",
+    "EC-002 deploy applicable ABSENT → PARTIAL + residual",
+    "EC-003 deploy not applicable → no deploy residual, can FULLY",
+    "EC-004 admin_bypass never FULLY",
+    "EC-005 UNRESOLVED → CONTENT_BLOCKED",
+    "may_claim_full_tetrad iff overall FULLY_ENFORCED"
+  ]
+}
