@@ -58,6 +58,15 @@ export type {
   Artifact,
 } from './types.js';
 
+// artifactResolver — automatic base/head contract artifacts from a pure git snapshot (upstream of
+// preflight; produces artifacts, never decides). Companion to MISSING_ARTIFACT_CONTENT.
+export { resolve as resolveArtifacts } from './artifact-resolver.js';
+export type {
+  ResolveInput, ResolveConfig, ResolveResult, ResolvedArtifact, ResolveCoverage,
+  UnresolvedEntry, UnresolvedReason, BlobValue, SsotSelection, ArtifactType as ResolverArtifactType,
+} from './artifact-resolver.js';
+export { matchGlob, globToRegExp } from './resolver-glob.js';
+
 // guardToolRegistry — the agent-runtime inescapability layer ABOVE guardToolCall (Placement A only).
 export { guardToolRegistry, RegistryConstructionError } from './tool-registry.js';
 export type {

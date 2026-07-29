@@ -1,0 +1,474 @@
+{
+  "meta": {
+    "version": "artifact-resolver-matrix/1.0-PROPOSAL",
+    "date": "2026-07-29",
+    "companion_spec": "artifact-resolver-SPEC.md",
+    "purpose": "Hand-re-derivable acceptance for resolve(). INVALID if fabricated content, silent drop of contract path, COMPLETE with unresolved non-empty, or non-contract in artifacts.",
+    "blob_key": "ref:path",
+    "defaults": {
+      "maxRefDepth": 8,
+      "followExternalRefs": false,
+      "openApiAssembly": "bundle_inline",
+      "generatedGlobs": ["**/generated/**", "**/gen/**"]
+    },
+    "count": 14
+  },
+  "rows": [
+    {
+      "id": "AR-001",
+      "title": "Single-file OpenAPI edit",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["openapi.yaml"],
+        "blobs": {
+          "base:openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.0}\npaths:\n  /a:\n    get:\n      responses:\n        '200': {description: ok}\n",
+          "head:openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.1}\npaths:\n  /a:\n    get:\n      responses:\n        '200': {description: ok}\n"
+        },
+        "config": {}
+      },
+      "expected": {
+        "coverage": "COMPLETE",
+        "artifacts": [
+          {
+            "id": "openapi:openapi.yaml",
+            "type": "openapi",
+            "before_source": "base:openapi.yaml",
+            "after_source": "head:openapi.yaml",
+            "before_equals_blob": "base:openapi.yaml",
+            "after_equals_blob": "head:openapi.yaml"
+          }
+        ],
+        "unresolved": [],
+        "ignored_non_contract": [],
+        "artifacts_ready_for_preflight": true
+      },
+      "derivation": "Discovery openapi by name; load both sides; no $ref"
+    },
+    {
+      "id": "AR-002",
+      "title": "Multi-file OpenAPI: root unchanged listing but $ref'd component changed",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["spec/openapi.yaml", "spec/components.yaml"],
+        "blobs": {
+          "base:spec/openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.0}\npaths:\n  /pets:\n    get:\n      responses:\n        '200':\n          content:\n            application/json:\n              schema:\n                $ref: './components.yaml#/Pet'\n",
+          "head:spec/openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.0}\npaths:\n  /pets:\n    get:\n      responses:\n        '200':\n          content:\n            application/json:\n              schema:\n                $ref: './components.yaml#/Pet'\n",
+          "base:spec/components.yaml": "Pet:\n  type: object\n  properties:\n    id: {type: integer}\n    name: {type: string}\n",
+          "head:spec/components.yaml": "Pet:\n  type: object\n  properties:\n    id: {type: integer}\n"
+        },
+        "config": { "openApiAssembly": "bundle_inline" }
+      },
+      "expected": {
+        "coverage": "COMPLETE",
+        "artifacts": [
+          {
+            "id": "openapi:spec/openapi.yaml",
+            "type": "openapi",
+            "assembly": "bundle_inline",
+            "root": "spec/openapi.yaml",
+            "includes_blobs": [
+              "base:spec/openapi.yaml",
+              "base:spec/components.yaml",
+              "head:spec/openapi.yaml",
+              "head:spec/components.yaml"
+            ],
+            "notes": "Single artifact at root; before/after assembled deterministically; component-only change visible in after bundle"
+          }
+        ],
+        "unresolved": [],
+        "ssot_selections": [
+          { "chosen": "spec/openapi.yaml", "deferred": ["spec/components.yaml"], "reason": "single", "notes": "components is dependency not separate artifact when only supporting root; if both changed, root is the artifact id and components are inlined deps" }
+        ],
+        "notes": "If both root and components in changedFiles, produce ONE artifact for root with inlined components at each ref — not two openapi artifacts for the same surface"
+      },
+      "derivation": "§4 bundle_inline; components deferred as dependency; A1 assembly only from blobs"
+    },
+    {
+      "id": "AR-003",
+      "title": "Removed contract file — after empty",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["api/openapi.yaml"],
+        "blobs": {
+          "base:api/openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.0}\npaths: {}\n",
+          "head:api/openapi.yaml": null
+        },
+        "config": {}
+      },
+      "expected": {
+        "coverage": "COMPLETE",
+        "artifacts": [
+          {
+            "id": "openapi:api/openapi.yaml",
+            "type": "openapi",
+            "before_equals_blob": "base:api/openapi.yaml",
+            "after": ""
+          }
+        ],
+        "unresolved": []
+      },
+      "derivation": "§3 deleted ⇒ after ''"
+    },
+    {
+      "id": "AR-004",
+      "title": "Added contract file — before empty",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["api/openapi.yaml"],
+        "blobs": {
+          "base:api/openapi.yaml": null,
+          "head:api/openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.0}\npaths: {}\n"
+        },
+        "config": {}
+      },
+      "expected": {
+        "coverage": "COMPLETE",
+        "artifacts": [
+          {
+            "id": "openapi:api/openapi.yaml",
+            "type": "openapi",
+            "before": "",
+            "after_equals_blob": "head:api/openapi.yaml"
+          }
+        ],
+        "unresolved": []
+      },
+      "derivation": "§3 added ⇒ before ''"
+    },
+    {
+      "id": "AR-005",
+      "title": "Non-contract file in changedFiles — ignored",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["README.md", "src/app.ts"],
+        "blobs": {
+          "base:README.md": "# hi\n",
+          "head:README.md": "# hi there\n",
+          "base:src/app.ts": "export {}\n",
+          "head:src/app.ts": "export const x = 1\n"
+        },
+        "config": {}
+      },
+      "expected": {
+        "coverage": "EMPTY",
+        "artifacts": [],
+        "unresolved": [],
+        "ignored_non_contract": ["README.md", "src/app.ts"],
+        "artifacts_ready_for_preflight": true
+      },
+      "derivation": "§2 non-contract → ignore; EMPTY; ready true (nothing to preflight)"
+    },
+    {
+      "id": "AR-006",
+      "title": "Missing $ref target — unresolved, not fabricated",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["openapi.yaml"],
+        "blobs": {
+          "base:openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.0}\npaths:\n  /x:\n    get:\n      responses:\n        '200':\n          content:\n            application/json:\n              schema:\n                $ref: './missing-components.yaml#/Foo'\n",
+          "head:openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.1}\npaths:\n  /x:\n    get:\n      responses:\n        '200':\n          content:\n            application/json:\n              schema:\n                $ref: './missing-components.yaml#/Foo'\n",
+          "base:missing-components.yaml": null,
+          "head:missing-components.yaml": null
+        },
+        "config": { "openApiAssembly": "bundle_inline" }
+      },
+      "expected": {
+        "coverage": "UNRESOLVED",
+        "artifacts": [],
+        "unresolved": [
+          {
+            "path": "openapi.yaml",
+            "reason": "missing_ref_target",
+            "related_paths": ["missing-components.yaml"]
+          }
+        ],
+        "artifacts_ready_for_preflight": false,
+        "forbidden": ["fabricated empty Foo schema", "artifact with partial invent"]
+      },
+      "derivation": "§4.2 missing blob → unresolved; A1 no fabricate"
+    },
+    {
+      "id": "AR-007",
+      "title": "Generated + source both changed — SSOT picks source via generatedGlobs",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["openapi/openapi.yaml", "generated/openapi.json"],
+        "blobs": {
+          "base:openapi/openapi.yaml": "openapi: 3.0.0\ninfo: {title: src, version: 1.0.0}\npaths: {}\n",
+          "head:openapi/openapi.yaml": "openapi: 3.0.0\ninfo: {title: src, version: 1.0.1}\npaths: {}\n",
+          "base:generated/openapi.json": "{\"openapi\":\"3.0.0\",\"info\":{\"title\":\"gen\",\"version\":\"1.0.0\"},\"paths\":{}}",
+          "head:generated/openapi.json": "{\"openapi\":\"3.0.0\",\"info\":{\"title\":\"gen\",\"version\":\"1.0.1\"},\"paths\":{}}"
+        },
+        "config": {
+          "generatedGlobs": ["**/generated/**"]
+        }
+      },
+      "expected": {
+        "coverage": "COMPLETE",
+        "artifacts": [
+          {
+            "id": "openapi:openapi/openapi.yaml",
+            "type": "openapi",
+            "before_equals_blob": "base:openapi/openapi.yaml",
+            "after_equals_blob": "head:openapi/openapi.yaml"
+          }
+        ],
+        "unresolved": [],
+        "ssot_selections": [
+          {
+            "chosen": "openapi/openapi.yaml",
+            "deferred": ["generated/openapi.json"],
+            "reason": "generated_deprioritized"
+          }
+        ],
+        "notes": "Only one artifact; generated not second artifact"
+      },
+      "derivation": "§5.2 non-generated wins"
+    },
+    {
+      "id": "AR-008",
+      "title": "Ambiguous SSOT — two sources, no prefer, neither generated → unresolved",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["a/openapi.yaml", "b/openapi.yaml"],
+        "blobs": {
+          "base:a/openapi.yaml": "openapi: 3.0.0\ninfo: {title: a, version: 1.0.0}\npaths: {}\n",
+          "head:a/openapi.yaml": "openapi: 3.0.0\ninfo: {title: a, version: 1.0.1}\npaths: {}\n",
+          "base:b/openapi.yaml": "openapi: 3.0.0\ninfo: {title: b, version: 1.0.0}\npaths: {}\n",
+          "head:b/openapi.yaml": "openapi: 3.0.0\ninfo: {title: b, version: 1.0.1}\npaths: {}\n"
+        },
+        "config": {
+          "forceSameSurfaceGroup": ["a/openapi.yaml", "b/openapi.yaml"]
+        },
+        "notes": "Matrix uses explicit forceSameSurfaceGroup fixture flag to model logical surface pairing when heuristics alone leave paths separate; without grouping both resolve COMPLETE as two artifacts (AR-008b). This row tests ambiguous_ssot path."
+      },
+      "expected": {
+        "coverage": "UNRESOLVED",
+        "artifacts": [],
+        "unresolved": [
+          { "path": "a/openapi.yaml", "reason": "ambiguous_ssot" },
+          { "path": "b/openapi.yaml", "reason": "ambiguous_ssot" }
+        ],
+        "artifacts_ready_for_preflight": false
+      },
+      "derivation": "§5.2 else branch ambiguous_ssot"
+    },
+    {
+      "id": "AR-008b",
+      "title": "Two independent OpenAPI roots — two artifacts (not ambiguous)",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["a/openapi.yaml", "b/openapi.yaml"],
+        "blobs": {
+          "base:a/openapi.yaml": "openapi: 3.0.0\ninfo: {title: a, version: 1.0.0}\npaths: {}\n",
+          "head:a/openapi.yaml": "openapi: 3.0.0\ninfo: {title: a, version: 1.0.1}\npaths: {}\n",
+          "base:b/openapi.yaml": "openapi: 3.0.0\ninfo: {title: b, version: 1.0.0}\npaths: {}\n",
+          "head:b/openapi.yaml": "openapi: 3.0.0\ninfo: {title: b, version: 1.0.1}\npaths: {}\n"
+        },
+        "config": {}
+      },
+      "expected": {
+        "coverage": "COMPLETE",
+        "artifacts": [
+          { "id": "openapi:a/openapi.yaml", "type": "openapi" },
+          { "id": "openapi:b/openapi.yaml", "type": "openapi" }
+        ],
+        "unresolved": [],
+        "notes": "Default grouping = each path alone"
+      },
+      "derivation": "Default no group → two artifacts COMPLETE"
+    },
+    {
+      "id": "AR-009",
+      "title": "Unreadable blob → unresolved",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["openapi.yaml"],
+        "blobs": {
+          "base:openapi.yaml": { "error": "unreadable_blob", "detail": "io_error" },
+          "head:openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.1}\npaths: {}\n"
+        },
+        "config": {}
+      },
+      "expected": {
+        "coverage": "UNRESOLVED",
+        "artifacts": [],
+        "unresolved": [
+          { "path": "openapi.yaml", "reason": "unreadable_blob" }
+        ],
+        "artifacts_ready_for_preflight": false
+      },
+      "derivation": "§3 error blob → unresolved"
+    },
+    {
+      "id": "AR-010",
+      "title": "Mixed: one good OpenAPI + one missing $ref → PARTIAL",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["good/openapi.yaml", "bad/openapi.yaml"],
+        "blobs": {
+          "base:good/openapi.yaml": "openapi: 3.0.0\ninfo: {title: g, version: 1.0.0}\npaths: {}\n",
+          "head:good/openapi.yaml": "openapi: 3.0.0\ninfo: {title: g, version: 1.0.1}\npaths: {}\n",
+          "base:bad/openapi.yaml": "openapi: 3.0.0\ninfo: {title: b, version: 1.0.0}\npaths:\n  /x:\n    get:\n      responses:\n        '200':\n          content:\n            application/json:\n              schema: {$ref: './nope.yaml#/X'}\n",
+          "head:bad/openapi.yaml": "openapi: 3.0.0\ninfo: {title: b, version: 1.0.1}\npaths:\n  /x:\n    get:\n      responses:\n        '200':\n          content:\n            application/json:\n              schema: {$ref: './nope.yaml#/X'}\n",
+          "base:bad/nope.yaml": null,
+          "head:bad/nope.yaml": null
+        },
+        "config": { "openApiAssembly": "bundle_inline" }
+      },
+      "expected": {
+        "coverage": "PARTIAL",
+        "artifacts": [
+          { "id": "openapi:good/openapi.yaml", "type": "openapi" }
+        ],
+        "unresolved": [
+          { "path": "bad/openapi.yaml", "reason": "missing_ref_target", "related_paths": ["bad/nope.yaml"] }
+        ],
+        "artifacts_ready_for_preflight": false
+      },
+      "derivation": "§7 PARTIAL = artifacts≥1 and unresolved≥1"
+    },
+    {
+      "id": "AR-011",
+      "title": "ssotPrefer overrides generated deprioritization reverse",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["source/openapi.yaml", "generated/openapi.yaml"],
+        "blobs": {
+          "base:source/openapi.yaml": "openapi: 3.0.0\ninfo: {title: s, version: 1.0.0}\npaths: {}\n",
+          "head:source/openapi.yaml": "openapi: 3.0.0\ninfo: {title: s, version: 1.0.1}\npaths: {}\n",
+          "base:generated/openapi.yaml": "openapi: 3.0.0\ninfo: {title: g, version: 1.0.0}\npaths: {}\n",
+          "head:generated/openapi.yaml": "openapi: 3.0.0\ninfo: {title: g, version: 1.0.1}\npaths: {}\n"
+        },
+        "config": {
+          "generatedGlobs": ["**/generated/**"],
+          "ssotPrefer": ["generated/openapi.yaml"],
+          "forceSameSurfaceGroup": ["source/openapi.yaml", "generated/openapi.yaml"]
+        }
+      },
+      "expected": {
+        "coverage": "COMPLETE",
+        "artifacts": [
+          { "id": "openapi:generated/openapi.yaml", "type": "openapi" }
+        ],
+        "ssot_selections": [
+          {
+            "chosen": "generated/openapi.yaml",
+            "deferred": ["source/openapi.yaml"],
+            "reason": "ssotPrefer"
+          }
+        ]
+      },
+      "derivation": "§5.3 ssotPrefer beats generated_deprioritized"
+    },
+    {
+      "id": "AR-012",
+      "title": "External http $ref forbidden by default",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["openapi.yaml"],
+        "blobs": {
+          "base:openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.0}\npaths:\n  /x:\n    get:\n      responses:\n        '200':\n          content:\n            application/json:\n              schema:\n                $ref: 'https://example.com/schemas/pet.json'\n",
+          "head:openapi.yaml": "openapi: 3.0.0\ninfo: {title: t, version: 1.0.1}\npaths:\n  /x:\n    get:\n      responses:\n        '200':\n          content:\n            application/json:\n              schema:\n                $ref: 'https://example.com/schemas/pet.json'\n"
+        },
+        "config": { "followExternalRefs": false, "openApiAssembly": "bundle_inline" }
+      },
+      "expected": {
+        "coverage": "UNRESOLVED",
+        "artifacts": [],
+        "unresolved": [
+          { "path": "openapi.yaml", "reason": "external_ref_forbidden" }
+        ]
+      },
+      "derivation": "§4.2 external default forbidden"
+    },
+    {
+      "id": "AR-013",
+      "title": "MCP manifest single-file + GraphQL single-file multi-protocol change set",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["mcp.json", "schema.graphql", "README.md"],
+        "blobs": {
+          "base:mcp.json": "{\"tools\":[{\"name\":\"a\",\"inputSchema\":{\"type\":\"object\"}}]}",
+          "head:mcp.json": "{\"tools\":[{\"name\":\"a\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}]}",
+          "base:schema.graphql": "type Query { x: String }\n",
+          "head:schema.graphql": "type Query { x: String y: Int }\n",
+          "base:README.md": "x\n",
+          "head:README.md": "y\n"
+        },
+        "config": {}
+      },
+      "expected": {
+        "coverage": "COMPLETE",
+        "artifacts": [
+          { "id": "graphql:schema.graphql", "type": "graphql" },
+          { "id": "mcp_manifest:mcp.json", "type": "mcp_manifest" }
+        ],
+        "ignored_non_contract": ["README.md"],
+        "unresolved": [],
+        "notes": "Multi-protocol one change set → multiple artifacts; server strictest-wins later"
+      },
+      "derivation": "Discovery per type; sort ids ASC"
+    },
+    {
+      "id": "AR-014",
+      "title": "ssotPrefer points at missing path → config_ssot_missing when it was the only candidate group prefer",
+      "input": {
+        "baseRef": "base",
+        "headRef": "head",
+        "changedFiles": ["generated/openapi.yaml"],
+        "blobs": {
+          "base:generated/openapi.yaml": "openapi: 3.0.0\ninfo: {title: g, version: 1.0.0}\npaths: {}\n",
+          "head:generated/openapi.yaml": "openapi: 3.0.0\ninfo: {title: g, version: 1.0.1}\npaths: {}\n",
+          "base:canonical/openapi.yaml": null,
+          "head:canonical/openapi.yaml": null
+        },
+        "config": {
+          "ssotPrefer": ["canonical/openapi.yaml"],
+          "requireSsotIfConfigured": true
+        },
+        "notes": "Optional strict flag: if ssotPrefer configured and preferred path absent while generated changed → unresolved config_ssot_missing. Without requireSsotIfConfigured, fall back to generated alone COMPLETE."
+      },
+      "expected_strict": {
+        "coverage": "UNRESOLVED",
+        "unresolved": [
+          { "path": "canonical/openapi.yaml", "reason": "config_ssot_missing" }
+        ],
+        "artifacts": []
+      },
+      "expected_default_lenient": {
+        "coverage": "COMPLETE",
+        "artifacts": [
+          { "id": "openapi:generated/openapi.yaml", "type": "openapi" }
+        ],
+        "notes": "SPEC default: ssotPrefer only ranks existing candidates; missing prefer entry does not block sole candidate"
+      },
+      "derivation": "Open Q; matrix documents both; implementer picks default_lenient unless requireSsotIfConfigured"
+    }
+  ],
+  "validation_checklist": [
+    "AR-001 single file COMPLETE",
+    "AR-003 after '' on delete; AR-004 before '' on add",
+    "AR-005 non-contract ignored EMPTY",
+    "AR-006 missing ref UNRESOLVED no artifact",
+    "AR-007 SSOT source over generated",
+    "AR-010 PARTIAL one good one bad",
+    "AR-012 external ref forbidden",
+    "No COMPLETE with unresolved non-empty",
+    "produces_verdict never true"
+  ]
+}
