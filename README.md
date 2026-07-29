@@ -15,14 +15,39 @@ import { CodeRifts } from '@coderifts/sdk';
 const client = new CodeRifts({ apiKey: 'cr_live_...' });
 
 const outcome = await guardToolCall(
-  { toolName: 'Edit', arguments: { path: 'openapi.yaml' }, filesTouched: ['openapi.yaml'], diff: '...' },
+  {
+    toolName: 'Edit',
+    arguments: { path: 'openapi.yaml' },
+    // Supply the contract change as artifacts[] with before/after content — this is what the
+    // server preflights. `id`/`type`/`before`/`after` are all required for each artifact.
+    artifacts: [{ id: 'public-api', type: 'openapi', before: baseSpec, after: proposedSpec }],
+  },
   // The mutating work is created ONLY here, after the verdict — never eagerly (closes TOCTOU).
   async (envelope, redactedCall) => applyEdit(redactedCall),
-  { client },
+  { client, operation: 'merge', environment: 'production' },
 );
 
 if (!outcome.executed) console.error('blocked:', outcome.verdict);
 // Retry ONLY when outcome.executionAttempted === false (the safe-to-retry signal).
+```
+
+> **Supply `artifacts[]` with content.** If the guard detects a contract change (e.g. from
+> `filesTouched`/`diff`) but you did **not** supply `artifacts[]` with `before`/`after`, it fails
+> closed **locally** with `outcome.verdict.cause === 'MISSING_ARTIFACT_CONTENT'` — the tool does not
+> execute and the error is *actionable* (pass the change as artifacts), not a package failure. The
+> guard never sends an empty change set to the server.
+
+### Guarding the whole tool surface (inescapability)
+
+`guardToolCall` guards one call. To make CodeRifts the **only** path a mutating tool can take, wrap
+your entire tool list with [`guardToolRegistry`](#) — it returns the sole tool table the agent may
+see (every mutator wrapped, fail-closed at construction if any would remain raw):
+
+```typescript
+import { guardToolRegistry } from '@coderifts/agent-guard';
+
+const { tools, coverage } = guardToolRegistry(rawTools, { guard: { client } });
+// register ONLY `tools` with your agent SDK; coverage === 'COMPLETE' ⇒ no mutator is reachable raw.
 ```
 
 ## Guarantees (tsc-verified)

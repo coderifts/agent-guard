@@ -13,7 +13,7 @@ import { readDecision } from '@coderifts/sdk';
 import type {
   GuardConfig, GuardOutcome, GuardVerdict, ApprovedVerdict, UnavailableCause, AvailabilityCause,
   IntegrityCause, ToolCallDescriptor, ExecuteFactory, GuardEvent, ReceiptVerifiedEnvelope,
-  DecisionResultEnvelope, UnavailableVerdict,
+  DecisionResultEnvelope, UnavailableVerdict, Artifact,
 } from './types.js';
 import { builtinDetector } from './detector.js';
 import { bindReceiptToEnvelope } from './receipt-binding.js';
@@ -147,6 +147,22 @@ function blocked<T>(verdict: GuardVerdict, preflighted: boolean): GuardOutcome<T
   return { executionAttempted: false, executed: false, enforced: false, verdict, preflighted };
 }
 
+/**
+ * True iff at least one supplied artifact carries analyzable before/after content. A preflight
+ * trigger with no such content cannot be analyzed by the server (an empty list comes back as an
+ * opaque REQUEST_REJECTED), so the guard fails closed LOCALLY with MISSING_ARTIFACT_CONTENT instead.
+ * Reads defensively — the caller's artifacts are untrusted runtime data.
+ */
+function hasAnalyzableContent(artifacts: Artifact[] | undefined): boolean {
+  if (!Array.isArray(artifacts) || artifacts.length === 0) return false;
+  return artifacts.some((a) => {
+    if (!a || typeof a !== 'object') return false;
+    const before = (a as { before?: unknown }).before;
+    const after = (a as { after?: unknown }).after;
+    return (typeof before === 'string' && before.length > 0) || (typeof after === 'string' && after.length > 0);
+  });
+}
+
 type UvArm =
   | { cause: IntegrityCause; failPolicy: 'closed' | 'open' | 'lkg'; resolution: 'CLOSED'; action: 'STOP' }
   | { cause: AvailabilityCause; failPolicy: 'closed' | 'open' | 'lkg'; resolution: 'CLOSED'; action: 'STOP' }
@@ -194,6 +210,21 @@ export async function guardToolCall<T>(
     emit(config, { type: 'detection_skip', at: iso(), signals: detection.signals, detectorVersion: detector.version });
     const verdict: GuardVerdict = { kind: 'SKIPPED', reason: 'NOT_A_CONTRACT_CALL', signals: detection.signals, detectorVersion: detector.version };
     return runUnenforced(config, executeFactory, null, verdict, false, redacted);
+  }
+
+  // MISSING_ARTIFACT_CONTENT — developer-adoption fail-closed (audit #1). The detector says a contract
+  // change is happening (trigger:true) but the caller supplied NO analyzable content: no artifacts, or
+  // artifacts without before/after. Sending an empty list to the server returns an opaque
+  // REQUEST_REJECTED; instead fail closed LOCALLY with a clear, actionable cause so the developer knows
+  // to pass artifacts:[{ id, type, before, after }]. The tool does NOT execute (fail-closed preserved).
+  // This can only fire when preflight is genuinely required — a non-contract/readonly call already
+  // returned via the SKIPPED path above. It is NOT a server-availability failure, so it does NOT trip
+  // the breaker (a developer's missing content must not degrade the open-policy path for later calls).
+  if (!hasAnalyzableContent(detection.artifacts)) {
+    emit(config, { type: 'artifact_content_missing', at: iso(), cause: 'MISSING_ARTIFACT_CONTENT', signals: detection.signals });
+    const count = (breakers.get(config)?.fails.length) ?? 0;
+    const v = unavailableVerdict({ cause: 'MISSING_ARTIFACT_CONTENT', failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
+    return blocked(v, false);
   }
 
   // config validation: lkg policy requires an LkgStore.

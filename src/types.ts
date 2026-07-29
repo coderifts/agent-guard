@@ -113,7 +113,8 @@ export type IntegrityCause =
   | 'ANALYSIS_DEGRADED'           // analysis_complete=false / degraded_reasons / degraded / coverage_gap (§111)
   | 'ARTIFACT_MISMATCH'           // envelope artifact_digest / input_fingerprint ≠ locally-recomputed value
   | 'RECEIPT_MISSING'             // contract-triggering executable decision with no verifiable receipt (no unenforced execute)
-  | 'MONITORING_UNWIRED';         // CONTINUE_WITH_MONITORING but no onEvent sink → cannot enforce monitoring
+  | 'MONITORING_UNWIRED'          // CONTINUE_WITH_MONITORING but no onEvent sink → cannot enforce monitoring
+  | 'MISSING_ARTIFACT_CONTENT';   // detector triggered (preflight required) but no analyzable artifacts[] with before/after → fail closed LOCALLY (developer must supply content), never send an empty list to the server
 export type UnavailableCause = AvailabilityCause | IntegrityCause;
 
 // D-detector — fail-safe + versioned (the trust core; the Grok corpus of 68
@@ -136,7 +137,8 @@ export type GuardEvent =
   | { type: 'preflight_start'|'preflight_result'|'preflight_unavailable'
           |'detection_skip'|'execution_started'|'execution_skipped'
           |'monitoring_required'|'monitoring_unwired'|'receipt_unverified'
-          |'breaker_tripped'|'observe_only_passthrough'|'factory_error';
+          |'breaker_tripped'|'observe_only_passthrough'|'factory_error'
+          |'artifact_content_missing';   // detector triggered but no analyzable artifacts[] → local fail-closed
       at: string; correlationId?: string; decisionId?: string;
       action?: ExecutionAction; cause?: string; durationMs?: number;
       signals?: string[]; detectorVersion?: string };
