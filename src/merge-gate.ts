@@ -105,6 +105,12 @@ function normSha(s: string | null | undefined): string {
   return String(s == null ? '' : s).trim().toLowerCase();
 }
 
+/** Normalize an operation label for comparison (mirrors the deploy-gate): trim + lowercase, so a
+ *  canonical 'merge' in any notation ('Merge', 'MERGE') is valid, while an absent/other op fails. */
+function normOp(o: string | null | undefined): string {
+  return String(o == null ? '' : o).trim().toLowerCase();
+}
+
 /** §1.2 — full lowercase SHA equality by default; prefix comparison is opt-in. */
 function sameHead(a: string, b: string, allowPrefix: boolean): boolean {
   const na = normSha(a);
@@ -166,9 +172,11 @@ export function gateDecision(input: GateDecisionInput): GateDecision {
   if (receipt.currently_authorized !== true) {
     return fail('failure', 'receipt_not_authorized');
   }
-  // 4) operation binding — a receipt for a different operation does not authorize this gate.
+  // 4) operation binding (RT-P-01 / RT-P-05) — a receipt for a different operation does not authorize
+  //    this gate, and a MISSING operation also fails closed (mirrors the deploy-gate T7). Compared via
+  //    normOp so casing is notation, not an attack: 'Merge' is a valid merge; only a real other op fails.
   const op = rc.operation ?? 'merge';
-  if (receipt.operation != null && receipt.operation !== op) {
+  if (receipt.operation == null || normOp(receipt.operation) !== normOp(op)) {
     return fail('failure', 'operation_mismatch');
   }
   // 5) STALE HEAD — the central invariant: a receipt bound to an old head never greens a new one (M1).

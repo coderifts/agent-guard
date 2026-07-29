@@ -1,0 +1,633 @@
+{
+  "meta": {
+    "version": "pentad-redteam-matrix/1.0-PROPOSAL",
+    "date": "2026-07-29",
+    "companion": "pentad-redteam-findings.md",
+    "purpose": "Defense/regression fixtures for pure pentad logic. expected = CORRECT fail-closed after LEAK fixes; status field marks pre-fix leak vs already-safe.",
+    "count": 18
+  },
+  "fixtures": [
+    {
+      "id": "RTM-001",
+      "finding": "RT-P-01",
+      "kind": "LEAK_FIX",
+      "primitive": "gateDecision",
+      "title": "Merge gate must reject absent operation (mirror deploy)",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "operation": "merge",
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": false
+          }
+        }
+      },
+      "current_spec_unsafe_behavior": "May reach success/allow_current_head (operation check only if present)",
+      "expected_after_fix": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "operation_mismatch",
+        "inescapable_merge": false
+      }
+    },
+    {
+      "id": "RTM-002",
+      "finding": "RT-P-02",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "deployGate",
+      "title": "T7 merge receipt cannot authorize deploy",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "merge",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "operation_mismatch",
+        "inescapable_deploy": false
+      }
+    },
+    {
+      "id": "RTM-003",
+      "finding": "RT-P-03",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "gateDecision",
+      "title": "tool_call receipt on merge gate → operation_mismatch",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "tool_call",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": false
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "operation_mismatch",
+        "inescapable_merge": false
+      }
+    },
+    {
+      "id": "RTM-004",
+      "finding": "RT-P-04",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "deployGate",
+      "title": "Empty-string operation on deploy → mismatch",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "operation_mismatch",
+        "inescapable_deploy": false
+      }
+    },
+    {
+      "id": "RTM-005",
+      "finding": "RT-P-05",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "gateDecision",
+      "title": "Case variant Merge operation rejected under case-sensitive merge check",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "Merge",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": false
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": true,
+        "state": "success",
+        "reason": "allow_current_head",
+        "enforcement_state": "ENFORCING",
+        "inescapable_merge": true
+      },
+      "notes": "After unified normOp, 'merge'/'Merge' both OK only if norm maps to merge; still reject 'deploy'",
+      "relabel_note": "SUPERSEDED by RT-P-01 normOp fix: casing is notation, not an attack. Under normOp, operation \"Merge\" normalizes to \"merge\" and is now ACCEPTED as a valid merge (success/allow_current_head). A real other op (e.g. \"deploy\") still fails. Expectation relabeled accordingly.",
+      "original_expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "operation_mismatch",
+        "inescapable_merge": false
+      }
+    },
+    {
+      "id": "RTM-006",
+      "finding": "RT-P-06",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "gateDecision",
+      "title": "Stale head never success",
+      "input": {
+        "prHeadSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "merge",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": false
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "stale_head",
+        "inescapable_merge": false
+      }
+    },
+    {
+      "id": "RTM-007",
+      "finding": "RT-P-07",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "gateDecision",
+      "title": "Default no prefix: short bound sha ≠ full head",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "merge",
+          "bound_head_sha": "aaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": false
+          }
+        },
+        "allowPrefixCompare": false
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "stale_head",
+        "inescapable_merge": false
+      }
+    },
+    {
+      "id": "RTM-008",
+      "finding": "RT-P-08",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "gateDecision",
+      "title": "0x / whitespace on sha fails closed as stale",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "merge",
+          "bound_head_sha": " 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": false
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "stale_head",
+        "inescapable_merge": false
+      }
+    },
+    {
+      "id": "RTM-009",
+      "finding": "RT-P-09",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "deployGate",
+      "title": "prod vs production env near-miss → env_mismatch",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "prod",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "env_mismatch",
+        "inescapable_deploy": false
+      }
+    },
+    {
+      "id": "RTM-010",
+      "finding": "RT-P-10",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "deployGate",
+      "title": "Truncated artifact id does not match full digest",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "stale_artifact",
+        "inescapable_deploy": false
+      }
+    },
+    {
+      "id": "RTM-011",
+      "finding": "RT-P-11",
+      "kind": "LEAK_FIX",
+      "primitive": "deployGate",
+      "title": "Soft require_bound_environment false must not authorize without env bind when claiming ENFORCING",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "require_bound_environment": false,
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
+        }
+      },
+      "current_spec_unsafe_behavior": "env check skipped → may success",
+      "expected_after_fix": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "env_mismatch",
+        "inescapable_deploy": false,
+        "notes": "ENFORCING path forces require_bound_environment true"
+      }
+    },
+    {
+      "id": "RTM-012",
+      "finding": "RT-P-12",
+      "kind": "LEAK_FIX",
+      "primitive": "deployGate",
+      "title": "Soft require_bound_artifact false must not authorize without artifact bind on ENFORCING",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "require_bound_artifact": false,
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
+        }
+      },
+      "current_spec_unsafe_behavior": "artifact check skipped → may success",
+      "expected_after_fix": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "stale_artifact",
+        "inescapable_deploy": false
+      }
+    },
+    {
+      "id": "RTM-013",
+      "finding": "RT-P-13",
+      "kind": "LEAK_FIX",
+      "primitive": "coverageReport",
+      "title": "inescapable_merge true with ADVISORY enforcement must not yield FULLY_ENFORCED",
+      "input": {
+        "applicability": {
+          "runtime": true,
+          "merge": true,
+          "deploy": false,
+          "content": true
+        },
+        "runtime": {
+          "coverage": "COMPLETE",
+          "inescapable_runtime": true
+        },
+        "merge": {
+          "enforcement_state": "ADVISORY",
+          "inescapable_merge": true,
+          "residuals": []
+        },
+        "content": {
+          "coverage": "COMPLETE"
+        }
+      },
+      "current_spec_unsafe_behavior": "strength uses inescapable_merge alone → ENFORCING → may FULLY_ENFORCED",
+      "expected_after_fix": {
+        "overall_coverage": "PARTIALLY_ENFORCED",
+        "residuals_include": [
+          "inescapable_flag_inconsistent",
+          "merge_gate_advisory"
+        ],
+        "honest_claim_key": "claim_partially_enforced",
+        "flags": {
+          "may_claim_full_tetrad": false,
+          "may_claim_inescapable_merge": false
+        },
+        "per_placement_strength": {
+          "merge": "WEAK"
+        }
+      }
+    },
+    {
+      "id": "RTM-014",
+      "finding": "RT-P-14",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "coverageReport",
+      "title": "Missing applicable merge state → UNKNOWN not FULLY",
+      "input": {
+        "applicability": {
+          "runtime": true,
+          "merge": true,
+          "deploy": false,
+          "content": true
+        },
+        "runtime": {
+          "coverage": "COMPLETE",
+          "inescapable_runtime": true
+        },
+        "merge": null,
+        "content": {
+          "coverage": "COMPLETE"
+        }
+      },
+      "expected": {
+        "overall_coverage": "UNKNOWN",
+        "residuals_include": [
+          "merge_state_missing"
+        ],
+        "honest_claim_key": "claim_unknown",
+        "flags": {
+          "may_claim_full_tetrad": false
+        }
+      }
+    },
+    {
+      "id": "RTM-015",
+      "finding": "RT-P-15",
+      "kind": "CONFIRMED_SAFE",
+      "primitive": "coverageReport",
+      "title": "Synthetic residual when deploy ABSENT and applicable",
+      "input": {
+        "applicability": {
+          "runtime": true,
+          "merge": true,
+          "deploy": true,
+          "content": true
+        },
+        "runtime": {
+          "coverage": "COMPLETE",
+          "inescapable_runtime": true
+        },
+        "merge": {
+          "enforcement_state": "ENFORCING",
+          "inescapable_merge": true
+        },
+        "deploy": {
+          "enforcement_state": "ABSENT",
+          "inescapable_deploy": false,
+          "residuals": []
+        },
+        "content": {
+          "coverage": "COMPLETE"
+        }
+      },
+      "expected": {
+        "overall_coverage": "PARTIALLY_ENFORCED",
+        "residuals_include": [
+          "deploy_path_ungated"
+        ],
+        "flags": {
+          "may_claim_full_tetrad": false
+        }
+      }
+    },
+    {
+      "id": "RTM-016",
+      "finding": "RT-P-16",
+      "kind": "LEAK_FIX",
+      "primitive": "coverageReport",
+      "title": "Unattested applicability cannot claim FULLY even if placements green",
+      "input": {
+        "applicability": {
+          "runtime": true,
+          "merge": true,
+          "deploy": false,
+          "content": true
+        },
+        "applicability_attested": false,
+        "runtime": {
+          "coverage": "COMPLETE",
+          "inescapable_runtime": true
+        },
+        "merge": {
+          "enforcement_state": "ENFORCING",
+          "inescapable_merge": true
+        },
+        "content": {
+          "coverage": "COMPLETE"
+        }
+      },
+      "current_spec_unsafe_behavior": "No applicability_attested field — FULLY possible while real deploy path hidden via deploy:false",
+      "expected_after_fix": {
+        "overall_coverage": "PARTIALLY_ENFORCED",
+        "residuals_include": [
+          "applicability_unattested"
+        ],
+        "honest_claim_key": "claim_partially_enforced",
+        "flags": {
+          "may_claim_full_tetrad": false
+        },
+        "notes": "When attested true + same placements → FULLY (see RTM-016b)"
+      }
+    },
+    {
+      "id": "RTM-016b",
+      "finding": "RT-P-16",
+      "kind": "LEAK_FIX",
+      "primitive": "coverageReport",
+      "title": "Attested applicability + all ENFORCING → FULLY",
+      "input": {
+        "applicability": {
+          "runtime": true,
+          "merge": true,
+          "deploy": false,
+          "content": true
+        },
+        "applicability_attested": true,
+        "runtime": {
+          "coverage": "COMPLETE",
+          "inescapable_runtime": true
+        },
+        "merge": {
+          "enforcement_state": "ENFORCING",
+          "inescapable_merge": true
+        },
+        "content": {
+          "coverage": "COMPLETE"
+        }
+      },
+      "expected_after_fix": {
+        "overall_coverage": "FULLY_ENFORCED",
+        "residuals": [],
+        "honest_claim_key": "claim_fully_enforced",
+        "flags": {
+          "may_claim_full_tetrad": true
+        }
+      }
+    },
+    {
+      "id": "RTM-020",
+      "finding": "RT-P-20",
+      "kind": "LEAK_FIX",
+      "primitive": "gateDecision",
+      "title": "ENFORCING merge requires expected_fingerprint when require_fingerprint true",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "merge",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verdict_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "require_fingerprint": true,
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": false
+          }
+        }
+      },
+      "current_spec_unsafe_behavior": "expected_fingerprint optional → success without re-bind",
+      "expected_after_fix": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "fingerprint_mismatch",
+        "inescapable_merge": false,
+        "notes": "Or reason inputs_incomplete if expected_fingerprint absent while require_fingerprint"
+      }
+    }
+  ]
+}
