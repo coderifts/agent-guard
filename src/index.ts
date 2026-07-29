@@ -57,3 +57,17 @@ export type {
   ExecutionAction,
   Artifact,
 } from './types.js';
+
+// guardToolRegistry — the agent-runtime inescapability layer ABOVE guardToolCall (Placement A only).
+export { guardToolRegistry, RegistryConstructionError } from './tool-registry.js';
+export type {
+  RawTool,
+  ProtectedTool,
+  ToolMutationClass,
+  EnforcementCoverage,
+  RegistryCoverageReport,
+  GuardToolRegistryConfig,
+  RegistryResult,
+  ToolBinder,
+  RegistryConstructionErrorCode,
+} from './tool-registry.js';

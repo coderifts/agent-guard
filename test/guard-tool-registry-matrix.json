@@ -1,0 +1,355 @@
+{
+  "meta": {
+    "version": "guard-tool-registry-matrix/1.0-PROPOSAL",
+    "date": "2026-07-29",
+    "companion_spec": "guard-tool-registry-SPEC.md",
+    "purpose": "Hand-re-derivable acceptance rows for guardToolRegistry. INVALID if COMPLETE with unguarded mutator, or startup_ok when forceReadonly on mutator with default failHard, or unknown→readonly yields COMPLETE.",
+    "defaults": {
+      "unknownToolPolicy": "mutating",
+      "failOnUnguardedMutator": true,
+      "allowRawMutators": false
+    },
+    "count": 16
+  },
+  "rows": [
+    {
+      "id": "GTR-001",
+      "title": "Empty tool set",
+      "input": {
+        "rawTools": [],
+        "config": {}
+      },
+      "expected": {
+        "startup": "ok",
+        "protected_names": [],
+        "guarded_mutators": [],
+        "readonly_passthrough": [],
+        "unguarded_mutators": [],
+        "coverage": "COMPLETE",
+        "inescapable_runtime": true,
+        "inescapable_merge": false
+      },
+      "derivation": "No tools ⇒ M=∅ G=∅ ⇒ COMPLETE; merge claim always false"
+    },
+    {
+      "id": "GTR-002",
+      "title": "Read-only tools only — passthrough unguarded",
+      "input": {
+        "rawTools": [
+          { "name": "Read", "mutationClass": "readonly" },
+          { "name": "Grep", "mutationClass": "readonly" },
+          { "name": "Glob", "mutationClass": "readonly" }
+        ],
+        "config": {}
+      },
+      "expected": {
+        "startup": "ok",
+        "protected_names": ["Glob", "Grep", "Read"],
+        "guarded_mutators": [],
+        "readonly_passthrough": ["Glob", "Grep", "Read"],
+        "unguarded_mutators": [],
+        "coverage": "COMPLETE",
+        "inescapable_runtime": true,
+        "notes": "Names sorted ASC in report; guarded=false on readonly is OK"
+      },
+      "derivation": "All readonly; M empty; COMPLETE"
+    },
+    {
+      "id": "GTR-003",
+      "title": "Single declared mutator Write — must be guarded",
+      "input": {
+        "rawTools": [
+          { "name": "Write", "mutationClass": "mutating" }
+        ],
+        "config": {}
+      },
+      "expected": {
+        "startup": "ok",
+        "protected_names": ["Write"],
+        "guarded_mutators": ["Write"],
+        "readonly_passthrough": [],
+        "unguarded_mutators": [],
+        "coverage": "COMPLETE",
+        "inescapable_runtime": true,
+        "each_tool": { "Write": { "guarded": true, "mutationClass": "mutating" } }
+      },
+      "derivation": "Declared mutating → wrap → G={Write}=M"
+    },
+    {
+      "id": "GTR-004",
+      "title": "Heuristic mutator (apply_patch) without declared class",
+      "input": {
+        "rawTools": [
+          { "name": "apply_patch" }
+        ],
+        "config": {}
+      },
+      "expected": {
+        "startup": "ok",
+        "protected_names": ["apply_patch"],
+        "guarded_mutators": ["apply_patch"],
+        "mutationClass": { "apply_patch": "mutating" },
+        "coverage": "COMPLETE",
+        "unguarded_mutators": []
+      },
+      "derivation": "Name matches mutating heuristic → wrap"
+    },
+    {
+      "id": "GTR-005",
+      "title": "Unclassified unknown name — default unknownToolPolicy=mutating → guard",
+      "input": {
+        "rawTools": [
+          { "name": "weird_custom_tool_xyz" }
+        ],
+        "config": {}
+      },
+      "expected": {
+        "startup": "ok",
+        "protected_names": ["weird_custom_tool_xyz"],
+        "guarded_mutators": ["weird_custom_tool_xyz"],
+        "mutationClass": { "weird_custom_tool_xyz": "mutating" },
+        "coverage": "COMPLETE",
+        "unguarded_mutators": [],
+        "notes": "Conservative default: unknown = mutator = must guard"
+      },
+      "derivation": "§2.1 step 6 unknownPolicy mutating"
+    },
+    {
+      "id": "GTR-006",
+      "title": "Unknown + unknownToolPolicy=reject → startup fail",
+      "input": {
+        "rawTools": [
+          { "name": "weird_custom_tool_xyz" }
+        ],
+        "config": { "unknownToolPolicy": "reject" }
+      },
+      "expected": {
+        "startup": "fail",
+        "fail_code": "UNKNOWN_TOOL",
+        "coverage": null,
+        "tools": null
+      },
+      "derivation": "Unclassified + reject ⇒ throw before return"
+    },
+    {
+      "id": "GTR-007",
+      "title": "Unknown + unknownToolPolicy=readonly → PARTIAL (not COMPLETE)",
+      "input": {
+        "rawTools": [
+          { "name": "weird_custom_tool_xyz" }
+        ],
+        "config": {
+          "unknownToolPolicy": "readonly",
+          "failOnUnguardedMutator": false
+        }
+      },
+      "expected": {
+        "startup": "ok",
+        "protected_names": ["weird_custom_tool_xyz"],
+        "guarded_mutators": [],
+        "readonly_passthrough": ["weird_custom_tool_xyz"],
+        "coverage": "PARTIAL",
+        "inescapable_runtime": false,
+        "warnings_include": ["unknown_treated_as_readonly"]
+      },
+      "derivation": "§5.1 unknown→readonly ⇒ PARTIAL; inescapable_runtime false"
+    },
+    {
+      "id": "GTR-008",
+      "title": "Mixed set: Read + Write + Bash — all mutators guarded",
+      "input": {
+        "rawTools": [
+          { "name": "Read", "mutationClass": "readonly" },
+          { "name": "Write", "mutationClass": "mutating" },
+          { "name": "Bash", "mutationClass": "mutating_shell" }
+        ],
+        "config": {}
+      },
+      "expected": {
+        "startup": "ok",
+        "protected_names": ["Bash", "Read", "Write"],
+        "guarded_mutators": ["Bash", "Write"],
+        "readonly_passthrough": ["Read"],
+        "unguarded_mutators": [],
+        "coverage": "COMPLETE",
+        "each_tool": {
+          "Read": { "guarded": false, "mutationClass": "readonly" },
+          "Write": { "guarded": true, "mutationClass": "mutating" },
+          "Bash": { "guarded": true, "mutationClass": "mutating_shell" }
+        }
+      },
+      "derivation": "M={Bash,Write} all wrapped; COMPLETE"
+    },
+    {
+      "id": "GTR-009",
+      "title": "forceReadonly on heuristic mutator Write + default failHard → startup fail",
+      "input": {
+        "rawTools": [
+          { "name": "Write" }
+        ],
+        "config": {
+          "forceReadonly": ["Write"]
+        }
+      },
+      "expected": {
+        "startup": "fail",
+        "fail_code": "FORCE_READONLY_MUTATOR",
+        "coverage": null,
+        "notes": "Cannot claim inescapable runtime with break-glass open under default failHard"
+      },
+      "derivation": "§1.5 + §3: forceReadonly on mutator heuristic + failHard true ⇒ throw"
+    },
+    {
+      "id": "GTR-010",
+      "title": "forceReadonly on Write + failOnUnguardedMutator false → BYPASSED",
+      "input": {
+        "rawTools": [
+          { "name": "Write" },
+          { "name": "Read", "mutationClass": "readonly" }
+        ],
+        "config": {
+          "forceReadonly": ["Write"],
+          "failOnUnguardedMutator": false
+        }
+      },
+      "expected": {
+        "startup": "ok",
+        "protected_names": ["Read", "Write"],
+        "guarded_mutators": [],
+        "readonly_passthrough": ["Read", "Write"],
+        "unguarded_mutators": [],
+        "coverage": "BYPASSED",
+        "inescapable_runtime": false,
+        "inescapable_merge": false,
+        "warnings_include": ["force_readonly_on_mutator_heuristic:Write"],
+        "each_tool": {
+          "Write": { "guarded": false, "mutationClass": "readonly" }
+        }
+      },
+      "derivation": "§1.5 forced readonly on mutator ⇒ BYPASSED; failHard false allows construction"
+    },
+    {
+      "id": "GTR-011",
+      "title": "classify override: Bash forced readonly via classify (same as force path)",
+      "input": {
+        "rawTools": [
+          { "name": "Bash" }
+        ],
+        "config": {
+          "classify": { "Bash": "readonly" },
+          "failOnUnguardedMutator": false
+        }
+      },
+      "expected": {
+        "startup": "ok",
+        "coverage": "BYPASSED",
+        "inescapable_runtime": false,
+        "readonly_passthrough": ["Bash"],
+        "guarded_mutators": [],
+        "notes": "Explicit classify to readonly on shell tool is break-glass; BYPASSED. If failHard true, SPEC §1.5 should throw when heuristic was mutating_shell — treat classify readonly on shell name as FORCE_READONLY_MUTATOR when failHard"
+      },
+      "expected_if_failHard_default": {
+        "startup": "fail",
+        "fail_code": "FORCE_READONLY_MUTATOR",
+        "notes": "Default config omit failOnUnguardedMutator ⇒ true ⇒ fail. This row uses false."
+      },
+      "derivation": "Declared classify wins but honesty: shell as readonly is BYPASSED when allowed"
+    },
+    {
+      "id": "GTR-012",
+      "title": "Deploy-class tool binds operation=deploy",
+      "input": {
+        "rawTools": [
+          { "name": "deploy_prod", "mutationClass": "mutating_deploy" }
+        ],
+        "config": {}
+      },
+      "expected": {
+        "startup": "ok",
+        "guarded_mutators": ["deploy_prod"],
+        "coverage": "COMPLETE",
+        "binder_operation": { "deploy_prod": "deploy" },
+        "inescapable_runtime": true,
+        "inescapable_deploy": false,
+        "notes": "Guarded path uses operation=deploy inside guardToolCall; claim still not inescapable_deploy (needs env gate sibling)"
+      },
+      "derivation": "§4 table mutating_deploy → operation deploy; §5 claim.inescapable_deploy always false here"
+    },
+    {
+      "id": "GTR-013",
+      "title": "Duplicate tool names → startup fail",
+      "input": {
+        "rawTools": [
+          { "name": "Write", "mutationClass": "mutating" },
+          { "name": "Write", "mutationClass": "mutating" }
+        ],
+        "config": {}
+      },
+      "expected": {
+        "startup": "fail",
+        "fail_code": "DUPLICATE_TOOL_NAME"
+      },
+      "derivation": "§3 duplicate name"
+    },
+    {
+      "id": "GTR-014",
+      "title": "Missing execute → startup fail",
+      "input": {
+        "rawTools": [
+          { "name": "Write", "mutationClass": "mutating", "execute": null }
+        ],
+        "config": {}
+      },
+      "expected": {
+        "startup": "fail",
+        "fail_code": "INVALID_TOOL"
+      },
+      "derivation": "§3 missing execute"
+    },
+    {
+      "id": "GTR-015",
+      "title": "Invalid guard config (no client) → startup fail even with mutator present",
+      "input": {
+        "rawTools": [
+          { "name": "Write", "mutationClass": "mutating" }
+        ],
+        "config": {
+          "guard": {}
+        }
+      },
+      "expected": {
+        "startup": "fail",
+        "fail_code": "GUARD_CONFIG_INVALID",
+        "notes": "Cannot wrap without valid GuardConfig.client"
+      },
+      "derivation": "§3 GUARD_CONFIG_INVALID"
+    },
+    {
+      "id": "GTR-016",
+      "title": "Both-pattern name: WriteSearch — mutating wins over readonly substring",
+      "input": {
+        "rawTools": [
+          { "name": "WriteSearch" }
+        ],
+        "config": {}
+      },
+      "expected": {
+        "startup": "ok",
+        "mutationClass": { "WriteSearch": "mutating" },
+        "guarded_mutators": ["WriteSearch"],
+        "coverage": "COMPLETE",
+        "notes": "Contains Write + Search; mutating wins (§2.3)"
+      },
+      "derivation": "Both match → mutating wins → wrap"
+    }
+  ],
+  "validation_checklist": [
+    "No row has coverage COMPLETE with unguarded_mutators non-empty",
+    "No row has inescapable_merge true",
+    "GTR-005 unknown defaults to guarded mutator",
+    "GTR-009 forceReadonly + default failHard fails startup",
+    "GTR-010 forceReadonly + failHard false is BYPASSED not COMPLETE",
+    "GTR-001 empty set COMPLETE",
+    "GTR-002 readonly-only COMPLETE with guarded_mutators empty"
+  ]
+}
