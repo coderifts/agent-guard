@@ -1,0 +1,455 @@
+{
+  "meta": {
+    "version": "repo-merge-gate-matrix/1.0-PROPOSAL",
+    "date": "2026-07-29",
+    "companion_spec": "repo-merge-gate-SPEC.md §1",
+    "scope": "PURE gateDecision only — no GitHub API rows",
+    "defaults": {
+      "operation": "merge",
+      "allowWarnMerge": false,
+      "allowPrefixCompare": false,
+      "allowPending": false
+    },
+    "count": 16,
+    "validation_rule": "INVALID if stale_head yields success; if null receipt yields success; if inescapable_merge true without ENFORCING and !admin_bypass; if BLOCK yields success"
+  },
+  "rows": [
+    {
+      "id": "MG-001",
+      "title": "Valid ALLOW bound to current head + ENFORCING + no admin bypass → success + inescapable_merge",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verdict_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "body_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "operation": "merge",
+          "target_id": "repo:acme/api",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "operation": "merge",
+          "repository": "acme/api",
+          "expected_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "expected_body_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": false,
+            "required_context_name": "CodeRifts / contract-gate"
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": true,
+        "state": "success",
+        "reason": "allow_current_head",
+        "enforcement_state": "ENFORCING",
+        "inescapable_merge": true
+      },
+      "derivation": "All binds match; M6 claim true"
+    },
+    {
+      "id": "MG-002",
+      "title": "STALE: ALLOW for old head after push — must not success",
+      "input": {
+        "prHeadSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": false
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "stale_head",
+        "enforcement_state": "ENFORCING",
+        "inescapable_merge": false
+      },
+      "derivation": "M1 stale never allows"
+    },
+    {
+      "id": "MG-003",
+      "title": "BLOCK receipt currently_authorized structural — decision_not_allow",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "BLOCK",
+          "execution_action": "STOP",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "decision_not_allow",
+        "inescapable_merge": false
+      },
+      "derivation": "§1.3 BLOCK not allow-class"
+    },
+    {
+      "id": "MG-004",
+      "title": "No receipt — fail-closed",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": null,
+        "requiredContext": {
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        },
+        "allowPending": false
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "no_receipt",
+        "inescapable_merge": false
+      },
+      "derivation": "M2"
+    },
+    {
+      "id": "MG-005",
+      "title": "No receipt + allowPending → pending",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": null,
+        "requiredContext": {
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        },
+        "allowPending": true
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "pending",
+        "reason": "no_receipt",
+        "inescapable_merge": false
+      },
+      "derivation": "allowPending maps no_receipt to pending not success"
+    },
+    {
+      "id": "MG-006",
+      "title": "Expired / not currently_authorized",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": false,
+          "authz_reason": "expired",
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "receipt_not_authorized",
+        "inescapable_merge": false
+      },
+      "derivation": "M3 signature_valid insufficient"
+    },
+    {
+      "id": "MG-007",
+      "title": "Revoked receipt",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": false,
+          "authz_reason": "revoked",
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "receipt_not_authorized",
+        "inescapable_merge": false
+      },
+      "derivation": "M3"
+    },
+    {
+      "id": "MG-008",
+      "title": "REQUIRE_APPROVAL — not allow-class for merge gate",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "REQUIRE_APPROVAL",
+          "execution_action": "REQUEST_APPROVAL",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "decision_not_allow",
+        "inescapable_merge": false
+      },
+      "derivation": "§1.3 RA never greens merge without human allow-class receipt (not this row)"
+    },
+    {
+      "id": "MG-009",
+      "title": "operation=deploy receipt on merge gate → operation_mismatch",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "deploy",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "operation": "merge",
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "operation_mismatch",
+        "inescapable_merge": false
+      },
+      "derivation": "§1.4 step 4"
+    },
+    {
+      "id": "MG-010",
+      "title": "Fingerprint mismatch vs expected for current head",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verdict_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "expected_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "fingerprint_mismatch",
+        "inescapable_merge": false
+      },
+      "derivation": "§1.4 step 6"
+    },
+    {
+      "id": "MG-011",
+      "title": "body_hash mismatch",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "body_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "expected_body_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "body_hash_mismatch",
+        "inescapable_merge": false
+      },
+      "derivation": "§1.4 step 6 body_hash"
+    },
+    {
+      "id": "MG-012",
+      "title": "Good receipt but protection ABSENT — success check OK, inescapable_merge false",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "ABSENT",
+            "admin_bypass_possible": true
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": true,
+        "state": "success",
+        "reason": "allow_current_head",
+        "enforcement_state": "ABSENT",
+        "inescapable_merge": false,
+        "honesty": "cannot attest inescapable_merge — branch protection not configured"
+      },
+      "derivation": "§1.4 step 10; M6 fails on enforcement_state"
+    },
+    {
+      "id": "MG-013",
+      "title": "Good receipt + ADVISORY — success, inescapable_merge false",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "ADVISORY",
+            "admin_bypass_possible": true
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": true,
+        "state": "success",
+        "reason": "allow_current_head",
+        "enforcement_state": "ADVISORY",
+        "inescapable_merge": false
+      },
+      "derivation": "Check green for visibility; claim false"
+    },
+    {
+      "id": "MG-014",
+      "title": "ENFORCING but admin_bypass_possible — success allowed, inescapable_merge false",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "ENFORCING",
+            "admin_bypass_possible": true
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": true,
+        "state": "success",
+        "reason": "allow_current_head",
+        "enforcement_state": "ENFORCING",
+        "inescapable_merge": false,
+        "honesty": "admin_bypass_open residual"
+      },
+      "derivation": "M6 requires !admin_bypass_possible"
+    },
+    {
+      "id": "MG-015",
+      "title": "Protection UNKNOWN — never inescapable_merge",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": {
+            "enforcement": "UNKNOWN",
+            "admin_bypass_possible": true
+          }
+        }
+      },
+      "expected": {
+        "merge_allowed": true,
+        "state": "success",
+        "reason": "allow_current_head",
+        "enforcement_state": "UNKNOWN",
+        "inescapable_merge": false
+      },
+      "derivation": "Honesty: cannot attest"
+    },
+    {
+      "id": "MG-016",
+      "title": "WARN receipt default — not allow-class (allowWarnMerge false)",
+      "input": {
+        "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "WARN",
+          "execution_action": "CONTINUE_WITH_MONITORING",
+          "bound_head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "operation": "merge",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "protection": { "enforcement": "ENFORCING", "admin_bypass_possible": false }
+        }
+      },
+      "expected": {
+        "merge_allowed": false,
+        "state": "failure",
+        "reason": "decision_not_allow",
+        "inescapable_merge": false
+      },
+      "derivation": "§1.3 default allowWarnMerge false"
+    }
+  ],
+  "validation_checklist": [
+    "MG-002 stale_head never success",
+    "MG-004 null receipt never success",
+    "MG-001 only row with inescapable_merge true",
+    "MG-012/013/014/015 good receipt but inescapable_merge false",
+    "MG-003 BLOCK failure",
+    "No row invents a new decision score"
+  ]
+}

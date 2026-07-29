@@ -80,3 +80,10 @@ export type {
   ToolBinder,
   RegistryConstructionErrorCode,
 } from './tool-registry.js';
+
+// repo-merge-gate (#7) — the PURE repo-side merge decision (Placement B). No I/O; protection is input.
+export { gateDecision } from './merge-gate.js';
+export type {
+  GateDecisionInput, GateDecision, ReceiptView, RequiredContext, ProtectionState,
+  GateReason, GateStatusState, EnforcementState,
+} from './merge-gate.js';
