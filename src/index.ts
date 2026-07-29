@@ -87,3 +87,10 @@ export type {
   GateDecisionInput, GateDecision, ReceiptView, RequiredContext, ProtectionState,
   GateReason, GateStatusState, EnforcementState,
 } from './merge-gate.js';
+
+// deploy-gate (#8) — the PURE deploy authorization decision. No I/O; pipeline enforcement is input.
+export { deployGate } from './deploy-gate.js';
+export type {
+  DeployGateInput, DeployGateDecision, DeployReceiptView, DeployRequiredContext,
+  DeployEnforcementState, DeployTarget, DeployGateReason,
+} from './deploy-gate.js';

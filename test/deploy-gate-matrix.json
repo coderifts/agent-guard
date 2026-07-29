@@ -1,0 +1,510 @@
+{
+  "meta": {
+    "version": "deploy-gate-matrix/1.0-PROPOSAL",
+    "date": "2026-07-29",
+    "companion_spec": "deploy-gate-SPEC.md §1",
+    "scope": "PURE deployGate only — no CD/GitHub IO",
+    "defaults": {
+      "operation": "deploy",
+      "require_bound_environment": true,
+      "require_bound_artifact": true,
+      "allowWarnDeploy": false,
+      "allowPending": false
+    },
+    "count": 16,
+    "validation_rule": "INVALID if merge receipt succeeds; if staging receipt authorizes prod; if stale artifact succeeds; if inescapable_deploy true without ENFORCING∧¬bypass; if null receipt succeeds"
+  },
+  "rows": [
+    {
+      "id": "DG-001",
+      "title": "THE ONE: valid deploy ALLOW for target env+artifact + ENFORCING + no bypass → success + inescapable_deploy",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "service": "payments-api"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verdict_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "body_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "target_id": "svc:payments-api",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "operation": "deploy",
+          "service": "payments-api",
+          "expected_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "expected_body_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false,
+            "required_step_name": "CodeRifts / deploy-gate"
+          }
+        }
+      },
+      "expected": {
+        "deploy_allowed": true,
+        "state": "success",
+        "reason": "allow_current_deploy",
+        "enforcement_state": "ENFORCING",
+        "inescapable_deploy": true
+      },
+      "derivation": "All binds match; D8 claim true — ONLY row with inescapable_deploy true"
+    },
+    {
+      "id": "DG-002",
+      "title": "T7 core: MERGE receipt used for deploy → operation_mismatch",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "merge",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "operation_mismatch",
+        "enforcement_state": "ENFORCING",
+        "inescapable_deploy": false
+      },
+      "derivation": "D1 T7 merge ≠ deploy"
+    },
+    {
+      "id": "DG-003",
+      "title": "STAGING receipt for PRODUCTION deploy → env_mismatch",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "staging",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "env_mismatch",
+        "inescapable_deploy": false
+      },
+      "derivation": "D2 env binding"
+    },
+    {
+      "id": "DG-004",
+      "title": "Old receipt for newer artifact → stale_artifact",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "stale_artifact",
+        "inescapable_deploy": false
+      },
+      "derivation": "D3 deploy analog of stale_head"
+    },
+    {
+      "id": "DG-005",
+      "title": "BLOCK deploy receipt → decision_not_allow",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "BLOCK",
+          "execution_action": "STOP",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "decision_not_allow",
+        "inescapable_deploy": false
+      },
+      "derivation": "D6"
+    },
+    {
+      "id": "DG-006",
+      "title": "No receipt — fail-closed",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": null,
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        },
+        "allowPending": false
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "no_receipt",
+        "inescapable_deploy": false
+      },
+      "derivation": "D4"
+    },
+    {
+      "id": "DG-007",
+      "title": "No receipt + allowPending → pending",
+      "input": {
+        "deployTarget": {
+          "environment": "staging",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": null,
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        },
+        "allowPending": true
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "pending",
+        "reason": "no_receipt",
+        "inescapable_deploy": false
+      },
+      "derivation": "pending not success"
+    },
+    {
+      "id": "DG-008",
+      "title": "Expired / not currently_authorized",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": false,
+          "authz_reason": "expired",
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "receipt_not_authorized",
+        "inescapable_deploy": false
+      },
+      "derivation": "D5 signature insufficient"
+    },
+    {
+      "id": "DG-009",
+      "title": "Revoked receipt",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": false,
+          "authz_reason": "revoked",
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "receipt_not_authorized",
+        "inescapable_deploy": false
+      },
+      "derivation": "D5"
+    },
+    {
+      "id": "DG-010",
+      "title": "Missing operation on receipt → operation_mismatch (fail-closed)",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "operation_mismatch",
+        "inescapable_deploy": false
+      },
+      "derivation": "§1.4 absent operation cannot authorize deploy"
+    },
+    {
+      "id": "DG-011",
+      "title": "Fingerprint mismatch",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verdict_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "expected_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "fingerprint_mismatch",
+        "inescapable_deploy": false
+      },
+      "derivation": "optional re-bind"
+    },
+    {
+      "id": "DG-012",
+      "title": "Good deploy receipt but enforcement ABSENT — success signal, inescapable_deploy false",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": {
+            "enforcement": "ABSENT",
+            "bypass_possible": true
+          }
+        }
+      },
+      "expected": {
+        "deploy_allowed": true,
+        "state": "success",
+        "reason": "allow_current_deploy",
+        "enforcement_state": "ABSENT",
+        "inescapable_deploy": false,
+        "honesty": "deploy path not enforcing"
+      },
+      "derivation": "D8 fails on enforcement_state"
+    },
+    {
+      "id": "DG-013",
+      "title": "Good receipt + ADVISORY pipeline — inescapable_deploy false",
+      "input": {
+        "deployTarget": {
+          "environment": "staging",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "staging",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": {
+            "enforcement": "ADVISORY",
+            "bypass_possible": true
+          }
+        }
+      },
+      "expected": {
+        "deploy_allowed": true,
+        "state": "success",
+        "reason": "allow_current_deploy",
+        "enforcement_state": "ADVISORY",
+        "inescapable_deploy": false
+      },
+      "derivation": "honesty"
+    },
+    {
+      "id": "DG-014",
+      "title": "ENFORCING but bypass_possible — success, inescapable_deploy false",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": true
+          }
+        }
+      },
+      "expected": {
+        "deploy_allowed": true,
+        "state": "success",
+        "reason": "allow_current_deploy",
+        "enforcement_state": "ENFORCING",
+        "inescapable_deploy": false,
+        "honesty": "bypass_open residual"
+      },
+      "derivation": "D8 requires !bypass_possible"
+    },
+    {
+      "id": "DG-015",
+      "title": "REQUIRE_APPROVAL — not allow-class for deploy",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "REQUIRE_APPROVAL",
+          "execution_action": "REQUEST_APPROVAL",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": false,
+        "state": "failure",
+        "reason": "decision_not_allow",
+        "inescapable_deploy": false
+      },
+      "derivation": "D6"
+    },
+    {
+      "id": "DG-016",
+      "title": "Env case-normalize: Production vs production match",
+      "input": {
+        "deployTarget": {
+          "environment": "Production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+        }
+      },
+      "expected": {
+        "deploy_allowed": true,
+        "state": "success",
+        "reason": "allow_current_deploy",
+        "enforcement_state": "ENFORCING",
+        "inescapable_deploy": true
+      },
+      "derivation": "normEnv lowercase; still only success+ENFORCING+!bypass → claim true"
+    }
+  ],
+  "validation_checklist": [
+    "DG-001 and DG-016 only rows with inescapable_deploy true (both ENFORCING full bind)",
+    "DG-002 merge → operation_mismatch",
+    "DG-003 staging→prod env_mismatch",
+    "DG-004 stale_artifact",
+    "DG-006 no receipt never success",
+    "DG-012/013/014 good receipt but inescapable_deploy false",
+    "No row re-scores risk"
+  ]
+}
