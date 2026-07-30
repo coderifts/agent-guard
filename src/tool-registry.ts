@@ -178,7 +178,15 @@ function operationForClass(cls: ToolMutationClass, name: string, guardOperation?
 }
 
 function defaultBinder(tool: RawTool, args: unknown): ToolCallDescriptor {
-  return { toolName: tool.name, arguments: args };
+  const d: ToolCallDescriptor = { toolName: tool.name, arguments: args };
+  // audit L6: forward args.artifacts (the documented convention) so a valid contract-edit is
+  // analyzable via the default binder instead of failing closed (MISSING_ARTIFACT_CONTENT) only
+  // because no explicit binder was written. ONLY artifacts is forwarded: filesTouched/diff carry
+  // no before/after content and must still fail closed without artifacts (missing-artifact-content).
+  if (args && typeof args === 'object' && Array.isArray((args as { artifacts?: unknown }).artifacts)) {
+    d.artifacts = (args as { artifacts: ToolCallDescriptor['artifacts'] }).artifacts;
+  }
+  return d;
 }
 
 // raw executors kept OFF the protected object (§1.2 opaque handle).

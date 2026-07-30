@@ -36,6 +36,11 @@ if (!outcome.executed) console.error('blocked:', outcome.verdict);
 > closed **locally** with `outcome.verdict.cause === 'MISSING_ARTIFACT_CONTENT'` — the tool does not
 > execute and the error is *actionable* (pass the change as artifacts), not a package failure. The
 > guard never sends an empty change set to the server.
+>
+> **The default binder now forwards `args.artifacts`.** If your tool call carries the change as an
+> `artifacts` array in its arguments, `guardToolRegistry` picks it up automatically (no explicit
+> binder needed). A custom binder is still required only when the content lives under a different
+> argument name or must be resolved from `filesTouched`/`diff`.
 
 ### Guarding the whole tool surface (inescapability)
 

@@ -152,3 +152,32 @@ describe('(d) MISSING_ARTIFACT_CONTENT propagates cleanly through guardToolRegis
     assert.equal(outcome.verdict.cause, 'MISSING_ARTIFACT_CONTENT', 'the local cause propagates through wrapWithGuard');
   });
 });
+
+// ── (e) audit L6: args.artifacts flows through the DEFAULT binder (no explicit binder needed) ────────
+describe('(e) audit L6: default binder forwards args.artifacts', () => {
+  const STUB_CLIENT = { async preflightChangeSet() { return {}; }, async verifyReceipt() { return {}; } };
+
+  it('a registry-wrapped tool called with { artifacts } in its ARGS reaches preflight, not MISSING_ARTIFACT_CONTENT', async () => {
+    const registry = guardToolRegistry(
+      [{ name: 'apply_openapi', mutationClass: 'mutating', execute: async () => 'APPLIED' }],
+      { guard: { client: STUB_CLIENT, operation: 'merge' } },
+    );
+    // No explicit binder. The change is carried as `artifacts` in the tool-call ARGS.
+    // The default binder must forward it so the guard analyzes content instead of failing
+    // closed locally. Proof of L6: the local MISSING_ARTIFACT_CONTENT cause is NOT raised.
+    const outcome = await registry.tools[0].execute({ artifacts: ARTIFACTS });
+    const cause = outcome && outcome.verdict && outcome.verdict.cause;
+    assert.notEqual(cause, 'MISSING_ARTIFACT_CONTENT',
+      'default binder forwarded args.artifacts → guard saw content (did not fail closed locally)');
+  });
+
+  it('WITHOUT artifacts in args, the same tool still fails closed locally (fail-closed preserved)', async () => {
+    const registry = guardToolRegistry(
+      [{ name: 'apply_openapi', mutationClass: 'mutating', execute: async () => 'APPLIED' }],
+      { guard: { client: STUB_CLIENT, operation: 'merge' } },
+    );
+    // args carry NO artifacts and NO before/after content → detector triggers, still fail-closed.
+    const outcome = await registry.tools[0].execute({ path: 'openapi.yaml', filesTouched: ['openapi.yaml'], diff: '- a\n+ b' });
+    assert.equal(outcome.executed, false, 'still fail-closed when no artifacts content is present');
+  });
+});
