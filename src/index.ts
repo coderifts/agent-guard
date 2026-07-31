@@ -3,6 +3,10 @@
  *
  * Preflight contract changes before they execute. Security core FROZEN (agent-guard-api v1.0).
  *
+ * An additive orchestration layer (withCodeRifts) now sits ALONGSIDE the frozen security core: it
+ * composes the frozen primitives behind one entry point and reports a separate, narrower
+ * composition-level assurance. It never modifies or re-decides any frozen primitive.
+ *
  * @example
  * ```ts
  * import { guardToolCall } from '@coderifts/agent-guard';
@@ -102,3 +106,10 @@ export type {
   OverallCoverage, HonestClaimKey, PerPlacementRow,
   RuntimePlacementInput, MergePlacementInput, DeployPlacementInput, ContentPlacementInput,
 } from './coverage-report.js';
+
+// withCodeRifts (S1) — additive orchestration ABOVE the frozen primitives. Wraps guardToolRegistry
+// with a mandatory operation; reports the registry's untouched report + a narrower composition assurance.
+export { withCodeRifts } from './with-coderifts.js';
+export type {
+  WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, CompositionAssurance,
+} from './with-coderifts.js';
