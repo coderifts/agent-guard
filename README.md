@@ -55,6 +55,93 @@ const { tools, coverage } = guardToolRegistry(rawTools, { guard: { client } });
 // register ONLY `tools` with your agent SDK; coverage === 'COMPLETE' ⇒ no mutator is reachable raw.
 ```
 
+### One-call orchestration with `withCodeRifts` (S1 + S2)
+
+`withCodeRifts` wraps `guardToolRegistry` behind a single call that takes a **mandatory** `operation`
+and returns the protected tools plus **two separate coverage statements**: the registry's own report and
+a narrower, product-level composition assurance. Register **only** the returned `tools`:
+
+```typescript
+import { withCodeRifts } from '@coderifts/agent-guard';
+
+const { tools, registry_report, composition_assurance } = withCodeRifts({
+  tools: rawTools,      // your raw tool list
+  client,               // the CodeRifts client (same one guardToolRegistry expects)
+  operation: 'merge',   // REQUIRED — no default (see below)
+});
+// register ONLY `tools` with your agent SDK. Anything the host registers directly is OUTSIDE
+// the guard — the composition can only protect the table it returns.
+```
+
+**Why `operation` is mandatory (no default).** Receipts bind to an operation and `merge` is not
+`deploy`, so a silent default would evaluate a deployment under merge semantics. `operation` is the
+session-level default for **generic** mutating tools only; a tool with a specialised mutation class
+(`mutating_deploy`, `mutating_publish`, `mutating_vcs`, …) still derives its own operation from that
+class — `operation` does not override it.
+
+**The two scopes — the point of this call.** The return carries two coverage statements answering two
+different questions. Captured output from a real call against the current build (a clean list of two
+mutating tools):
+
+```jsonc
+// composition_assurance — shown WHOLE:
+{
+  "coverage": "PARTIAL",
+  "inescapable_runtime": false,
+  "residuals": ["composition_call_policy_incomplete"]
+}
+
+// registry_report — abbreviated (… marks fields elided here, NOT trimmed to read cleaner):
+{
+  "coverage": "COMPLETE",
+  "guarded_mutators": ["edit_file", "write_config"],
+  "unguarded_mutators": [],
+  "claim": { "inescapable_runtime": true, "inescapable_merge": false, "inescapable_deploy": false },
+  "warnings": []
+  // … version, protected_tools, readonly_passthrough, unknown_treated_as, siblings
+}
+```
+
+- **`registry_report`** is the truth about the tool table that was wrapped. It may legitimately say
+  `COMPLETE` with `inescapable_runtime: true` — every mutator wrapped, none reachable raw.
+  `withCodeRifts` passes it through **untouched**.
+- **`composition_assurance`** is the narrower, product-level statement — what `withCodeRifts` itself
+  claims. Today it reports `PARTIAL` with `inescapable_runtime: false` and the residual
+  `composition_call_policy_incomplete`, because call-time policy and receipt carry-forward are not yet
+  delivered.
+- **This is deliberate, not a defect.** The composition will not claim runtime inescapability it cannot
+  yet deliver.
+
+Reconciling with the `guardToolRegistry` note above (`coverage === 'COMPLETE' ⇒ no mutator is reachable
+raw`): that claim is exactly what `registry_report` states, and it **remains true** — `withCodeRifts`
+does not weaken it. `composition_assurance` answers a *different* question: not "is every mutator
+wrapped" (true today) but "is the whole execution path through this composition inescapable yet" (not
+yet). The composition says so rather than borrowing the registry's answer.
+
+**What you get today:** one entry point, every mutator in the returned table wrapped fail-closed, and an
+honest composition statement. **What you do not get yet:** any product-level claim of runtime
+inescapability — `composition_assurance.inescapable_runtime` stays `false` until the later slices land.
+
+**`requireCoverage?` (optional).** Aborts construction when the **registry** coverage is weaker than
+required, by the ordering `COMPLETE > PARTIAL > BYPASSED > UNKNOWN`. It constrains the **registry surface
+only** — it **cannot** demand product-level inescapability (unreachable until later slices), and a green
+construction under it is not a product-level enforcement guarantee.
+
+**`unknownToolPolicy` defaults to `'mutating'`.** An unclassified tool (no `mutationClass`, no
+name-heuristic match) is treated as a mutator and wrapped — never silently downgraded to readonly, which
+would hide a raw mutating capability behind a green result. Pass `'readonly'` / `'reject'` explicitly to
+change it.
+
+> **Known limitation — `forceReadonly` vs. an explicit `mutationClass`.** `forceReadonly` has **no
+> effect** on a tool the caller declared with an explicit `mutationClass`: class resolution returns on
+> `mutationClass` **before** `forceReadonly` is consulted, so the tool stays a wrapped mutator and **no
+> warning or residual is produced**. A caller who both sets `mutationClass: 'mutating'` and lists that
+> tool in `forceReadonly` gets **no signal that their `forceReadonly` was ignored**. `forceReadonly` only
+> downgrades a tool whose mutating status came from the name heuristic.
+
+**Not in this yet** (do not infer these from the one-call ergonomics): call-time policy, automatic
+binders, receipt carry-forward, WARN monitoring, and framework adapters.
+
 ## Guarantees (tsc-verified)
 
 - **Fail-closed by default** — any ambiguity, integrity failure, or unknown state resolves to `STOP`.
