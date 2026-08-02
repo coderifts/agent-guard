@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Pentad red-team regression suite (pentad-redteam-matrix v1.0, 18 fixtures). Locks the two P0 leak
+ * Pentad red-team regression suite (pentad-redteam-matrix v1.0, 20 fixtures). Locks the two P0 leak
  * fixes and proves the existing defenses hold. Matrix VENDORED into this test dir, loaded by a
  * RELATIVE path (the ENOENT lesson).
  *
@@ -12,10 +12,14 @@
  *   - RT-P-13 (RTM-013): coverageReport merge/deploy ENFORCING requires the flag AND a consistent
  *     enforcement_state; an inconsistent inescapable_* claim → WEAK + inescapable_flag_inconsistent.
  *
- * DEFERRED to P1/P2 (out of this round's two-P0 scope — new fields/behaviors, tracked, not shipped):
- *   - RT-P-11 / RT-P-12 (RTM-011/012): ENFORCING should force require_bound_environment/artifact true.
+ * Fixed THIS round (RT-P-11 / RT-P-12):
+ *   - RT-P-11 (RTM-011): ENFORCING forces require_bound_environment true → missing env bind → env_mismatch.
+ *   - RT-P-12 (RTM-012): ENFORCING forces require_bound_artifact true → missing artifact bind → stale_artifact.
+ *   - RTM-011b / RTM-012b: boundary mirrors (ADVISORY soft-false still allows; ENFORCING+correct bind allows).
+ *
+ * DEFERRED to P1/P2 (out of this round — design-missing checks, not soft-switch leaks):
  *   - RT-P-16 (RTM-016/016b): applicability_attested gate.
- *   - RT-P-20 (RTM-020): require_fingerprint on ENFORCING merge.
+ *   - RT-P-20 (RTM-020): require_fingerprint on ENFORCING merge (check was never built).
  *
  * CONFIRMED_SAFE rows assert the already-shipped defenses (T7, stale head, env staging≠prod, full
  * SHA/artifact equality, missing→UNKNOWN) still hold against the CURRENT (now-fixed) code.
@@ -33,7 +37,8 @@ const FIXTURES = MATRIX.fixtures;
 const PRIMITIVES = { gateDecision, deployGate, coverageReport };
 
 // findings deferred to P1/P2 — skipped with a visible reason (not fixed this round)
-const DEFERRED = new Set(['RT-P-11', 'RT-P-12', 'RT-P-16', 'RT-P-20']);
+// RT-P-11 / RT-P-12 un-deferred: soft-switch under ENFORCING is a real leak; fixed in deploy-gate.
+const DEFERRED = new Set(['RT-P-16', 'RT-P-20']);
 
 function assertGate(out, e, id) {
   if (e.merge_allowed !== undefined) assert.equal(out.merge_allowed, e.merge_allowed, `${id} merge_allowed`);
@@ -60,8 +65,8 @@ function assertCoverage(out, e, id) {
   }
 }
 
-describe('pentad red-team regression — 18 fixtures', () => {
-  assert.equal(FIXTURES.length, 18, 'all 18 red-team fixtures present');
+describe('pentad red-team regression — 20 fixtures', () => {
+  assert.equal(FIXTURES.length, 20, 'all 20 red-team fixtures present (18 original + RTM-011b/012b boundary mirrors)');
 
   for (const fx of FIXTURES) {
     const deferred = DEFERRED.has(fx.finding);

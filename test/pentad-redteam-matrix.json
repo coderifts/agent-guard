@@ -4,7 +4,7 @@
     "date": "2026-07-29",
     "companion": "pentad-redteam-findings.md",
     "purpose": "Defense/regression fixtures for pure pentad logic. expected = CORRECT fail-closed after LEAK fixes; status field marks pre-fix leak vs already-safe.",
-    "count": 18
+    "count": 20
   },
   "fixtures": [
     {
@@ -367,7 +367,42 @@
         "state": "failure",
         "reason": "env_mismatch",
         "inescapable_deploy": false,
-        "notes": "ENFORCING path forces require_bound_environment true"
+        "notes": "Principle: ENFORCING may not switch off env bind; missing bound_environment → same denial as DG-003 (env_mismatch). Soft flag ignored under ENFORCING."
+      }
+    },
+    {
+      "id": "RTM-011b",
+      "finding": "RT-P-11",
+      "kind": "BOUNDARY",
+      "primitive": "deployGate",
+      "title": "Soft require_bound_environment false under ADVISORY with no env bind still allows (switch remains legitimate)",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "require_bound_environment": false,
+          "enforcement": {
+            "enforcement": "ADVISORY",
+            "bypass_possible": true
+          }
+        }
+      },
+      "expected_after_fix": {
+        "deploy_allowed": true,
+        "state": "success",
+        "reason": "allow_current_deploy",
+        "inescapable_deploy": false,
+        "notes": "Proves the change is narrow and did not turn the switch into a no-op: soft-false remains legitimate under ADVISORY."
       }
     },
     {
@@ -402,7 +437,44 @@
         "deploy_allowed": false,
         "state": "failure",
         "reason": "stale_artifact",
-        "inescapable_deploy": false
+        "inescapable_deploy": false,
+        "notes": "Principle: ENFORCING may not switch off artifact bind; missing bound_artifact_id → same denial as DG-004 (stale_artifact). Soft flag ignored under ENFORCING."
+      }
+    },
+    {
+      "id": "RTM-012b",
+      "finding": "RT-P-11",
+      "kind": "BOUNDARY",
+      "primitive": "deployGate",
+      "title": "Soft require_bound_environment false under ENFORCING WITH both correct binds still allows (deny missing bind, not the switch)",
+      "input": {
+        "deployTarget": {
+          "environment": "production",
+          "artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "receipt": {
+          "currently_authorized": true,
+          "decision": "ALLOW",
+          "execution_action": "CONTINUE",
+          "operation": "deploy",
+          "bound_environment": "production",
+          "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "signature_valid": true
+        },
+        "requiredContext": {
+          "require_bound_environment": false,
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
+        }
+      },
+      "expected_after_fix": {
+        "deploy_allowed": true,
+        "state": "success",
+        "reason": "allow_current_deploy",
+        "inescapable_deploy": true,
+        "notes": "Proves ENFORCING does not refuse merely because require_bound_environment is false: with BOTH bound_environment and bound_artifact_id correct, ALLOW. Behaviour: ENFORCING forces require_bound_environment AND require_bound_artifact true regardless of which soft switch the caller disabled — only a missing (or mismatched) binding denies, not the presence of the switch."
       }
     },
     {

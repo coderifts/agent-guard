@@ -162,8 +162,13 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
   const enforcement_state = enf.enforcement;
 
   const opRequired = rc.operation ?? 'deploy';
-  const requireEnv = rc.require_bound_environment !== false; // default true
-  const requireArt = rc.require_bound_artifact !== false;    // default true
+  // Soft switches may disable binding checks under ADVISORY / UNKNOWN / ABSENT.
+  // Under ENFORCING they are forced true: claiming inescapability while switching
+  // off a binding check is a contradiction (RT-P-11 / RT-P-12). Keyed off
+  // enforcement_state above (enf.enforcement), which is the value already used
+  // for inescapable_deploy.
+  const requireEnv = enforcement_state === 'ENFORCING' || rc.require_bound_environment !== false; // default true; forced under ENFORCING
+  const requireArt = enforcement_state === 'ENFORCING' || rc.require_bound_artifact !== false;    // default true; forced under ENFORCING
   const allowPending = input.allowPending ?? rc.allowPending ?? false;
   const allowWarnDeploy = input.allowWarnDeploy ?? rc.allowWarnDeploy ?? false;
   const allowPrefix = input.allowPrefixCompare ?? rc.allowPrefixCompare ?? false;
