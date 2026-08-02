@@ -107,8 +107,10 @@ mutating tools):
   `withCodeRifts` passes it through **untouched**.
 - **`composition_assurance`** is the narrower, product-level statement — what `withCodeRifts` itself
   claims. Today it reports `PARTIAL` with `inescapable_runtime: false` and the residual
-  `composition_call_policy_incomplete`, because call-time policy and receipt carry-forward are not yet
-  delivered.
+  `composition_call_policy_incomplete`, because composition-level completeness still needs more than
+  tool wrapping: receipt carry-forward, and a freshness-safe prior for write-style calls (path + new
+  content only). Call-time STOP on BLOCK/RA is already on the frozen path; both-sides edit binders
+  (old_string/new_string, edits[]) are already shipped — neither alone flips this residual off.
 - **This is deliberate, not a defect.** The composition will not claim runtime inescapability it cannot
   yet deliver.
 
@@ -120,12 +122,15 @@ yet). The composition says so rather than borrowing the registry's answer.
 
 **What you get today:** one entry point, every mutator in the returned table wrapped fail-closed, and an
 honest composition statement. **What you do not get yet:** any product-level claim of runtime
-inescapability — `composition_assurance.inescapable_runtime` stays `false` until the later slices land.
+inescapability — `composition_assurance.inescapable_runtime` stays `false` until receipt carry-forward
+and a freshness-safe prior for write-style calls (path + new content only) land. Both-sides edit
+binders already shipped; they do not complete that claim alone.
 
 **`requireCoverage?` (optional).** Aborts construction when the **registry** coverage is weaker than
 required, by the ordering `COMPLETE > PARTIAL > BYPASSED > UNKNOWN`. It constrains the **registry surface
-only** — it **cannot** demand product-level inescapability (unreachable until later slices), and a green
-construction under it is not a product-level enforcement guarantee.
+only** — it **cannot** demand product-level inescapability (still blocked on receipt carry-forward and
+write-style prior content, not on registry wrapping), and a green construction under it is not a
+product-level enforcement guarantee.
 
 **`unknownToolPolicy` defaults to `'mutating'`.** An unclassified tool (no `mutationClass`, no
 name-heuristic match) is treated as a mutator and wrapped — never silently downgraded to readonly, which
@@ -139,8 +144,12 @@ change it.
 > tool in `forceReadonly` gets **no signal that their `forceReadonly` was ignored**. `forceReadonly` only
 > downgrades a tool whose mutating status came from the name heuristic.
 
-**Not in this yet** (do not infer these from the one-call ergonomics): call-time policy, automatic
-binders, receipt carry-forward, WARN monitoring, and framework adapters.
+**Shipped binder (both-sides only):** defaultBinder lifts `old_string`/`new_string` and `edits[]` into
+artifacts when a contract path is present — it does **not** invent a `before` for write-style
+path+new-content-only calls (no IO; empty before is forbidden).
+
+**Not in this yet** (do not infer these from the one-call ergonomics): receipt carry-forward,
+freshness-safe prior content for write-style calls, WARN monitoring, and framework adapters.
 
 ## Guarantees (tsc-verified)
 

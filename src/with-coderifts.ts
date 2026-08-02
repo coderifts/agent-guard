@@ -64,10 +64,22 @@
  * `composition_forced_readonly_on_heuristic_mutator` so it does not promise coverage of the case it
  * cannot see.
  *
- * STILL DELIBERATELY OUT OF SCOPE (later slices; not stubbed, not implied here): call-time STOP
- * re-implementation (already complete in the frozen guardToolCall path), automatic binders, receipt
- * carry-forward, WARN monitoring policy beyond the frozen sink gate, framework adapters, artifact
- * resolution.
+ * COMPOSITION_CALL_POLICY_COMPLETE (when the composition may claim product-level runtime
+ * inescapability) requires ALL of the following — do not flip the constant when only a subset lands:
+ *   (1) Automatic binders for call shapes that ALREADY carry both sides of the change (old_string/
+ *       new_string, edits[]) — DONE (commit 582504a / defaultBinder lift). Not the same as covering
+ *       every real agent edit shape.
+ *   (2) Receipt carry-forward (S5) — NOT done.
+ *   (3) A freshness-safe source of prior content for write-style calls (path + new content only),
+ *       where the host never supplied `before` — NOT done. The package performs no IO, so a prior it
+ *       was not given cannot be obtained; inventing one (including empty-string before) would send a
+ *       fabricated artifact to the oracle. That needs a host/guard freshness protocol, not another
+ *       binder rename. Flipping this constant on (1)+(2) alone is incorrect.
+ *
+ * STILL DELIBERATELY OUT OF SCOPE (later slices; not stubbed, not implied here): receipt carry-forward;
+ * freshness-safe prior content for write-style calls; call-time STOP re-implementation (already
+ * complete in the frozen guardToolCall path); WARN monitoring policy beyond the frozen sink gate;
+ * framework adapters. (Both-sides edit-side lifting in defaultBinder is landed — see (1) above.)
  *
  * THE TWO-SCOPE RULE (never merged):
  *   - `registry_report` is EXACTLY what `guardToolRegistry` returned, passed through untouched. It may
@@ -80,11 +92,12 @@
  * The two truths coexist; neither is derived by mutating the other.
  *
  * `requireCoverage` scope (read this before trusting a green construction): it constrains the
- * REGISTRY-level coverage ONLY. It CANNOT be used to demand composition-level runtime inescapability,
- * because S1's invariant makes that unreachable until S3 (binders) and S5 (receipt carry-forward)
- * land. A caller passing `requireCoverage:'COMPLETE'` is asserting an expectation about the registry
- * tool-boundary surface — NOT a product-level guarantee. The abort text and this doc say so explicitly
- * so nobody reads a green construction as product-level enforcement.
+ * REGISTRY-level coverage ONLY. It CANNOT be used to demand composition-level runtime inescapability —
+ * that remains unreachable while COMPOSITION_CALL_POLICY_COMPLETE is false (see the three conditions
+ * above, not merely "binders + receipts"). A caller passing `requireCoverage:'COMPLETE'` is asserting
+ * an expectation about the registry tool-boundary surface — NOT a product-level guarantee. The abort
+ * text and this doc say so explicitly so nobody reads a green construction as product-level
+ * enforcement.
  *
  * Operation semantics (accurate scope): `operationForClass` (tool-registry.ts) already derives a
  * per-tool operation from the tool's mutation class, OVERRIDING the guard config for specialised
@@ -147,8 +160,9 @@ export type WithCodeRiftsInput = {
   /**
    * Optional (S2). Minimum REGISTRY-level coverage required at construction. If the registry's actual
    * coverage is weaker than this (by the COVERAGE_STRENGTH ordering), construction ABORTS. It does NOT
-   * demand composition-level inescapability (unreachable until S3/S5) — a green construction here is
-   * NOT a product-level runtime-enforcement guarantee.
+   * demand composition-level inescapability (unreachable while COMPOSITION_CALL_POLICY_COMPLETE is
+   * false — binders-for-both-sides alone do not suffice; see file header) — a green construction here
+   * is NOT a product-level runtime-enforcement guarantee.
    */
   requireCoverage?: EnforcementCoverage;
   /** Optional passthrough of existing GuardToolRegistryConfig fields (forwarded as given). */
@@ -185,12 +199,24 @@ export type WithCodeRiftsResult = {
 };
 
 /**
- * Whether the composition's call-time policy is complete. FALSE in S1/S2: automatic binders (S3) and
- * receipt carry-forward (S5) are not yet delivered, so the composition cannot claim runtime
- * inescapability. Later slices AND additional conjuncts into the composition invariant below rather
- * than replacing this one. UNCHANGED by S2. UNCHANGED by composition observation (observing ≠ enforcing).
+ * Whether the composition's call-time / content policy is complete enough to claim product-level
+ * runtime inescapability. Stays FALSE until EVERY condition below is delivered — later slices ADD
+ * conjuncts to the invariant that uses this flag; they must not replace a narrower false narrative.
+ *
+ * Conditions (all required; do NOT flip this constant because a subset landed):
+ *   (1) DONE — automatic binders for shapes that already carry both edit sides (old_string/new_string,
+ *       edits[] → artifacts). Commit 582504a. Does NOT cover write-style path+new-content-only calls.
+ *   (2) NOT DONE — receipt carry-forward (S5).
+ *   (3) NOT DONE — freshness-safe prior content for write-style calls. The package does no IO, so a
+ *       `before` the host never supplied cannot be obtained; inventing one (including empty string)
+ *       fabricates an oracle input. Needs a host/guard freshness protocol, not binder renaming.
+ *
+ * Historically this comment named only (1) and (2). That wording is narrower than reality: after (1)
+ * shipped, a reader could think "binders + S5" was enough and flip the flag incorrectly. Do not.
+ *
+ * UNCHANGED by S2 / composition observation (observing ≠ enforcing). Value stays false until all three.
  */
-const COMPOSITION_CALL_POLICY_COMPLETE = false; // becomes true only once S3 (binders) + S5 (receipt carry-forward) land
+const COMPOSITION_CALL_POLICY_COMPLETE = false;
 
 const RESIDUAL_CALL_POLICY_INCOMPLETE = 'composition_call_policy_incomplete';
 // S2 weakening-override residuals — derived SOLELY from registry report.warnings (never recomputed).
@@ -341,7 +367,7 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
       throw new Error(
         `withCodeRifts: requireCoverage not met — registry coverage '${report.coverage}' is weaker than required '${input.requireCoverage}' `
         + `(strength ordering COMPLETE > PARTIAL > BYPASSED > UNKNOWN). requireCoverage constrains the REGISTRY tool-boundary surface ONLY; `
-        + `a green construction here is NOT a product-level runtime-inescapability guarantee — composition_assurance.inescapable_runtime stays false until S3/S5.`,
+        + `a green construction here is NOT a product-level runtime-inescapability guarantee — composition_assurance.inescapable_runtime stays false until receipt carry-forward and a freshness-safe prior for write-style calls land.`,
       );
     }
   }
