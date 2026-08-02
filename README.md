@@ -149,13 +149,52 @@ artifacts when a contract path is present — it does **not** invent a `before` 
 path+new-content-only calls (no IO; empty before is forbidden).
 
 **Not in this yet** (do not infer these from the one-call ergonomics): receipt carry-forward,
-freshness-safe prior content for write-style calls, WARN monitoring, and framework adapters.
+freshness-safe prior content for write-style calls, and framework adapters.
+
+#### `composition_assurance` is the runtime placement input
+
+`coverageReport` aggregates four placements — `runtime`, `merge`, `deploy`, and `content` — plus an
+`applicability` map saying which apply. It does not gather those placements; the host supplies them.
+`withCodeRifts` already returns one of them in full: **`composition_assurance` is field-for-field the
+same shape as `RuntimePlacementInput`** (`coverage`, `inescapable_runtime`, `residuals`). Pass it
+straight through as the runtime input:
+
+```typescript
+import { withCodeRifts, coverageReport } from '@coderifts/agent-guard';
+
+const { tools, composition_assurance } = withCodeRifts({
+  tools: rawTools,
+  client,
+  operation: 'merge',
+});
+
+const report = coverageReport({
+  applicability: { /* host-known — see warning below */ runtime: true, merge: true, deploy: true, content: true },
+  runtime: composition_assurance, // complete RuntimePlacementInput — no remapping
+  // merge / deploy / content: host still supplies (see next)
+});
+```
+
+The package cannot fill the other three. It sees the agent’s tool table, not branch protection, not the
+deployment target, not content resolution. Hosts produce those with the exports that already own them:
+**`gateDecision`** (merge), **`deployGate`** (deploy), **`resolveArtifacts`** (content).
+
+**Applicability is not a placeholder for “unknown.”** The `applicability` map is four booleans. Setting
+a placement to `false` asserts that placement **does not apply** — not that you have not measured it
+yet. A host that passes only the runtime placement and marks `merge`, `deploy`, and `content` false is
+claiming three enforcement boundaries are irrelevant to them; the aggregate report will treat those
+placements as `EXCLUDED` and will not residual or cap them. Do not set three falses just to typecheck.
+That overstates coverage.
+
+`withCodeRifts` does not call `coverageReport` itself: it can only speak for the runtime placement, and
+a report it produced alone would either guess the other three or assert they do not apply — neither is
+honest, so the composition hands the caller the piece it owns and stops.
 
 ### Observation hooks (`onEvent` + `onOutcome`)
 
-Optional hooks on `withCodeRifts` for seeing what guarded calls do. They are **observation only** —
-neither changes `composition_assurance` (still `PARTIAL` / `inescapable_runtime: false` until the
-gaps above land). Observing is not enforcing.
+Optional hooks on `withCodeRifts` for seeing what guarded calls do. Neither changes
+`composition_assurance` (still `PARTIAL` / `inescapable_runtime: false` until the gaps above land).
+`onOutcome` is pure observation; `onEvent` is also the monitoring **presence** gate (next section).
 
 ```typescript
 const { tools } = withCodeRifts({
@@ -192,6 +231,28 @@ Neither replaces the other. Lifecycle crumbs ≠ full outcome; full outcome ≠ 
 - The host receives the **same outcome object** the hook saw; observation does not alter the return value.
 - A throwing `onOutcome` does not break the call; a **returned rejected promise** is handled (not left unhandled).
 - If the tool/`guardToolCall` path **rejects**, the rejection **propagates** and **no** outcome is invented — `onOutcome` is not called with a fake object.
+
+### WARN / `CONTINUE_WITH_MONITORING` needs `onEvent`
+
+Without an `onEvent` handler, a **WARN** verdict does **not** proceed. The outcome is fail-closed with
+cause **`MONITORING_UNWIRED`**, and the tool **does not run**. That is intentional, not a transport bug.
+
+The check is **presence only**: `sinkWired = !!config.onEvent`. Any truthy handler counts. The guard does
+**not** require the handler to persist, forward, or acknowledge events — a no-op `() => {}` satisfies
+the gate the same as a real logger.
+
+**Sharp edge:** wiring `onEvent` only to debug lifecycle events **also** enables WARN to proceed as
+`CONTINUE_WITH_MONITORING` (when the receipt is verified). Presence is the whole precondition.
+
+On a MONITOR/WARN path the guard emits `monitoring_required` when the handler is present, or
+`monitoring_unwired` when it is not (then `MONITORING_UNWIRED` if the call would otherwise be
+enforceable).
+
+**Three different jobs (not three sinks):** `onEvent` = lifecycle events **and** the monitoring
+presence gate; `onOutcome` = full `GuardOutcome` per guarded call and gates nothing.
+
+Pass `onEvent` on `withCodeRifts({ …, onEvent })`, or on `guardToolCall` / `guardToolRegistry`’s
+`guard: { client, onEvent }` — same field.
 
 ## Guarantees (tsc-verified)
 
