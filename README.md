@@ -151,6 +151,48 @@ path+new-content-only calls (no IO; empty before is forbidden).
 **Not in this yet** (do not infer these from the one-call ergonomics): receipt carry-forward,
 freshness-safe prior content for write-style calls, WARN monitoring, and framework adapters.
 
+### Observation hooks (`onEvent` + `onOutcome`)
+
+Optional hooks on `withCodeRifts` for seeing what guarded calls do. They are **observation only** —
+neither changes `composition_assurance` (still `PARTIAL` / `inescapable_runtime: false` until the
+gaps above land). Observing is not enforcing.
+
+```typescript
+const { tools } = withCodeRifts({
+  tools: rawTools,
+  client,
+  operation: 'merge',
+  onEvent: (e) => { /* frozen-core lifecycle event; partial — see gaps */ },
+  onOutcome: ({ toolName, outcome }) => {
+    // composition post-call: full GuardOutcome for this guarded tool
+    // e.g. outcome.executed === false && outcome.verdict.kind === 'BLOCK'
+  },
+});
+```
+
+**Why two hooks (not redundant):**
+
+| Hook | What it is |
+|------|------------|
+| **`onEvent`** | The frozen core’s lifecycle emitter (`GuardConfig.onEvent`), forwarded **unchanged** into the guard config. Partial telemetry. |
+| **`onOutcome`** | Composition post-call observation: fires after each **guarded** tool’s `execute` returns, with `{ toolName, outcome }` where `outcome` is the full **`GuardOutcome`**. |
+
+Neither replaces the other. Lifecycle crumbs ≠ full outcome; full outcome ≠ every lifecycle event.
+
+**Gaps (same weight as the features — do not build an “every mutation was checked” claim on these hooks alone):**
+
+- **`onEvent` has no dedicated BLOCK / REQUIRE_APPROVAL event.** After `preflight_result`, those paths return blocked with no further emit. Those outcomes are visible via **`onOutcome`** (`outcome.executed === false`, `outcome.verdict.kind === 'BLOCK' | 'APPROVAL'`), not via `onEvent`.
+- **Event payload carries no envelope, receipt, or fingerprint** — only optional `decisionId` (and action/cause/signals/…). **`onOutcome`** carries the full outcome, including `outcome.verdict.envelope` where the frozen path attached one (BLOCK / APPROVAL / ALLOW / MONITOR).
+- **`onOutcome` fires only for guarded tools** (`_coderifts.guarded === true`). Readonly passthrough tools never enter `guardToolCall` and produce no `GuardOutcome` — they are not wrapped and never fire `onOutcome`.
+- **`onEvent` is partial on other branches too** (e.g. some closed-availability stops may emit only `preflight_start`). The declared type **`execution_skipped` is never emitted** by the frozen core.
+- Neither hook alone is receipt carry-forward: `onEvent` lacks envelope/receipt; `onOutcome` exposes them when present but does not retain or re-inject them across calls.
+
+**Safety guarantees (observation must not change execution):**
+
+- The host receives the **same outcome object** the hook saw; observation does not alter the return value.
+- A throwing `onOutcome` does not break the call; a **returned rejected promise** is handled (not left unhandled).
+- If the tool/`guardToolCall` path **rejects**, the rejection **propagates** and **no** outcome is invented — `onOutcome` is not called with a fake object.
+
 ## Guarantees (tsc-verified)
 
 - **Fail-closed by default** — any ambiguity, integrity failure, or unknown state resolves to `STOP`.
