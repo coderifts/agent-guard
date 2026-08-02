@@ -107,9 +107,11 @@ export type {
   RuntimePlacementInput, MergePlacementInput, DeployPlacementInput, ContentPlacementInput,
 } from './coverage-report.js';
 
-// withCodeRifts (S1) — additive orchestration ABOVE the frozen primitives. Wraps guardToolRegistry
-// with a mandatory operation; reports the registry's untouched report + a narrower composition assurance.
+// withCodeRifts (S1+S2+observation) — additive orchestration ABOVE the frozen primitives. Wraps
+// guardToolRegistry with a mandatory operation; reports the registry's untouched report + a narrower
+// composition assurance; optional onEvent (pass-through) + onOutcome (composition observation).
 export { withCodeRifts } from './with-coderifts.js';
 export type {
   WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, CompositionAssurance,
+  ObservedOutcome,
 } from './with-coderifts.js';

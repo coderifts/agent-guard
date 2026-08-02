@@ -1,5 +1,6 @@
 /**
- * withCodeRifts — additive orchestration layer above the frozen security core (slices S1 + S2).
+ * withCodeRifts — additive orchestration layer above the frozen security core (slices S1 + S2 +
+ * composition observation).
  *
  * S1 DELIVERS: a single entry point that wraps the frozen `guardToolRegistry` with a MANDATORY
  * `operation` and returns, side by side, (a) the registry's own untouched coverage report and (b) a
@@ -12,7 +13,30 @@
  * (2) an optional `requireCoverage` that aborts construction when the registry's coverage is weaker
  * than required, by an EXPLICIT strength ordering; (3) weakening-override residuals recorded onto
  * `composition_assurance` so the trace survives into any later coverageReport consumer. S2 adds NO
- * call-time behaviour.
+ * enforcement at call time.
+ *
+ * COMPOSITION OBSERVATION (this slice): optional `onEvent` is forwarded UNCHANGED onto the guard
+ * config the composition builds (the same surface guardToolRegistry already spreads into
+ * guardToolCall). Optional `onOutcome` is a composition-level hook: after each GUARDED tool's
+ * execute returns a GuardOutcome, the composition invokes onOutcome then returns that outcome to the
+ * host byte-identical. Observation is NOT enforcement — it does not change COMPOSITION_CALL_POLICY_COMPLETE,
+ * coverage, residuals, or whether any tool runs.
+ *
+ * TELEMETRY GAPS (honest boundaries — read before claiming "every mutation was checked"):
+ *   - onEvent does NOT emit a dedicated event for BLOCK or REQUIRE_APPROVAL; after preflight_result
+ *     those paths return blocked with no further emit. Those outcomes ARE visible via onOutcome
+ *     (outcome.executed === false, outcome.verdict.kind === 'BLOCK' | 'APPROVAL'), not via onEvent.
+ *   - The GuardEvent payload carries no envelope, receipt, or fingerprint — only optional decisionId
+ *     (and action/cause/signals/…). onOutcome carries the full GuardOutcome, including
+ *     outcome.verdict.envelope where the frozen path attached one (BLOCK / APPROVAL / ALLOW / MONITOR).
+ *   - onOutcome fires ONLY for guarded tools (_coderifts.guarded === true). Readonly passthrough
+ *     tools never enter guardToolCall and produce no GuardOutcome; they are not wrapped and never
+ *     fire onOutcome.
+ *   - onEvent is partial even for other branches (e.g. closed-availability stops may emit only
+ *     preflight_start; the declared type 'execution_skipped' is never emitted by the frozen core).
+ *   - Neither hook alone is a complete substrate for receipt carry-forward: onEvent lacks the
+ *     envelope/receipt; onOutcome exposes them when present but does not retain or re-inject them
+ *     across calls (that is a later slice).
  *
  * S2 does NOT re-guard what the registry already fails closed on. A `forceReadonly`/`classify`
  * downgrade of a heuristic mutator is, under the registry's default `failOnUnguardedMutator:true`,
@@ -40,8 +64,10 @@
  * `composition_forced_readonly_on_heuristic_mutator` so it does not promise coverage of the case it
  * cannot see.
  *
- * STILL DELIBERATELY OUT OF SCOPE (later slices; not stubbed, not implied here): call-time policy,
- * automatic binders, receipt carry-forward, WARN monitoring, framework adapters, artifact resolution.
+ * STILL DELIBERATELY OUT OF SCOPE (later slices; not stubbed, not implied here): call-time STOP
+ * re-implementation (already complete in the frozen guardToolCall path), automatic binders, receipt
+ * carry-forward, WARN monitoring policy beyond the frozen sink gate, framework adapters, artifact
+ * resolution.
  *
  * THE TWO-SCOPE RULE (never merged):
  *   - `registry_report` is EXACTLY what `guardToolRegistry` returned, passed through untouched. It may
@@ -49,8 +75,8 @@
  *     tool-boundary's own honest truth (Placement A).
  *   - `composition_assurance` is the narrower PRODUCT-level statement — what withCodeRifts as a whole
  *     is willing to claim today. It is computed SEPARATELY and never rewrites the registry's verdict.
- *     Its S1 semantics are UNCHANGED in S2: coverage stays 'PARTIAL', inescapable_runtime stays false
- *     via the same COMPOSITION_CALL_POLICY_COMPLETE conjunction. S2 only appends residuals.
+ *     Its S1 semantics are UNCHANGED in S2 and under observation: coverage stays 'PARTIAL',
+ *     inescapable_runtime stays false via the same COMPOSITION_CALL_POLICY_COMPLETE conjunction.
  * The two truths coexist; neither is derived by mutating the other.
  *
  * `requireCoverage` scope (read this before trusting a green construction): it constrains the
@@ -84,7 +110,7 @@ import type {
   ToolBinder,
   ToolMutationClass,
 } from './tool-registry.js';
-import type { GuardConfig } from './types.js';
+import type { GuardConfig, GuardEvent, GuardOutcome } from './types.js';
 
 /** Registry config fields callers may forward untouched (S1/S2 do not re-declare them). */
 export type WithCodeRiftsRegistryConfig = {
@@ -93,6 +119,16 @@ export type WithCodeRiftsRegistryConfig = {
   binders?: Record<string, ToolBinder>;
   forceReadonly?: string[];
   failOnUnguardedMutator?: boolean;
+};
+
+/**
+ * Composition-level observation of one guarded-tool return. Carries the tool name and the
+ * GuardOutcome EXACTLY as returned by the frozen path — no summary, no extracted convenience fields.
+ * Consumers that need the envelope read `outcome.verdict.envelope` (when present on that arm).
+ */
+export type ObservedOutcome = {
+  toolName: string;
+  outcome: GuardOutcome<unknown>;
 };
 
 export type WithCodeRiftsInput = {
@@ -117,6 +153,18 @@ export type WithCodeRiftsInput = {
   requireCoverage?: EnforcementCoverage;
   /** Optional passthrough of existing GuardToolRegistryConfig fields (forwarded as given). */
   registry?: WithCodeRiftsRegistryConfig;
+  /**
+   * Optional. Forwarded UNCHANGED onto the guard config (config.guard.onEvent) so the frozen
+   * guardToolCall emit path can reach it. Not wrapped, not filtered, no extra events added.
+   * See header TELEMETRY GAPS: partial; does not carry envelope/receipt/fingerprint.
+   */
+  onEvent?: (e: GuardEvent) => void;
+  /**
+   * Optional. Invoked by the composition after each GUARDED tool execute returns, with toolName + the
+   * unmodified GuardOutcome. Does not fire for readonly passthrough. Throws and rejected promises are
+   * swallowed so observation never changes host-visible execution. See header TELEMETRY GAPS.
+   */
+  onOutcome?: (o: ObservedOutcome) => void | PromiseLike<void>;
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -140,7 +188,7 @@ export type WithCodeRiftsResult = {
  * Whether the composition's call-time policy is complete. FALSE in S1/S2: automatic binders (S3) and
  * receipt carry-forward (S5) are not yet delivered, so the composition cannot claim runtime
  * inescapability. Later slices AND additional conjuncts into the composition invariant below rather
- * than replacing this one. UNCHANGED by S2.
+ * than replacing this one. UNCHANGED by S2. UNCHANGED by composition observation (observing ≠ enforcing).
  */
 const COMPOSITION_CALL_POLICY_COMPLETE = false; // becomes true only once S3 (binders) + S5 (receipt carry-forward) land
 
@@ -171,6 +219,57 @@ function coverageRank(coverage: string): number | undefined {
   return Object.prototype.hasOwnProperty.call(COVERAGE_STRENGTH, coverage)
     ? COVERAGE_STRENGTH[coverage as EnforcementCoverage]
     : undefined;
+}
+
+/**
+ * Invoke onOutcome without affecting the host call. Swallows synchronous throws AND rejected
+ * promises (unlike the frozen emit hook, which only try/catches sync throws and ignores returned
+ * promises — that host-side footgun is deliberately not reproduced here).
+ */
+async function safeOnOutcome(
+  onOutcome: (o: ObservedOutcome) => void | PromiseLike<void>,
+  payload: ObservedOutcome,
+): Promise<void> {
+  try {
+    await Promise.resolve(onOutcome(payload));
+  } catch {
+    /* observation never changes execution */
+  }
+}
+
+/**
+ * Build a NEW ProtectedTool shell around a frozen guarded tool so we can replace execute without
+ * mutating the frozen registry object. name / description / inputSchema / meta / _coderifts are
+ * copied by reference (the _coderifts bag is already frozen by the registry). The new shell is
+ * frozen for parity with registry tools.
+ */
+function wrapGuardedForObservation(
+  tool: ProtectedTool,
+  onOutcome: (o: ObservedOutcome) => void | PromiseLike<void>,
+): ProtectedTool {
+  const innerExecute = tool.execute;
+  const toolName = tool.name;
+  const shell: ProtectedTool = {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    meta: tool.meta,
+    _coderifts: tool._coderifts,
+    execute: async (args: unknown) => {
+      // If the inner execute rejects, do NOT invent an outcome — propagate the rejection unchanged.
+      const outcome = await innerExecute(args);
+      await safeOnOutcome(onOutcome, {
+        toolName,
+        // Guarded execute always returns a GuardOutcome from guardToolCall; assert the type for callers.
+        outcome: outcome as GuardOutcome<unknown>,
+      });
+      // Host must receive the same object the unwrapped tool returned (reference-identical).
+      return outcome;
+    },
+  };
+  // Match registry freeze discipline: freeze _coderifts if not already, freeze the shell.
+  if (!Object.isFrozen(shell._coderifts)) Object.freeze(shell._coderifts);
+  return Object.freeze(shell);
 }
 
 /**
@@ -211,8 +310,14 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   //    composition_unknown_treated_as_readonly residual below.
   //  - failOnUnguardedMutator: NOT defaulted here — the registry owns its own default (true). Forward
   //    the caller's value if given so there is a single source of truth for it.
+  // Guard config: client + operation always; onEvent forwarded UNCHANGED when provided (no second
+  // try/catch layer — frozen emit already swallows sync throws).
+  const guard: GuardConfig = { client: input.client, operation: input.operation };
+  if (input.onEvent !== undefined) {
+    guard.onEvent = input.onEvent;
+  }
   const config: GuardToolRegistryConfig = {
-    guard: { client: input.client, operation: input.operation },
+    guard,
     unknownToolPolicy: reg.unknownToolPolicy ?? 'mutating',
     classify: reg.classify,
     binders: reg.binders,
@@ -243,7 +348,7 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
 
   // Composition invariant — a conjunction later slices EXTEND (add conjuncts), never replace. Because
   // COMPOSITION_CALL_POLICY_COMPLETE is false, the result is deterministically false regardless of the
-  // registry's own (possibly true) inescapable_runtime. UNCHANGED by S2.
+  // registry's own (possibly true) inescapable_runtime. UNCHANGED by S2. UNCHANGED by observation.
   const compositionInescapableRuntime =
     report.claim.inescapable_runtime && COMPOSITION_CALL_POLICY_COMPLETE;
 
@@ -259,15 +364,27 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
 
   // 'PARTIAL' from the existing EnforcementCoverage union — never 'COMPLETE' while inescapable_runtime
-  // is false (that combination would contradict the registry's own formula). UNCHANGED by S2.
+  // is false (that combination would contradict the registry's own formula). UNCHANGED by S2 / observation.
   const composition_assurance: CompositionAssurance = {
     coverage: 'PARTIAL',
     inescapable_runtime: compositionInescapableRuntime,
     residuals,
   };
 
+  // Outcome observation: registry returns FROZEN ProtectedTool objects (and a frozen tools array).
+  // We cannot reassign execute on a frozen tool, so we build NEW shells for guarded tools only when
+  // onOutcome is provided. Readonly tools are left as the same object references (no GuardOutcome).
+  // The tools ARRAY is also frozen by the registry — always return a fresh array when we wrap.
+  let toolsOut: ProtectedTool[] = tools as ProtectedTool[];
+  if (input.onOutcome) {
+    const onOutcome = input.onOutcome;
+    toolsOut = Object.freeze(
+      tools.map((t) => (t._coderifts.guarded ? wrapGuardedForObservation(t, onOutcome) : t)),
+    ) as ProtectedTool[];
+  }
+
   const result: WithCodeRiftsResult = {
-    tools,
+    tools: toolsOut,
     registry_report: report,
     composition_assurance,
   };

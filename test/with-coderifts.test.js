@@ -231,3 +231,183 @@ describe('withCodeRifts (S2) — startup honesty and classification defaults', (
     assert.equal(r.composition_assurance.inescapable_runtime, false);
   });
 });
+
+// ── Composition observation (onEvent pass-through + onOutcome) ───────────────────────────────────
+// Live calls need a client with preflightChangeSet + verifyReceipt (STUB_CLIENT is construction-only).
+const { computeBodyHash } = require('../dist/cjs/index.js');
+
+function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env) }; }
+function boundVerify(env) { return { valid: true, status: 'VERIFIED_CURRENT', payload: signedFor(env) }; }
+
+function envelope(execution_action, decision, opts = {}) {
+  return {
+    spec_version: 'decision-result.v1.1', decision, execution_action,
+    decision_id: 'dec_obs_1', correlation_id: 'c',
+    evaluated_at: new Date().toISOString(),
+    expires_at: opts.expires_at || new Date(Date.now() + 900000).toISOString(),
+    fingerprint: opts.fingerprint || ('sha256:' + 'a'.repeat(64)),
+    input_fingerprint: 'sha256:' + 'b'.repeat(64),
+    safe_for_agent: decision === 'ALLOW' || decision === 'WARN',
+    analysis_complete: true,
+    receipt: opts.noReceipt ? undefined : { token: 'tok', format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' },
+  };
+}
+function response(execution_action, decision, opts) {
+  return { decision, execution_action, decision_result: envelope(execution_action, decision, opts) };
+}
+function mockClient({ preflight } = {}) {
+  let lastEnv = null;
+  return {
+    async preflightChangeSet() {
+      const resp = preflight ? preflight() : response('CONTINUE', 'ALLOW');
+      lastEnv = resp && resp.decision_result;
+      return resp;
+    },
+    async verifyReceipt() {
+      return lastEnv ? boundVerify(lastEnv) : { valid: true, status: 'VERIFIED_CURRENT' };
+    },
+  };
+}
+
+/** Args that trigger preflight via defaultBinder (forwards args.artifacts). */
+const CONTRACT_ARGS = {
+  artifacts: [{ id: 'a', type: 'openapi', before: 'openapi: 3.0.0\npaths: {}\n', after: 'openapi: 3.0.0\npaths: {/x: {get: {}}}\n' }],
+};
+
+describe('withCodeRifts — composition observation (onEvent + onOutcome)', () => {
+  it('a. onEvent reaches guardToolCall: a guarded call produces at least one event', async () => {
+    const events = [];
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' }],
+      client: mockClient(),
+      operation: 'merge',
+      onEvent: (e) => events.push(e),
+    });
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    assert.ok(tool && tool._coderifts.guarded);
+    await tool.execute(CONTRACT_ARGS);
+    assert.ok(events.length >= 1, `expected at least one onEvent, got ${events.length}`);
+  });
+
+  it('b. onOutcome fires once per guarded call with correct toolName and outcome object', async () => {
+    const seen = [];
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' }],
+      client: mockClient(),
+      operation: 'merge',
+      onOutcome: (o) => { seen.push(o); },
+    });
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    await tool.execute(CONTRACT_ARGS);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].toolName, 'edit_file');
+    assert.ok(seen[0].outcome && typeof seen[0].outcome === 'object');
+    assert.equal(typeof seen[0].outcome.executed, 'boolean');
+  });
+
+  it('c. BLOCK is visible via onOutcome, NOT via a block-specific onEvent (why both hooks exist)', async () => {
+    // Frozen emit() has no dedicated BLOCK/REQUIRE_APPROVAL event after preflight_result — those
+    // outcomes are quiet on onEvent. onOutcome is the composition surface that sees them. This test
+    // documents why both hooks exist: either alone is incomplete telemetry.
+    const events = [];
+    const seen = [];
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'SHOULD_NOT_RUN' }],
+      client: mockClient({ preflight: () => response('STOP', 'BLOCK') }),
+      operation: 'merge',
+      onEvent: (e) => events.push(e),
+      onOutcome: (o) => { seen.push(o); },
+    });
+    const hostOutcome = await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].outcome.executed, false);
+    assert.equal(seen[0].outcome.verdict.kind, 'BLOCK');
+    // No block-specific event type exists on the frozen surface (and execution_skipped never fires).
+    assert.ok(!events.some((e) => e.type === 'execution_skipped'), 'execution_skipped must not fire');
+    assert.ok(!events.some((e) => /block/i.test(e.type)), 'no block-named event type');
+    assert.ok(!events.some((e) => e.type === 'execution_started'), 'BLOCK must not start the factory');
+    // Host sees the same blocked outcome (also covers deep equality path for blocked returns).
+    assert.equal(hostOutcome.executed, false);
+    assert.equal(hostOutcome.verdict.kind, 'BLOCK');
+  });
+
+  it('d. host return value is unchanged by observation (deep-equal to what onOutcome saw)', async () => {
+    let observed;
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' }],
+      client: mockClient(),
+      operation: 'merge',
+      onOutcome: (o) => { observed = o.outcome; },
+    });
+    const hostOutcome = await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
+    assert.ok(observed, 'onOutcome fired');
+    assert.deepEqual(hostOutcome, observed);
+    // Reference identity: host receives the same object observation saw (not a clone).
+    assert.equal(hostOutcome, observed);
+  });
+
+  it('e. onOutcome that throws does not break the call — host still receives the outcome', async () => {
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' }],
+      client: mockClient(),
+      operation: 'merge',
+      onOutcome: () => { throw new Error('observer boom'); },
+    });
+    const hostOutcome = await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
+    assert.ok(hostOutcome && typeof hostOutcome === 'object');
+    assert.equal(typeof hostOutcome.executed, 'boolean');
+  });
+
+  it('f. onOutcome that returns a rejected promise does not unhandle-reject and does not break the call', async () => {
+    const unhandled = [];
+    const onUR = (reason) => { unhandled.push(reason); };
+    process.on('unhandledRejection', onUR);
+    try {
+      const r = withCodeRifts({
+        tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' }],
+        client: mockClient(),
+        operation: 'merge',
+        onOutcome: () => Promise.reject(new Error('async observer boom')),
+      });
+      const hostOutcome = await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
+      // Allow microtasks from the swallowed rejection path to settle.
+      await Promise.resolve();
+      await Promise.resolve();
+      assert.ok(hostOutcome && typeof hostOutcome.executed === 'boolean');
+      assert.equal(unhandled.length, 0, `unexpected unhandledRejection(s): ${unhandled}`);
+    } finally {
+      process.off('unhandledRejection', onUR);
+    }
+  });
+
+  it('g. readonly passthrough tool does not fire onOutcome', async () => {
+    const seen = [];
+    const r = withCodeRifts({
+      tools: [
+        { name: 'read_file', mutationClass: 'readonly', execute: async () => 'read-ok' },
+        { name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' },
+      ],
+      client: mockClient(),
+      operation: 'merge',
+      onOutcome: (o) => { seen.push(o.toolName); },
+    });
+    const read = r.tools.find((t) => t.name === 'read_file');
+    assert.equal(read._coderifts.guarded, false);
+    const readResult = await read.execute({});
+    assert.equal(readResult, 'read-ok');
+    assert.deepEqual(seen, [], 'readonly must not fire onOutcome');
+  });
+
+  it('h. neither hook changes composition_assurance (PARTIAL, inescapable false, residual present)', () => {
+    const r = withCodeRifts({
+      tools: cleanMutators(),
+      client: mockClient(),
+      operation: 'merge',
+      onEvent: () => {},
+      onOutcome: () => {},
+    });
+    assert.equal(r.composition_assurance.coverage, 'PARTIAL');
+    assert.equal(r.composition_assurance.inescapable_runtime, false);
+    assert.ok(r.composition_assurance.residuals.includes('composition_call_policy_incomplete'));
+  });
+});
