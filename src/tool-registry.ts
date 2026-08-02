@@ -17,7 +17,9 @@
  */
 
 import { guardToolCall } from './guard.js';
-import type { GuardConfig, ToolCallDescriptor, DecisionResultEnvelope } from './types.js';
+import type { GuardConfig, ToolCallDescriptor, DecisionResultEnvelope, Artifact } from './types.js';
+import { classifyByName } from './artifact-resolver.js';
+import type { ArtifactType } from './artifact-resolver.js';
 
 // ── public types (§1.1) ─────────────────────────────────────────────────────────────────────────
 export type ToolMutationClass =
@@ -177,14 +179,76 @@ function operationForClass(cls: ToolMutationClass, name: string, guardOperation?
   }
 }
 
+/**
+ * Default binder (S3 layer 1): promote host-supplied content onto the descriptor.
+ *
+ * 1) args.artifacts — always wins when present (L6). Never merge with synthesised edit sides.
+ * 2) Explicit edit sides the host ALREADY supplied (str_replace-style):
+ *      a) args.old_string + args.new_string + args.path
+ *      b) args.edits[] entries each with old_string + new_string + args.path
+ *    Both sides must be non-empty strings. Path must classify as a contract artifact via
+ *    classifyByName (artifact-resolver). Nothing is invented — this is renaming onto artifacts[].
+ *
+ * LIMITATION (documented, intentional): the lifted before/after are EDIT FRAGMENTS (old_string /
+ * new_string as the agent emitted them), NOT whole specification files. The server will preflight a
+ * partial document. A later host-snapshot layer can supply full-file before/after; that is a
+ * different and better source and must not be confused with this rename-only lift.
+ *
+ * Why BOTH sides must be non-empty: hasAnalyzableContent is an OR (before OR after non-empty).
+ * An artifact with empty/missing before and a real after would PASS the local check and reach the
+ * server as a one-sided pair — a create/replace where the truth is an edit. That is a fabricated
+ * before by omission. We refuse to lift rather than cross that line.
+ */
 function defaultBinder(tool: RawTool, args: unknown): ToolCallDescriptor {
   const d: ToolCallDescriptor = { toolName: tool.name, arguments: args };
-  // audit L6: forward args.artifacts (the documented convention) so a valid contract-edit is
-  // analyzable via the default binder instead of failing closed (MISSING_ARTIFACT_CONTENT) only
-  // because no explicit binder was written. ONLY artifacts is forwarded: filesTouched/diff carry
-  // no before/after content and must still fail closed without artifacts (missing-artifact-content).
-  if (args && typeof args === 'object' && Array.isArray((args as { artifacts?: unknown }).artifacts)) {
-    d.artifacts = (args as { artifacts: ToolCallDescriptor['artifacts'] }).artifacts;
+  if (!args || typeof args !== 'object') return d;
+  const a = args as Record<string, unknown>;
+
+  // Host-supplied artifacts always win — forward only, never merge with edit-side synthesis.
+  if (Array.isArray(a.artifacts)) {
+    d.artifacts = a.artifacts as ToolCallDescriptor['artifacts'];
+    return d;
+  }
+
+  const path = typeof a.path === 'string' ? a.path : '';
+  if (!path) return d; // no path → no id/type; guessing either would be inference
+
+  // Type + "is this a contract-artifact path" from the resolver's existing path classifier only.
+  // null ⇒ not a known contract-artifact name (e.g. README.md) ⇒ do not lift.
+  const type: ArtifactType | null = classifyByName(path);
+  if (!type) return d;
+
+  const bothSides = (oldS: unknown, newS: unknown): boolean =>
+    typeof oldS === 'string' && oldS.length > 0
+    && typeof newS === 'string' && newS.length > 0;
+
+  // Multi-edit: one artifact per entry that has both non-empty sides (fragments, not whole files).
+  if (Array.isArray(a.edits)) {
+    const lifted: Artifact[] = [];
+    for (let i = 0; i < a.edits.length; i++) {
+      const e = a.edits[i];
+      if (!e || typeof e !== 'object') continue;
+      const er = e as Record<string, unknown>;
+      if (!bothSides(er.old_string, er.new_string)) continue; // never one-sided
+      lifted.push({
+        id: `${type}:${path}#${i}`,
+        type,
+        before: er.old_string as string,
+        after: er.new_string as string,
+      });
+    }
+    if (lifted.length > 0) d.artifacts = lifted;
+    return d;
+  }
+
+  // Single str_replace-style edit.
+  if (bothSides(a.old_string, a.new_string)) {
+    d.artifacts = [{
+      id: `${type}:${path}`,
+      type,
+      before: a.old_string as string,
+      after: a.new_string as string,
+    }];
   }
   return d;
 }

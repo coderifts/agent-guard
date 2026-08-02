@@ -181,3 +181,166 @@ describe('(e) audit L6: default binder forwards args.artifacts', () => {
     assert.equal(outcome.executed, false, 'still fail-closed when no artifacts content is present');
   });
 });
+
+// ── (f) S3 layer 1: defaultBinder lifts explicit edit sides (rename only; no invention) ────────────
+// Convention: binder tests live here with the L6 default-binder suite — same surface
+// (guardToolRegistry + defaultBinder), same MISSING_ARTIFACT_CONTENT assertions.
+describe('(f) S3 layer 1: defaultBinder lifts old_string/new_string and edits[]', () => {
+  /** Client that records the preflight request artifacts then fails closed on transport (no full envelope needed). */
+  function recordingClient() {
+    const seen = { artifacts: null };
+    return {
+      seen,
+      client: {
+        async preflightChangeSet(req) {
+          seen.artifacts = req && req.artifacts;
+          // Throw network so we never need a schema-valid envelope; reaching preflight is the proof.
+          throw Object.assign(new Error('fetch failed'), { name: 'TypeError' });
+        },
+        async verifyReceipt() { throw new Error('verify must not run if preflight throws'); },
+      },
+    };
+  }
+
+  it('a. old_string + new_string + contract path → artifacts lifted, preflight reached (not MISSING)', async () => {
+    const { client, seen } = recordingClient();
+    const registry = guardToolRegistry(
+      [{ name: 'Edit', mutationClass: 'mutating', execute: async () => 'X' }],
+      { guard: { client, operation: 'merge' } },
+    );
+    const outcome = await registry.tools[0].execute({
+      path: 'openapi.yaml',
+      old_string: 'paths: {}',
+      new_string: 'paths:\n  /x:\n    get: {}',
+    });
+    assert.notEqual(outcome.verdict.cause, 'MISSING_ARTIFACT_CONTENT',
+      'both sides present → lifted → analysable content');
+    assert.ok(Array.isArray(seen.artifacts) && seen.artifacts.length === 1, 'preflight saw one lifted artifact');
+    assert.equal(seen.artifacts[0].before, 'paths: {}');
+    assert.equal(seen.artifacts[0].after, 'paths:\n  /x:\n    get: {}');
+    assert.equal(seen.artifacts[0].type, 'openapi');
+    assert.equal(seen.artifacts[0].id, 'openapi:openapi.yaml');
+  });
+
+  it('b. edits[] with two entries on a contract path → both lifted', async () => {
+    const { client, seen } = recordingClient();
+    const registry = guardToolRegistry(
+      [{ name: 'MultiEdit', mutationClass: 'mutating', execute: async () => 'X' }],
+      { guard: { client, operation: 'merge' } },
+    );
+    const outcome = await registry.tools[0].execute({
+      path: 'openapi.yaml',
+      edits: [
+        { old_string: 'a: 1', new_string: 'a: 2' },
+        { old_string: 'b: 1', new_string: 'b: 2' },
+      ],
+    });
+    assert.notEqual(outcome.verdict.cause, 'MISSING_ARTIFACT_CONTENT');
+    assert.ok(Array.isArray(seen.artifacts) && seen.artifacts.length === 2);
+    assert.equal(seen.artifacts[0].id, 'openapi:openapi.yaml#0');
+    assert.equal(seen.artifacts[1].id, 'openapi:openapi.yaml#1');
+    assert.equal(seen.artifacts[0].before, 'a: 1');
+    assert.equal(seen.artifacts[1].after, 'b: 2');
+  });
+
+  it('c. old_string present but empty → NOT lifted; MISSING_ARTIFACT_CONTENT (one-sided pair ban)', async () => {
+    // hasAnalyzableContent is an OR: empty before + real after would pass locally and reach the
+    // server as a one-sided pair (create/replace where the truth is an edit). That is a fabricated
+    // before by omission. The binder must refuse to lift rather than cross that line.
+    const registry = guardToolRegistry(
+      [{ name: 'Edit', mutationClass: 'mutating', execute: async () => 'X' }],
+      { guard: { client: UNREACHABLE_CLIENT, operation: 'merge' } },
+    );
+    const outcome = await registry.tools[0].execute({
+      path: 'openapi.yaml',
+      old_string: '',
+      new_string: 'openapi: 3.0.0\npaths: {}',
+    });
+    assert.equal(outcome.executed, false);
+    assert.equal(outcome.verdict.cause, 'MISSING_ARTIFACT_CONTENT');
+  });
+
+  it('d. new_string present, old_string absent → NOT lifted, MISSING_ARTIFACT_CONTENT', async () => {
+    const registry = guardToolRegistry(
+      [{ name: 'Edit', mutationClass: 'mutating', execute: async () => 'X' }],
+      { guard: { client: UNREACHABLE_CLIENT, operation: 'merge' } },
+    );
+    const outcome = await registry.tools[0].execute({
+      path: 'openapi.yaml',
+      new_string: 'openapi: 3.0.0\npaths: {}',
+    });
+    assert.equal(outcome.executed, false);
+    assert.equal(outcome.verdict.cause, 'MISSING_ARTIFACT_CONTENT');
+  });
+
+  it('e. args.artifacts AND old_string/new_string both present → artifacts win, no merge', async () => {
+    const { client, seen } = recordingClient();
+    const hostArts = [{ id: 'host-wins', type: 'openapi', before: 'HOST_BEFORE', after: 'HOST_AFTER' }];
+    const registry = guardToolRegistry(
+      [{ name: 'Edit', mutationClass: 'mutating', execute: async () => 'X' }],
+      { guard: { client, operation: 'merge' } },
+    );
+    await registry.tools[0].execute({
+      path: 'openapi.yaml',
+      old_string: 'EDIT_BEFORE',
+      new_string: 'EDIT_AFTER',
+      artifacts: hostArts,
+    });
+    assert.ok(Array.isArray(seen.artifacts) && seen.artifacts.length === 1);
+    assert.equal(seen.artifacts[0].id, 'host-wins');
+    assert.equal(seen.artifacts[0].before, 'HOST_BEFORE');
+    assert.equal(seen.artifacts[0].after, 'HOST_AFTER');
+    // Synthesised edit-side id must not appear.
+    assert.notEqual(seen.artifacts[0].id, 'openapi:openapi.yaml');
+  });
+
+  it('f. non-contract path (README edit) → NOT lifted', async () => {
+    const { client, seen } = recordingClient();
+    const registry = guardToolRegistry(
+      [{ name: 'Edit', mutationClass: 'mutating', execute: async () => 'X' }],
+      { guard: { client, operation: 'merge' } },
+    );
+    const outcome = await registry.tools[0].execute({
+      path: 'README.md',
+      old_string: 'old prose',
+      new_string: 'new prose',
+    });
+    // classifyByName(README.md) is null → no lift. Detector typically SKIPPED (prose).
+    assert.equal(seen.artifacts, null, 'preflight must not run with lifted README artifacts');
+    // Prefer SKIPPED (no contract surface) over a fabricated openapi artifact.
+    if (outcome.verdict.kind === 'SKIPPED') {
+      assert.equal(outcome.executed, true);
+      assert.equal(outcome.preflighted, false);
+    } else {
+      // If something else triggered, must still be fail-closed without host artifacts.
+      assert.equal(outcome.verdict.cause, 'MISSING_ARTIFACT_CONTENT');
+    }
+  });
+
+  it('g. no path → NOT lifted', async () => {
+    const registry = guardToolRegistry(
+      [{ name: 'Edit', mutationClass: 'mutating', execute: async () => 'X' }],
+      { guard: { client: UNREACHABLE_CLIENT, operation: 'merge' } },
+    );
+    // Content markers may still trigger without a path; without path we never lift → MISSING or SKIPPED.
+    const outcome = await registry.tools[0].execute({
+      old_string: 'paths: {}',
+      new_string: 'paths:\n  /x: {}',
+    });
+    assert.ok(
+      outcome.verdict.cause === 'MISSING_ARTIFACT_CONTENT' || outcome.verdict.kind === 'SKIPPED',
+      `expected MISSING or SKIPPED without path, got ${JSON.stringify(outcome.verdict)}`,
+    );
+  });
+
+  it('h. existing artifacts-only behaviour unchanged (L6 regression guard)', async () => {
+    const { client, seen } = recordingClient();
+    const registry = guardToolRegistry(
+      [{ name: 'apply_openapi', mutationClass: 'mutating', execute: async () => 'APPLIED' }],
+      { guard: { client, operation: 'merge' } },
+    );
+    await registry.tools[0].execute({ artifacts: ARTIFACTS });
+    assert.ok(Array.isArray(seen.artifacts) && seen.artifacts.length === 1);
+    assert.deepEqual(seen.artifacts, ARTIFACTS);
+  });
+});

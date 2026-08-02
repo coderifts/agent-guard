@@ -103,7 +103,12 @@ function resolveRelative(dir: string, rel: string): string {
 }
 
 // ── discovery (§2) ──────────────────────────────────────────────────────────────────────────────
-function classifyByName(path: string): ArtifactType | null {
+/**
+ * Path → ArtifactType from the filename only (no content sniff). Exported so binder-level
+ * lifting can reuse the SAME table as resolve() without inventing a second extension map.
+ * Returns null when the path is not a known contract-artifact name (e.g. README.md).
+ */
+export function classifyByName(path: string): ArtifactType | null {
   const b = basename(path).toLowerCase();
   const ext = extname(path);
   const yamlJson = ext === 'yaml' || ext === 'yml' || ext === 'json';
