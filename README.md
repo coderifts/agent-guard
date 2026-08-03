@@ -190,6 +190,47 @@ That overstates coverage.
 a report it produced alone would either guess the other three or assert they do not apply — neither is
 honest, so the composition hands the caller the piece it owns and stops.
 
+#### `deployGate` is also the publish / register gate
+
+`deployGate` gates any **artifact-bound application** operation — not only CD deploys. The target is
+`{ environment, artifact_id }`; the operation label is `requiredContext.operation` (default
+`'deploy'`). The receipt must have been issued for **that same** operation: merge is not deploy is not
+publish. Binding checks are the same regardless of the label (environment + artifact match, allow-class
+verdict, enforcement residual).
+
+```typescript
+import { deployGate } from '@coderifts/agent-guard';
+
+// npm publish — same gate, operation label 'publish'
+const g = deployGate({
+  deployTarget: {
+    environment: 'npm',
+    artifact_id: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  },
+  // Receipt view: server receipt must have been issued for operation 'publish' (T7 match).
+  // bound_environment / bound_artifact_id are NOT server-emitted signed fields — the caller
+  // supplies them on this view alongside the token (deploy-gate's "view of the finished receipt").
+  receipt,
+  requiredContext: {
+    operation: 'publish',
+    enforcement: { enforcement: 'ENFORCING', bypass_possible: false },
+  },
+});
+// g.deploy_allowed — decision flag (name is historical; see caveat)
+```
+
+MCP **register** is the same shape: set `operation: 'register'` and put the **manifest digest** in
+`artifact_id` (caller supplies the matching `bound_artifact_id` on the receipt view).
+
+**Naming caveat:** the result field is always `deploy_allowed`, even when the operation was `publish`
+or `register`. It is accurate about the boolean decision and wrong about the noun. Type names
+(`DeployTarget`, `DeployGateInput`, `inescapable_deploy`) are the same historical deploy vocabulary —
+not a second gate.
+
+There is no separate `publishGate` export: the function is already generic over `operation`, and
+aliases would grow a frozen public surface for a parameter that already does the job. That is a
+deliberate choice, not an omission.
+
 ### Observation hooks (`onEvent` + `onOutcome`)
 
 Optional hooks on `withCodeRifts` for seeing what guarded calls do. Neither changes
