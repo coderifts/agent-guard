@@ -30,6 +30,24 @@ function emit(config: GuardConfig, e: GuardEvent): void {
   if (config.onEvent) { try { config.onEvent(e); } catch { /* onEvent never throws out */ } }
 }
 
+/**
+ * Read host-owned previousReceipt once for this preflight. Does not store the result on config
+ * or anywhere else — a getter may return a different value on the next call.
+ */
+function resolvePreviousReceipt(config: GuardConfig): string | undefined {
+  const pr = config.previousReceipt;
+  if (pr === undefined || pr === null) return undefined;
+  let raw: unknown;
+  if (typeof pr === 'function') {
+    try { raw = pr(); } catch { return undefined; }
+  } else {
+    raw = pr;
+  }
+  if (typeof raw !== 'string') return undefined;
+  const s = raw.trim();
+  return s.length > 0 ? s : undefined;
+}
+
 function fingerprint(call: ToolCallDescriptor): string {
   const canon = JSON.stringify({ toolName: call.toolName, arguments: call.arguments, artifacts: call.artifacts, filesTouched: call.filesTouched, diff: call.diff });
   return 'sha256:' + createHash('sha256').update(canon).digest('hex');
@@ -234,10 +252,13 @@ export async function guardToolCall<T>(
   }
 
   // build the preflight request from the detected artifacts.
+  // previous_receipt: host-supplied only (GuardConfig.previousReceipt). Never hardcoded-undefined
+  // forever — when the host provides a prior token (string or getter), thread it so the issuer can
+  // hash it into the signed `prev` slot. The guard does not retain or advance the value.
   const request = {
     artifacts: detection.artifacts,
     context: { operation: config.operation ?? 'tool_call', environment: config.environment, audience: config.audience },
-    previous_receipt: undefined as string | undefined,
+    previous_receipt: resolvePreviousReceipt(config),
     idempotency_key: undefined as string | undefined,
   };
 

@@ -179,6 +179,11 @@ export type WithCodeRiftsInput = {
    * swallowed so observation never changes host-visible execution. See header TELEMETRY GAPS.
    */
   onOutcome?: (o: ObservedOutcome) => void | PromiseLike<void>;
+  /**
+   * Optional prior chain-receipt token (or getter) forwarded onto GuardConfig.previousReceipt.
+   * Host-owned; the composition does not retain or advance it between calls.
+   */
+  previousReceipt?: string | (() => string | undefined | null);
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -341,6 +346,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   const guard: GuardConfig = { client: input.client, operation: input.operation };
   if (input.onEvent !== undefined) {
     guard.onEvent = input.onEvent;
+  }
+  if (input.previousReceipt !== undefined) {
+    guard.previousReceipt = input.previousReceipt;
   }
   const config: GuardToolRegistryConfig = {
     guard,

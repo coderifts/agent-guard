@@ -273,6 +273,84 @@ Neither replaces the other. Lifecycle crumbs ≠ full outcome; full outcome ≠ 
 - A throwing `onOutcome` does not break the call; a **returned rejected promise** is handled (not left unhandled).
 - If the tool/`guardToolCall` path **rejects**, the rejection **propagates** and **no** outcome is invented — `onOutcome` is not called with a fake object.
 
+### Receipt chaining (optional, host-threaded — no package cursor)
+
+The signed receipt body has always carried a **previous-receipt** field (`prev`): the issuer stores
+the literal `null` when no prior token was supplied, or `sha256:`+hex of the prior token when the
+preflight request included `previous_receipt`. That makes **hash-linked sequences** possible.
+Historically the guard sent `previous_receipt: undefined` on every call, so every receipt was a
+root. Chaining is now **possible**, not automatic.
+
+**How to thread a prior (host-owned):**
+
+```typescript
+let lastToken: string | undefined;
+const { tools } = withCodeRifts({
+  tools: rawTools,
+  client,
+  operation: 'merge',
+  // Read on each preflight; the package does not store or advance this value.
+  previousReceipt: () => lastToken,
+  onOutcome: ({ outcome }) => {
+    const v = outcome.verdict;
+    if (v && 'envelope' in v && v.envelope?.receipt?.token) {
+      lastToken = v.envelope.receipt.token; // host advances the cursor
+    }
+  },
+});
+```
+
+The same field exists on `GuardConfig` for direct `guardToolCall` / `guardToolRegistry` use
+(`previousReceipt?: string | (() => string | undefined | null)`). A plain string works if the host
+mutates it between calls; a getter is preferred so the package never looks like it owns the value.
+
+**Concurrency (serial only for a linear chain):** The getter/onOutcome pattern above is correct when
+guarded contract calls run **one after another**. Modern agents often issue **overlapping** tool
+calls. `onOutcome` runs **after** a call finishes, so two preflights in flight can both read the
+same `lastToken` before either advances it. The issuer then produces two children of one parent —
+a **forest**, not a single linear chain. The package holds nothing, so it cannot serialise that
+advance; **the host owns the ordering rule**. If you need a linear chain under concurrency, you
+must serialise your own advance (no package mutex or queue is provided). Symptom of treating a
+fork as a line: `verifyReceiptChainLinkage` reports `broken_link` on a sequence you believed was
+linear, with no other explanation in the tokens themselves.
+
+**Offline linkage check (not signature verification):**
+
+```typescript
+import { verifyReceiptChainLinkage } from '@coderifts/agent-guard';
+
+const result = verifyReceiptChainLinkage([token0, token1, token2]);
+// result.ok === true  → each token's body.prev matches null / sha256(prevToken)
+// result.ok === false → failedAt + reason (broken_link | unexpected_predecessor | malformed_token)
+```
+
+This checks **only** predecessor commitments inside the token bodies. It does **not** verify
+Ed25519 signatures, expiry, keys, or authorization — use the existing verify-receipt path for that.
+**The package does not call this over a self-held chain and announce integrity**; you export tokens
+and re-check them yourself (or with this pure helper).
+
+**When a chainable receipt exists — and when it does not**
+
+A receipt token appears on the outcome when the frozen path attached an envelope with
+`envelope.receipt.token` (typically BLOCK / APPROVAL / ALLOW / MONITOR after a successful
+preflight). An intact chain of those tokens means: **the guarded contract calls that produced
+receipts, in the order you present, with none removed or reordered** (linkage is tamper-evident).
+It does **not** mean a complete session record.
+
+Receipts are **absent** on at least:
+
+- **Detector-skipped** calls (`SKIPPED` / not a contract call) — no preflight, no envelope.
+- Calls that **failed closed before the oracle** (e.g. missing artifact content) — no issuance.
+- **Open-passthrough** availability paths that execute with a null envelope — no this-call receipt.
+- **Readonly passthrough** tools — never enter `guardToolCall`; no `onOutcome` either.
+
+A receipt **can exist when the tool then threw** after approval (`executed: false`, `error` set).
+The chain records an issued decision for a mutation that may never have landed — do not read
+“chain link” as “edit applied on disk.”
+
+Do **not** claim an intact chain proves session completeness, that edits landed, or that downstream
+CI may skip re-analysis. Prefer tamper-evident language over “tamper-proof.”
+
 ### WARN / `CONTINUE_WITH_MONITORING` needs `onEvent`
 
 Without an `onEvent` handler, a **WARN** verdict does **not** proceed. The outcome is fail-closed with

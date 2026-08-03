@@ -37,6 +37,13 @@ export interface GuardConfig {
   redactor?: (d: ToolCallDescriptor) => ToolCallDescriptor; // D4: runs BEFORE fingerprint/anything leaves the process
   verifyReceipts?: boolean;                  // verify returned + lkg receipt signatures; default true
   onEvent?: (e: GuardEvent) => void;         // wrapped; never throws
+  /**
+   * Optional prior chain-receipt token for the preflight `previous_receipt` field (server hashes it
+   * into the signed `prev` slot). Host-owned only: a string the host updates between calls, or a
+   * zero-arg getter the host supplies. The guard reads it once per preflight and does NOT store,
+   * advance, or remember it — the package remains stateless across calls.
+   */
+  previousReceipt?: string | (() => string | undefined | null);
 }
 
 export interface ToolCallDescriptor {
