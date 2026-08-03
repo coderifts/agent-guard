@@ -19,8 +19,9 @@
 
 export type GateStatusState = 'success' | 'failure' | 'pending';
 
-/** The 14 gate reason codes (§1.1). Success uses allow_current_head; the protection_* / admin_bypass_open
- *  codes name the honesty residual; server_unreachable is a host-supplied fail-closed policy input. */
+/** Gate reason codes (§1.1 + app-binding honesty residuals). Success uses allow_current_head;
+ *  protection_* / admin_bypass_open / required_check_app_* name honesty residuals;
+ *  server_unreachable is a host-supplied fail-closed policy input. */
 export type GateReason =
   | 'allow_current_head'
   | 'no_receipt'
@@ -35,7 +36,11 @@ export type GateReason =
   | 'protection_advisory_only'
   | 'admin_bypass_open'
   | 'inputs_incomplete'
-  | 'server_unreachable';
+  | 'server_unreachable'
+  /** Host did not report whether the required check is app-bound (field absent). Not the same as not bound. */
+  | 'required_check_app_binding_unknown'
+  /** Host reported the required check is not bound to a GitHub App (name-only / spoofable). */
+  | 'required_check_app_not_bound';
 
 export type EnforcementState = 'ENFORCING' | 'ADVISORY' | 'UNKNOWN' | 'ABSENT';
 
@@ -63,6 +68,13 @@ export type ProtectionState = {
   enforcement: EnforcementState;
   admin_bypass_possible: boolean;
   required_context_name?: string;
+  /**
+   * Whether the required status check is bound to a specific GitHub App (`app_id` set on the
+   * protection rule). OPTIONAL: omit when the host has not observed this — absence means
+   * **unknown**, not "not bound". `true` = app-bound (not name-spoofable); `false` = known
+   * unbound (context name only; write access can satisfy the check).
+   */
+  required_check_app_bound?: boolean;
 };
 
 export type RequiredContext = {
@@ -95,7 +107,11 @@ export type GateDecision = {
   reason: GateReason;
   enforcement_state: EnforcementState;
   inescapable_merge: boolean;
-  /** Named residual when the check is green but NOT inescapable (honesty channel, §4.2). */
+  /**
+   * Named honesty residual on an otherwise-green check (§4.2). Usually present when
+   * inescapable_merge is false; may also name an app-binding gap while inescapable_merge
+   * remains true (published callers cannot supply that fact yet — residual only, no flip).
+   */
   residual?: GateReason;
   detail: { prHeadSha: string; bound_head_sha: string | null; decision: string | null };
 };
@@ -202,6 +218,9 @@ export function gateDecision(input: GateDecisionInput): GateDecision {
   // 9) success for the CHECK — green for visibility regardless of protection strength.
   // 10) inescapable_merge claim (STRICT, §1.4 step 10 / M6): only when the platform actually enforces
   //     the required check AND no admin can bypass it. Never true otherwise.
+  //     App binding is NOT a third conjunct here: flipping the claim when the optional field is
+  //     absent would break every published caller who cannot yet supply it. Honesty for that
+  //     axis is residual-only (below).
   const inescapable_merge = enforcement_state === 'ENFORCING' && protection.admin_bypass_possible === false;
 
   let residual: GateReason | undefined;
@@ -209,6 +228,16 @@ export function gateDecision(input: GateDecisionInput): GateDecision {
     if (enforcement_state === 'ENFORCING') residual = 'admin_bypass_open';          // required, but admins can override
     else if (enforcement_state === 'ADVISORY') residual = 'protection_advisory_only'; // posted but not required
     else residual = 'protection_not_configured';                                     // ABSENT or UNKNOWN — cannot attest
+  } else {
+    // Claim is still true (existing contract). Residual names app-binding honesty only when
+    // the host has not confirmed a non-spoofable required check.
+    if (protection.required_check_app_bound === true) {
+      // confirmed app-bound — no residual
+    } else if (protection.required_check_app_bound === false) {
+      residual = 'required_check_app_not_bound';
+    } else {
+      residual = 'required_check_app_binding_unknown'; // field absent: unknown ≠ not bound
+    }
   }
 
   return {

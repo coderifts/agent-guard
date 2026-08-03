@@ -168,3 +168,57 @@ describe('gateDecision — determinism + purity', () => {
     }
   });
 });
+
+// ── required_check_app_bound residual (honesty only — does not flip inescapable_merge) ───────────
+// Measured on GitHub: required checks without app_id are name-spoofable; with app_id they are not.
+// The gate cannot observe GitHub itself — the host supplies required_check_app_bound. Absence means
+// unknown (not "not bound"). Residual names the gap; inescapable_merge stays true for existing callers.
+describe('gateDecision — required_check_app_bound residual (claim not flipped)', () => {
+  /** MG-001-shaped success input; protection overrides applied by the caller. */
+  function enforcingNoBypassInput(protectionExtra) {
+    const base = JSON.parse(JSON.stringify(row('MG-001').input));
+    Object.assign(base.requiredContext.protection, protectionExtra || {});
+    return base;
+  }
+
+  it('app-bound true + ENFORCING + no admin bypass → inescapable_merge true, NO app-binding residual', () => {
+    const g = gateDecision(enforcingNoBypassInput({ required_check_app_bound: true }));
+    assert.equal(g.state, 'success');
+    assert.equal(g.inescapable_merge, true);
+    assert.equal(g.residual, undefined, 'confirmed app-bound: no honesty residual');
+  });
+
+  it('field ABSENT + ENFORCING + no admin bypass → inescapable_merge still TRUE and residual required_check_app_binding_unknown (both halves — deliberate non-flip)', () => {
+    // Do not pass required_check_app_bound — field absent (unknown ≠ not bound).
+    const g = gateDecision(enforcingNoBypassInput({}));
+    assert.equal(g.inescapable_merge, true, 'claim must NOT flip for callers who cannot supply the field');
+    assert.equal(g.residual, 'required_check_app_binding_unknown', 'honesty residual: binding not observed');
+  });
+
+  it('field false + ENFORCING + no admin bypass → inescapable_merge still true, residual required_check_app_not_bound', () => {
+    const g = gateDecision(enforcingNoBypassInput({ required_check_app_bound: false }));
+    assert.equal(g.inescapable_merge, true, 'claim not flipped — residual only');
+    assert.equal(g.residual, 'required_check_app_not_bound', 'host knows check is name-only / spoofable');
+  });
+
+  it('ADVISORY and admin-bypass-open keep existing residuals only (no app-binding residual conflict)', () => {
+    const advisory = gateDecision(row('MG-013').input);
+    assert.equal(advisory.inescapable_merge, false);
+    assert.equal(advisory.residual, 'protection_advisory_only');
+    assert.notEqual(advisory.residual, 'required_check_app_binding_unknown');
+    assert.notEqual(advisory.residual, 'required_check_app_not_bound');
+
+    const bypass = gateDecision(row('MG-014').input);
+    assert.equal(bypass.inescapable_merge, false);
+    assert.equal(bypass.residual, 'admin_bypass_open');
+    assert.notEqual(bypass.residual, 'required_check_app_binding_unknown');
+    assert.notEqual(bypass.residual, 'required_check_app_not_bound');
+
+    // Even if the host also reports app-bound false under ADVISORY, the existing residual wins
+    // (inescapable already false — do not replace with app-binding residual).
+    const advPlus = JSON.parse(JSON.stringify(row('MG-013').input));
+    advPlus.requiredContext.protection.required_check_app_bound = false;
+    const g = gateDecision(advPlus);
+    assert.equal(g.residual, 'protection_advisory_only', 'no duplicate/conflicting app residual under ADVISORY');
+  });
+});
