@@ -69,7 +69,9 @@
  *   (1) Automatic binders for call shapes that ALREADY carry both sides of the change (old_string/
  *       new_string, edits[]) — DONE (commit 582504a / defaultBinder lift). Not the same as covering
  *       every real agent edit shape.
- *   (2) Receipt carry-forward (S5) — NOT done.
+ *   (2) Receipt carry-forward (S5) — host-threaded chaining is POSSIBLE (optional previousReceipt +
+ *       verifyReceiptChainLinkage; commit 588a376). NOT met for this constant: the composition holds
+ *       no cursor (decision, not omission — 3/5 design reviews against a package-held prior).
  *   (3) A freshness-safe source of prior content for write-style calls (path + new content only),
  *       where the host never supplied `before` — NOT done. The package performs no IO, so a prior it
  *       was not given cannot be obtained; inventing one (including empty-string before) would send a
