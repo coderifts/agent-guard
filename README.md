@@ -329,6 +329,14 @@ Ed25519 signatures, expiry, keys, or authorization — use the existing verify-r
 **The package does not call this over a self-held chain and announce integrity**; you export tokens
 and re-check them yourself (or with this pure helper).
 
+**`chain_status` is not linkage.** A preflight response may set `chain_status: "absent"` on a
+receipt that **is** hash-linked to a prior token — and `verifyReceiptChainLinkage` will still report
+`ok: true`. That field is the server’s **channel-chain attestation gate** (prior signature intact /
+broken / not evaluated), not predecessor linkage. On the preflight path that gate does not run, so
+`absent` is expected; linkage is what `verifyReceiptChainLinkage` answers. Neither proves the
+predecessor was ever a real signed receipt — see the signature/auth path above. `previous_receipt`
+also does not change the decision or fingerprint (audit trail only, by design).
+
 **When a chainable receipt exists — and when it does not**
 
 A receipt token appears on the outcome when the frozen path attached an envelope with
