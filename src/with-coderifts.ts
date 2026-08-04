@@ -15,104 +15,51 @@
  * `composition_assurance` so the trace survives into any later coverageReport consumer. S2 adds NO
  * enforcement at call time.
  *
- * COMPOSITION OBSERVATION (this slice): optional `onEvent` is forwarded UNCHANGED onto the guard
- * config the composition builds (the same surface guardToolRegistry already spreads into
- * guardToolCall). Optional `onOutcome` is a composition-level hook: after each GUARDED tool's
- * execute returns a GuardOutcome, the composition invokes onOutcome then returns that outcome to the
- * host byte-identical. Observation is NOT enforcement — it does not change COMPOSITION_CALL_POLICY_COMPLETE,
- * coverage, residuals, or whether any tool runs.
+ * COMPOSITION OBSERVATION: optional `onEvent` is forwarded UNCHANGED onto the guard config.
+ * Optional `onSettledCall` is a composition-level hook: it fires EXACTLY ONCE for every SETTLED
+ * call through the RETURNED tool table (GUARDED | PASSTHROUGH | BYPASSED × RETURNED | THREW).
+ * Discriminant is an EXPLICIT TAG (`kind: 'settled_call'` plus route/terminal), never the absence of
+ * a field. On the GUARDED+RETURNED arm, `outcome` is non-optional. Observation is NOT enforcement —
+ * it does not change COMPOSITION_CALL_POLICY_COMPLETE, coverage, residuals, or whether any tool runs.
+ * The package holds NO counters and computes NO ratios at runtime; pure fold helpers are optional
+ * host-side tools (see foldTableSettledCalls / guardedFractionAmongRoutes).
  *
  * TELEMETRY GAPS (honest boundaries — read before claiming "every mutation was checked"):
  *   - onEvent does NOT emit a dedicated event for BLOCK or REQUIRE_APPROVAL; after preflight_result
- *     those paths return blocked with no further emit. Those outcomes ARE visible via onOutcome
- *     (outcome.executed === false, outcome.verdict.kind === 'BLOCK' | 'APPROVAL'), not via onEvent.
+ *     those paths return blocked with no further emit. Those outcomes ARE visible via onSettledCall
+ *     on the GUARDED arm (outcome.executed === false, outcome.verdict.kind === 'BLOCK' | 'APPROVAL').
  *   - The GuardEvent payload carries no envelope, receipt, or fingerprint — only optional decisionId
- *     (and action/cause/signals/…). onOutcome carries the full GuardOutcome, including
- *     outcome.verdict.envelope where the frozen path attached one (BLOCK / APPROVAL / ALLOW / MONITOR).
- *   - onOutcome fires ONLY for guarded tools (_coderifts.guarded === true). Readonly passthrough
- *     tools never enter guardToolCall and produce no GuardOutcome; they are not wrapped and never
- *     fire onOutcome.
+ *     (and action/cause/signals/…). GUARDED+RETURNED onSettledCall carries the full GuardOutcome,
+ *     including outcome.verdict.envelope where the frozen path attached one.
+ *   - onSettledCall sees ONLY calls through the table withCodeRifts returned. Host-invoked raw tools
+ *     outside that table are invisible. Never treat observation as "total operations" or "100%
+ *     enforcement coverage".
  *   - onEvent is partial even for other branches (e.g. closed-availability stops may emit only
  *     preflight_start; the declared type 'execution_skipped' is never emitted by the frozen core).
  *   - Neither hook alone is a complete substrate for receipt carry-forward: onEvent lacks the
- *     envelope/receipt; onOutcome exposes them when present but does not retain or re-inject them
- *     across calls (that is a later slice).
+ *     envelope/receipt; onSettledCall exposes them when present on the GUARDED+RETURNED arm but does
+ *     not retain or re-inject them across calls (that is a later slice).
  *
  * S2 does NOT re-guard what the registry already fails closed on. A `forceReadonly`/`classify`
  * downgrade of a heuristic mutator is, under the registry's default `failOnUnguardedMutator:true`,
  * already a thrown `FORCE_READONLY_MUTATOR` (no report exists); when the caller passes
  * `failOnUnguardedMutator:false` it is already registry coverage 'BYPASSED', which fails any
- * `requireCoverage` above BYPASSED by the ordering alone. So there is deliberately NO second
- * composition-level abort for weakening overrides — that would create two places that must agree. The
- * composition merely RECORDS the residual (composition_forced_readonly_on_heuristic_mutator /
- * composition_unknown_treated_as_readonly) so the reason the composition is narrower than it looks is
- * preserved on the assurance object. Registry-thrown errors propagate UNCHANGED (never wrapped or
- * swallowed).
- *
- * How the weakening residuals are derived, and their KNOWN LIMITATION (a frozen-registry property, not
- * a composition property): both residuals are read SOLELY from `registry_report.warnings` — the
- * composition never recomputes classification. The registry emits `force_readonly_on_mutator_heuristic`
- * ONLY for the downgrade of a HEURISTIC-classified mutator (a tool with no `classify` entry and no
- * `mutationClass`, whose NAME heuristic is mutating), reached via `forceReadonly` OR a `classify`
- * entry. Crucially, `forceReadonly` has NO effect on a tool the caller declared with an explicit
- * `mutationClass`: `resolveClass` (tool-registry.ts:154-165) returns on `tool.mutationClass` at :157,
- * BEFORE `forceReadonly` is consulted at :158 — so such a tool resolves `mutating`, stays guarded,
- * yields coverage 'COMPLETE', and emits NO warning. The composition therefore produces NO residual in
- * that case and CANNOT detect it: the caller's `forceReadonly` was silently ignored by the frozen
- * registry. This is a limitation of the frozen registry surface, recorded (not worked around) here and
- * pinned by a "documented limitation" test. The residual is named
- * `composition_forced_readonly_on_heuristic_mutator` so it does not promise coverage of the case it
- * cannot see.
+ * `requireCoverage` above BYPASSED by the ordering alone. The composition RECORDS residuals from
+ * registry warnings. When forceReadonly lists a tool that declared explicit mutationClass, the
+ * registry emits `force_readonly_ignored_explicit_mutation_class:<name>` (break-glass ignored).
  *
  * COMPOSITION_CALL_POLICY_COMPLETE (when the composition may claim product-level runtime
  * inescapability) requires ALL of the following — do not flip the constant when only a subset lands:
  *   (1) Automatic binders for call shapes that ALREADY carry both sides of the change (old_string/
- *       new_string, edits[]) — DONE (commit 582504a / defaultBinder lift). Not the same as covering
- *       every real agent edit shape.
+ *       new_string, edits[]) — DONE. Not the same as covering every real agent edit shape.
  *   (2) Receipt carry-forward (S5) — host-threaded chaining is POSSIBLE (optional previousReceipt +
- *       verifyReceiptChainLinkage; commit 588a376). NOT met for this constant: the composition holds
- *       no cursor (decision, not omission — 3/5 design reviews against a package-held prior).
- *   (3) A freshness-safe source of prior content for write-style calls (path + new content only),
- *       where the host never supplied `before` — NOT done. The package performs no IO, so a prior it
- *       was not given cannot be obtained; inventing one (including empty-string before) would send a
- *       fabricated artifact to the oracle. That needs a host/guard freshness protocol, not another
- *       binder rename. Flipping this constant on (1)+(2) alone is incorrect.
- *
- * STILL DELIBERATELY OUT OF SCOPE (later slices; not stubbed, not implied here): receipt carry-forward;
- * freshness-safe prior content for write-style calls; call-time STOP re-implementation (already
- * complete in the frozen guardToolCall path); WARN monitoring policy beyond the frozen sink gate;
- * framework adapters. (Both-sides edit-side lifting in defaultBinder is landed — see (1) above.)
+ *       verifyReceiptChainLinkage). NOT met for this constant: the composition holds no cursor.
+ *   (3) A freshness-safe source of prior content for write-style calls (path + new content only) —
+ *       NOT done.
  *
  * THE TWO-SCOPE RULE (never merged):
- *   - `registry_report` is EXACTLY what `guardToolRegistry` returned, passed through untouched. It may
- *     legitimately state coverage 'COMPLETE' and claim.inescapable_runtime true — that is the runtime
- *     tool-boundary's own honest truth (Placement A).
- *   - `composition_assurance` is the narrower PRODUCT-level statement — what withCodeRifts as a whole
- *     is willing to claim today. It is computed SEPARATELY and never rewrites the registry's verdict.
- *     Its S1 semantics are UNCHANGED in S2 and under observation: coverage stays 'PARTIAL',
- *     inescapable_runtime stays false via the same COMPOSITION_CALL_POLICY_COMPLETE conjunction.
- * The two truths coexist; neither is derived by mutating the other.
- *
- * `requireCoverage` scope (read this before trusting a green construction): it constrains the
- * REGISTRY-level coverage ONLY. It CANNOT be used to demand composition-level runtime inescapability —
- * that remains unreachable while COMPOSITION_CALL_POLICY_COMPLETE is false (see the three conditions
- * above, not merely "binders + receipts"). A caller passing `requireCoverage:'COMPLETE'` is asserting
- * an expectation about the registry tool-boundary surface — NOT a product-level guarantee. The abort
- * text and this doc say so explicitly so nobody reads a green construction as product-level
- * enforcement.
- *
- * Operation semantics (accurate scope): `operationForClass` (tool-registry.ts) already derives a
- * per-tool operation from the tool's mutation class, OVERRIDING the guard config for specialised
- * classes (deploy→'deploy', publish→'publish', vcs-merge→'merge', …). The mandatory `operation` here
- * therefore governs generic mutating tools and acts as the session-level default; it does NOT override
- * a deploy-class tool's 'deploy'. It is mandatory because receipts bind to an operation and
- * merge != deploy: a silent default would risk evaluating a deploy under merge semantics.
- *
- * Abort discipline: pre-registry input problems (missing/empty operation, missing client, an invalid
- * requireCoverage value) are collected and thrown as ONE error listing ALL of them. The
- * requireCoverage-vs-actual check is necessarily sequenced AFTER the registry call (it needs the
- * registry's coverage), so it is its own abort; it cannot be batched with the pre-registry problems
- * because a valid operation+client are required even to reach the registry.
+ *   - `registry_report` is EXACTLY what `guardToolRegistry` returned, passed through untouched.
+ *   - `composition_assurance` is the narrower PRODUCT-level statement, computed SEPARATELY.
  */
 
 import { guardToolRegistry } from './tool-registry.js';
@@ -136,15 +83,117 @@ export type WithCodeRiftsRegistryConfig = {
   failOnUnguardedMutator?: boolean;
 };
 
+/** Route of a settled call through the returned table. Explicit tag values — never inferred by field absence. */
+export type CallRoute = 'GUARDED' | 'PASSTHROUGH' | 'BYPASSED';
+
+/** How a settled call finished. Explicit tag values. */
+export type CallTerminal = 'RETURNED' | 'THREW';
+
 /**
- * Composition-level observation of one guarded-tool return. Carries the tool name and the
- * GuardOutcome EXACTLY as returned by the frozen path — no summary, no extracted convenience fields.
- * Consumers that need the envelope read `outcome.verdict.envelope` (when present on that arm).
+ * One settled call through the tool table withCodeRifts returned.
+ *
+ * Discriminant is the EXPLICIT `kind: 'settled_call'` plus `route` and `terminal` tags — never
+ * "outcome present vs missing". On GUARDED+RETURNED, `outcome` is required (non-optional).
+ *
+ * Replaces the former `ObservedOutcome` (`{ toolName, outcome }` only for guarded returns). The old
+ * name implied every observation carried a GuardOutcome and that only guarded tools were visible;
+ * both were false once passthrough/threw routes ship, so the name is retired rather than overloaded.
  */
-export type ObservedOutcome = {
-  toolName: string;
-  outcome: GuardOutcome<unknown>;
+export type SettledCallObservation =
+  | {
+      kind: 'settled_call';
+      route: 'GUARDED';
+      terminal: 'RETURNED';
+      toolName: string;
+      outcome: GuardOutcome<unknown>;
+    }
+  | {
+      kind: 'settled_call';
+      route: 'GUARDED';
+      terminal: 'THREW';
+      toolName: string;
+      error: unknown;
+    }
+  | {
+      kind: 'settled_call';
+      route: 'PASSTHROUGH';
+      terminal: 'RETURNED';
+      toolName: string;
+      result: unknown;
+    }
+  | {
+      kind: 'settled_call';
+      route: 'PASSTHROUGH';
+      terminal: 'THREW';
+      toolName: string;
+      error: unknown;
+    }
+  | {
+      kind: 'settled_call';
+      route: 'BYPASSED';
+      terminal: 'RETURNED';
+      toolName: string;
+      result: unknown;
+    }
+  | {
+      kind: 'settled_call';
+      route: 'BYPASSED';
+      terminal: 'THREW';
+      toolName: string;
+      error: unknown;
+    };
+
+/**
+ * Counts of settled-call routes from a host-collected event list.
+ * Names are route tags only — not "total operations" or "enforcement coverage".
+ */
+export type TableSettledCallRouteCounts = {
+  GUARDED: number;
+  PASSTHROUGH: number;
+  BYPASSED: number;
 };
+
+/**
+ * Pure fold: count routes in a host-owned list of settled-call observations.
+ * The package never accumulates these at runtime.
+ */
+export function foldTableSettledCalls(
+  events: readonly SettledCallObservation[],
+): TableSettledCallRouteCounts {
+  const counts: TableSettledCallRouteCounts = { GUARDED: 0, PASSTHROUGH: 0, BYPASSED: 0 };
+  for (const e of events) {
+    if (e.kind !== 'settled_call') continue;
+    counts[e.route] += 1;
+  }
+  return counts;
+}
+
+/**
+ * Fraction of GUARDED among observed routes, or ABSENT when a ratio would be misleading.
+ *
+ * Returns `kind: 'absent'` (not zero) when:
+ *   - no settled calls were observed, or
+ *   - only a single route tag has a non-zero count (one-sided observation).
+ *
+ * Never returns a number that could be read as "0% enforcement" or "100% coverage" from partial data.
+ * The package does not call this automatically.
+ */
+export function guardedFractionAmongRoutes(
+  counts: TableSettledCallRouteCounts,
+):
+  | { kind: 'absent'; why: 'no_settled_calls' | 'one_route_only' }
+  | { kind: 'present'; fraction: number } {
+  const routesWithCalls = (['GUARDED', 'PASSTHROUGH', 'BYPASSED'] as const)
+    .filter((r) => counts[r] > 0);
+  if (routesWithCalls.length === 0) {
+    return { kind: 'absent', why: 'no_settled_calls' };
+  }
+  if (routesWithCalls.length === 1) {
+    return { kind: 'absent', why: 'one_route_only' };
+  }
+  const sum = counts.GUARDED + counts.PASSTHROUGH + counts.BYPASSED;
+  return { kind: 'present', fraction: counts.GUARDED / sum };
+}
 
 export type WithCodeRiftsInput = {
   /** Raw tool list handed to the frozen guardToolRegistry (required). */
@@ -176,11 +225,12 @@ export type WithCodeRiftsInput = {
    */
   onEvent?: (e: GuardEvent) => void;
   /**
-   * Optional. Invoked by the composition after each GUARDED tool execute returns, with toolName + the
-   * unmodified GuardOutcome. Does not fire for readonly passthrough. Throws and rejected promises are
-   * swallowed so observation never changes host-visible execution. See header TELEMETRY GAPS.
+   * Optional. Invoked once per SETTLED call through the returned tool table (every route and both
+   * terminals). Discriminated union — see SettledCallObservation. Throws and rejected promises are
+   * swallowed so observation never changes host-visible execution. Replaces the former `onOutcome`
+   * (guarded-only) hook.
    */
-  onOutcome?: (o: ObservedOutcome) => void | PromiseLike<void>;
+  onSettledCall?: (o: SettledCallObservation) => void | PromiseLike<void>;
   /**
    * Optional prior chain-receipt token (or getter) forwarded onto GuardConfig.previousReceipt.
    * Host-owned; the composition does not retain or advance it between calls.
@@ -212,14 +262,9 @@ export type WithCodeRiftsResult = {
  *
  * Conditions (all required; do NOT flip this constant because a subset landed):
  *   (1) DONE — automatic binders for shapes that already carry both edit sides (old_string/new_string,
- *       edits[] → artifacts). Commit 582504a. Does NOT cover write-style path+new-content-only calls.
+ *       edits[] → artifacts). Does NOT cover write-style path+new-content-only calls.
  *   (2) NOT DONE — receipt carry-forward (S5).
- *   (3) NOT DONE — freshness-safe prior content for write-style calls. The package does no IO, so a
- *       `before` the host never supplied cannot be obtained; inventing one (including empty string)
- *       fabricates an oracle input. Needs a host/guard freshness protocol, not binder renaming.
- *
- * Historically this comment named only (1) and (2). That wording is narrower than reality: after (1)
- * shipped, a reader could think "binders + S5" was enough and flip the flag incorrectly. Do not.
+ *   (3) NOT DONE — freshness-safe prior content for write-style calls.
  *
  * UNCHANGED by S2 / composition observation (observing ≠ enforcing). Value stays false until all three.
  */
@@ -227,9 +272,6 @@ const COMPOSITION_CALL_POLICY_COMPLETE = false;
 
 const RESIDUAL_CALL_POLICY_INCOMPLETE = 'composition_call_policy_incomplete';
 // S2 weakening-override residuals — derived SOLELY from registry report.warnings (never recomputed).
-// The name says "heuristic_mutator" on purpose: the registry only emits the underlying warning for a
-// downgrade of a HEURISTIC-classified mutator (see the header limitation), so the residual must not
-// promise coverage of a downgrade it cannot see (an explicit-mutationClass tool).
 const RESIDUAL_FORCED_READONLY = 'composition_forced_readonly_on_heuristic_mutator';
 const RESIDUAL_UNKNOWN_READONLY = 'composition_unknown_treated_as_readonly';
 
@@ -255,30 +297,29 @@ function coverageRank(coverage: string): number | undefined {
 }
 
 /**
- * Invoke onOutcome without affecting the host call. Swallows synchronous throws AND rejected
+ * Invoke onSettledCall without affecting the host call. Swallows synchronous throws AND rejected
  * promises (unlike the frozen emit hook, which only try/catches sync throws and ignores returned
  * promises — that host-side footgun is deliberately not reproduced here).
  */
-async function safeOnOutcome(
-  onOutcome: (o: ObservedOutcome) => void | PromiseLike<void>,
-  payload: ObservedOutcome,
+async function safeOnSettledCall(
+  onSettledCall: (o: SettledCallObservation) => void | PromiseLike<void>,
+  payload: SettledCallObservation,
 ): Promise<void> {
   try {
-    await Promise.resolve(onOutcome(payload));
+    await Promise.resolve(onSettledCall(payload));
   } catch {
     /* observation never changes execution */
   }
 }
 
 /**
- * Build a NEW ProtectedTool shell around a frozen guarded tool so we can replace execute without
- * mutating the frozen registry object. name / description / inputSchema / meta / _coderifts are
- * copied by reference (the _coderifts bag is already frozen by the registry). The new shell is
- * frozen for parity with registry tools.
+ * Build a NEW ProtectedTool shell so we can observe settle without mutating the frozen registry object.
+ * name / description / inputSchema / meta / _coderifts are copied by reference.
  */
-function wrapGuardedForObservation(
+function wrapForSettledCallObservation(
   tool: ProtectedTool,
-  onOutcome: (o: ObservedOutcome) => void | PromiseLike<void>,
+  route: CallRoute,
+  onSettledCall: (o: SettledCallObservation) => void | PromiseLike<void>,
 ): ProtectedTool {
   const innerExecute = tool.execute;
   const toolName = tool.name;
@@ -289,20 +330,58 @@ function wrapGuardedForObservation(
     meta: tool.meta,
     _coderifts: tool._coderifts,
     execute: async (args: unknown) => {
-      // If the inner execute rejects, do NOT invent an outcome — propagate the rejection unchanged.
-      const outcome = await innerExecute(args);
-      await safeOnOutcome(onOutcome, {
-        toolName,
-        // Guarded execute always returns a GuardOutcome from guardToolCall; assert the type for callers.
-        outcome: outcome as GuardOutcome<unknown>,
-      });
-      // Host must receive the same object the unwrapped tool returned (reference-identical).
-      return outcome;
+      try {
+        const result = await innerExecute(args);
+        if (route === 'GUARDED') {
+          await safeOnSettledCall(onSettledCall, {
+            kind: 'settled_call',
+            route: 'GUARDED',
+            terminal: 'RETURNED',
+            toolName,
+            // Guarded execute always returns a GuardOutcome from guardToolCall.
+            outcome: result as GuardOutcome<unknown>,
+          });
+        } else {
+          await safeOnSettledCall(onSettledCall, {
+            kind: 'settled_call',
+            route,
+            terminal: 'RETURNED',
+            toolName,
+            result,
+          });
+        }
+        // Host must receive the same object/value the unwrapped tool returned (reference-identical for objects).
+        return result;
+      } catch (error) {
+        await safeOnSettledCall(onSettledCall, {
+          kind: 'settled_call',
+          route,
+          terminal: 'THREW',
+          toolName,
+          error,
+        });
+        throw error;
+      }
     },
   };
-  // Match registry freeze discipline: freeze _coderifts if not already, freeze the shell.
   if (!Object.isFrozen(shell._coderifts)) Object.freeze(shell._coderifts);
   return Object.freeze(shell);
+}
+
+/** Tools forced to readonly via heuristic break-glass — observed as BYPASSED, not true PASSTHROUGH. */
+function bypassedToolNames(report: RegistryCoverageReport): Set<string> {
+  const names = new Set<string>();
+  for (const w of report.warnings) {
+    const prefix = 'force_readonly_on_mutator_heuristic:';
+    if (w.startsWith(prefix)) names.add(w.slice(prefix.length));
+  }
+  return names;
+}
+
+function routeForTool(tool: ProtectedTool, bypassed: Set<string>): CallRoute {
+  if (tool._coderifts.guarded) return 'GUARDED';
+  if (bypassed.has(tool.name)) return 'BYPASSED';
+  return 'PASSTHROUGH';
 }
 
 /**
@@ -407,15 +486,15 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
     residuals,
   };
 
-  // Outcome observation: registry returns FROZEN ProtectedTool objects (and a frozen tools array).
-  // We cannot reassign execute on a frozen tool, so we build NEW shells for guarded tools only when
-  // onOutcome is provided. Readonly tools are left as the same object references (no GuardOutcome).
-  // The tools ARRAY is also frozen by the registry — always return a fresh array when we wrap.
+  // Settled-call observation: registry returns FROZEN ProtectedTool objects (and a frozen tools array).
+  // We cannot reassign execute on a frozen tool, so we build NEW shells for EVERY tool in the table
+  // when onSettledCall is provided — including passthrough and forced-bypass (readonly) tools.
   let toolsOut: ProtectedTool[] = tools as ProtectedTool[];
-  if (input.onOutcome) {
-    const onOutcome = input.onOutcome;
+  if (input.onSettledCall) {
+    const onSettledCall = input.onSettledCall;
+    const bypassed = bypassedToolNames(report);
     toolsOut = Object.freeze(
-      tools.map((t) => (t._coderifts.guarded ? wrapGuardedForObservation(t, onOutcome) : t)),
+      tools.map((t) => wrapForSettledCallObservation(t, routeForTool(t, bypassed), onSettledCall)),
     ) as ProtectedTool[];
   }
 

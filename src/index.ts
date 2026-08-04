@@ -120,9 +120,13 @@ export type {
 
 // withCodeRifts (S1+S2+observation) — additive orchestration ABOVE the frozen primitives. Wraps
 // guardToolRegistry with a mandatory operation; reports the registry's untouched report + a narrower
-// composition assurance; optional onEvent (pass-through) + onOutcome (composition observation).
-export { withCodeRifts } from './with-coderifts.js';
+// composition assurance; optional onEvent (pass-through) + onSettledCall (table settled-call observation).
+export {
+  withCodeRifts,
+  foldTableSettledCalls,
+  guardedFractionAmongRoutes,
+} from './with-coderifts.js';
 export type {
   WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, CompositionAssurance,
-  ObservedOutcome,
+  SettledCallObservation, CallRoute, CallTerminal, TableSettledCallRouteCounts,
 } from './with-coderifts.js';

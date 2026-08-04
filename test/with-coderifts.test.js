@@ -205,36 +205,38 @@ describe('withCodeRifts (S2) — startup honesty and classification defaults', (
     assert.match(caught.message, /2 condition\(s\)/);
   });
 
-  it('17. DOCUMENTED LIMITATION (frozen registry): forceReadonly is IGNORED for an explicit-mutationClass tool — COMPLETE, no residual, requireCoverage COMPLETE passes', () => {
-    // resolveClass (tool-registry.ts:154-165) returns on tool.mutationClass at :157 BEFORE forceReadonly
-    // is consulted at :158, so an explicitly-declared mutator listed in forceReadonly stays 'mutating'
-    // and guarded — the forceReadonly is silently a no-op. The composition reads only the registry's
-    // warnings, so it produces NO weakening residual here and CANNOT detect the ignored forceReadonly.
-    // This is a property of the FROZEN registry, not the composition. If the registry ever changes so
-    // that forceReadonly overrides an explicit mutationClass, THIS TEST FAILING is the signal that the
-    // limitation is gone — which is what we want.
+  it('17. forceReadonly on explicit mutationClass emits force_readonly_ignored_explicit_mutation_class warning (tool stays guarded)', () => {
+    // resolveClass returns on tool.mutationClass BEFORE forceReadonly is consulted, so the tool stays
+    // mutating/guarded. The registry MUST warn so a break-glass request is not silently ignored.
     const explicitMutatorInForceReadonly = [
       { name: 'Edit', mutationClass: 'mutating', execute: async () => 'X' },
     ];
     const r = withCodeRifts({
       tools: explicitMutatorInForceReadonly, client: STUB_CLIENT, operation: 'merge',
-      requireCoverage: 'COMPLETE',                       // passes: registry is COMPLETE, forceReadonly ignored
+      requireCoverage: 'COMPLETE',
       registry: { forceReadonly: ['Edit'], failOnUnguardedMutator: false },
     });
     assert.equal(r.registry_report.coverage, 'COMPLETE');
     assert.ok(r.registry_report.guarded_mutators.includes('Edit'));
+    assert.ok(
+      r.registry_report.warnings.includes('force_readonly_ignored_explicit_mutation_class:Edit'),
+      `expected ignored-forceReadonly warning, got ${JSON.stringify(r.registry_report.warnings)}`,
+    );
+    // Not a heuristic force-downgrade residual — tool was never made readonly.
     assert.ok(!r.composition_assurance.residuals.includes('composition_forced_readonly_on_heuristic_mutator'));
-    // The only residual is the S1 call-policy one; the ignored forceReadonly leaves no trace.
     assert.deepEqual(r.composition_assurance.residuals, ['composition_call_policy_incomplete']);
-    // S1 semantics intact.
     assert.equal(r.composition_assurance.coverage, 'PARTIAL');
     assert.equal(r.composition_assurance.inescapable_runtime, false);
   });
 });
 
-// ── Composition observation (onEvent pass-through + onOutcome) ───────────────────────────────────
+// ── Composition observation (onEvent + onSettledCall) ────────────────────────────────────────────
 // Live calls need a client with preflightChangeSet + verifyReceipt (STUB_CLIENT is construction-only).
-const { computeBodyHash } = require('../dist/cjs/index.js');
+const {
+  computeBodyHash,
+  foldTableSettledCalls,
+  guardedFractionAmongRoutes,
+} = require('../dist/cjs/index.js');
 
 function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env) }; }
 function boundVerify(env) { return { valid: true, status: 'VERIFIED_CURRENT', payload: signedFor(env) }; }
@@ -274,7 +276,7 @@ const CONTRACT_ARGS = {
   artifacts: [{ id: 'a', type: 'openapi', before: 'openapi: 3.0.0\npaths: {}\n', after: 'openapi: 3.0.0\npaths: {/x: {get: {}}}\n' }],
 };
 
-describe('withCodeRifts — composition observation (onEvent + onOutcome)', () => {
+describe('withCodeRifts — composition observation (onEvent + onSettledCall)', () => {
   it('a. onEvent reaches guardToolCall: a guarded call produces at least one event', async () => {
     const events = [];
     const r = withCodeRifts({
@@ -289,26 +291,26 @@ describe('withCodeRifts — composition observation (onEvent + onOutcome)', () =
     assert.ok(events.length >= 1, `expected at least one onEvent, got ${events.length}`);
   });
 
-  it('b. onOutcome fires once per guarded call with correct toolName and outcome object', async () => {
+  it('b. GUARDED+RETURNED: onSettledCall fires once with non-optional outcome', async () => {
     const seen = [];
     const r = withCodeRifts({
       tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' }],
       client: mockClient(),
       operation: 'merge',
-      onOutcome: (o) => { seen.push(o); },
+      onSettledCall: (o) => { seen.push(o); },
     });
-    const tool = r.tools.find((t) => t.name === 'edit_file');
-    await tool.execute(CONTRACT_ARGS);
+    await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
     assert.equal(seen.length, 1);
+    assert.equal(seen[0].kind, 'settled_call');
+    assert.equal(seen[0].route, 'GUARDED');
+    assert.equal(seen[0].terminal, 'RETURNED');
     assert.equal(seen[0].toolName, 'edit_file');
     assert.ok(seen[0].outcome && typeof seen[0].outcome === 'object');
     assert.equal(typeof seen[0].outcome.executed, 'boolean');
+    assert.equal('result' in seen[0], false, 'GUARDED+RETURNED must not use result field');
   });
 
-  it('c. BLOCK is visible via onOutcome, NOT via a block-specific onEvent (why both hooks exist)', async () => {
-    // Frozen emit() has no dedicated BLOCK/REQUIRE_APPROVAL event after preflight_result — those
-    // outcomes are quiet on onEvent. onOutcome is the composition surface that sees them. This test
-    // documents why both hooks exist: either alone is incomplete telemetry.
+  it('c. BLOCK is visible via onSettledCall GUARDED arm, NOT via a block-specific onEvent', async () => {
     const events = [];
     const seen = [];
     const r = withCodeRifts({
@@ -316,49 +318,50 @@ describe('withCodeRifts — composition observation (onEvent + onOutcome)', () =
       client: mockClient({ preflight: () => response('STOP', 'BLOCK') }),
       operation: 'merge',
       onEvent: (e) => events.push(e),
-      onOutcome: (o) => { seen.push(o); },
+      onSettledCall: (o) => { seen.push(o); },
     });
     const hostOutcome = await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
     assert.equal(seen.length, 1);
+    assert.equal(seen[0].route, 'GUARDED');
+    assert.equal(seen[0].terminal, 'RETURNED');
     assert.equal(seen[0].outcome.executed, false);
     assert.equal(seen[0].outcome.verdict.kind, 'BLOCK');
-    // No block-specific event type exists on the frozen surface (and execution_skipped never fires).
     assert.ok(!events.some((e) => e.type === 'execution_skipped'), 'execution_skipped must not fire');
     assert.ok(!events.some((e) => /block/i.test(e.type)), 'no block-named event type');
     assert.ok(!events.some((e) => e.type === 'execution_started'), 'BLOCK must not start the factory');
-    // Host sees the same blocked outcome (also covers deep equality path for blocked returns).
     assert.equal(hostOutcome.executed, false);
     assert.equal(hostOutcome.verdict.kind, 'BLOCK');
   });
 
-  it('d. host return value is unchanged by observation (deep-equal to what onOutcome saw)', async () => {
+  it('d. host return value is reference-identical to GUARDED+RETURNED observation outcome', async () => {
     let observed;
     const r = withCodeRifts({
       tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' }],
       client: mockClient(),
       operation: 'merge',
-      onOutcome: (o) => { observed = o.outcome; },
+      onSettledCall: (o) => {
+        if (o.route === 'GUARDED' && o.terminal === 'RETURNED') observed = o.outcome;
+      },
     });
     const hostOutcome = await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
-    assert.ok(observed, 'onOutcome fired');
+    assert.ok(observed, 'onSettledCall fired');
     assert.deepEqual(hostOutcome, observed);
-    // Reference identity: host receives the same object observation saw (not a clone).
     assert.equal(hostOutcome, observed);
   });
 
-  it('e. onOutcome that throws does not break the call — host still receives the outcome', async () => {
+  it('e. onSettledCall that throws does not break the call', async () => {
     const r = withCodeRifts({
       tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' }],
       client: mockClient(),
       operation: 'merge',
-      onOutcome: () => { throw new Error('observer boom'); },
+      onSettledCall: () => { throw new Error('observer boom'); },
     });
     const hostOutcome = await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
     assert.ok(hostOutcome && typeof hostOutcome === 'object');
     assert.equal(typeof hostOutcome.executed, 'boolean');
   });
 
-  it('f. onOutcome that returns a rejected promise does not unhandle-reject and does not break the call', async () => {
+  it('f. onSettledCall rejected promise does not unhandle-reject or break the call', async () => {
     const unhandled = [];
     const onUR = (reason) => { unhandled.push(reason); };
     process.on('unhandledRejection', onUR);
@@ -367,10 +370,9 @@ describe('withCodeRifts — composition observation (onEvent + onOutcome)', () =
         tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'edited' }],
         client: mockClient(),
         operation: 'merge',
-        onOutcome: () => Promise.reject(new Error('async observer boom')),
+        onSettledCall: () => Promise.reject(new Error('async observer boom')),
       });
       const hostOutcome = await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
-      // Allow microtasks from the swallowed rejection path to settle.
       await Promise.resolve();
       await Promise.resolve();
       assert.ok(hostOutcome && typeof hostOutcome.executed === 'boolean');
@@ -380,7 +382,7 @@ describe('withCodeRifts — composition observation (onEvent + onOutcome)', () =
     }
   });
 
-  it('g. readonly passthrough tool does not fire onOutcome', async () => {
+  it('g. PASSTHROUGH+RETURNED: readonly fires onSettledCall with result (not outcome)', async () => {
     const seen = [];
     const r = withCodeRifts({
       tools: [
@@ -389,22 +391,179 @@ describe('withCodeRifts — composition observation (onEvent + onOutcome)', () =
       ],
       client: mockClient(),
       operation: 'merge',
-      onOutcome: (o) => { seen.push(o.toolName); },
+      onSettledCall: (o) => { seen.push(o); },
     });
     const read = r.tools.find((t) => t.name === 'read_file');
     assert.equal(read._coderifts.guarded, false);
     const readResult = await read.execute({});
     assert.equal(readResult, 'read-ok');
-    assert.deepEqual(seen, [], 'readonly must not fire onOutcome');
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].kind, 'settled_call');
+    assert.equal(seen[0].route, 'PASSTHROUGH');
+    assert.equal(seen[0].terminal, 'RETURNED');
+    assert.equal(seen[0].result, 'read-ok');
+    assert.equal('outcome' in seen[0], false);
   });
 
-  it('h. neither hook changes composition_assurance (PARTIAL, inescapable false, residual present)', () => {
+  it('h. GUARDED factory throw is absorbed by guardToolCall → RETURNED with outcome.error (not Promise reject)', async () => {
+    // Frozen guardToolCall catches factory throws and returns a GuardOutcome
+    // (executionAttempted true, executed false). The composition therefore observes
+    // GUARDED+RETURNED with a non-optional outcome — never invents a THREW arm for this path.
+    const seen = [];
+    const r = withCodeRifts({
+      tools: [{
+        name: 'edit_file',
+        mutationClass: 'mutating',
+        execute: async () => { throw new Error('factory boom'); },
+      }],
+      client: mockClient(),
+      operation: 'merge',
+      onSettledCall: (o) => { seen.push(o); },
+    });
+    const hostOutcome = await r.tools.find((t) => t.name === 'edit_file').execute(CONTRACT_ARGS);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].kind, 'settled_call');
+    assert.equal(seen[0].route, 'GUARDED');
+    assert.equal(seen[0].terminal, 'RETURNED');
+    assert.equal(seen[0].outcome.executed, false);
+    assert.ok(seen[0].outcome.error, 'factory error is on the outcome');
+    assert.equal(hostOutcome.executed, false);
+    assert.equal(hostOutcome, seen[0].outcome);
+  });
+
+  it('h2. GUARDED+THREW arm is a valid SettledCallObservation (foldable; live factory throws are RETURNED)', () => {
+    // guardToolCall absorbs factory throws into GuardOutcome (see h). THREW is for Promise
+    // rejection of the guarded execute chain; live catch-path coverage is PASSTHROUGH/BYPASSED THREW.
+    const threwObs = {
+      kind: 'settled_call',
+      route: 'GUARDED',
+      terminal: 'THREW',
+      toolName: 'edit_file',
+      error: new Error('chain reject'),
+    };
+    const counts = foldTableSettledCalls([threwObs]);
+    assert.equal(counts.GUARDED, 1);
+    assert.equal(threwObs.terminal, 'THREW');
+    assert.equal('outcome' in threwObs, false);
+  });
+
+  it('i. PASSTHROUGH+THREW: readonly throw is observed then rethrown', async () => {
+    const seen = [];
+    const r = withCodeRifts({
+      tools: [{
+        name: 'read_file',
+        mutationClass: 'readonly',
+        execute: async () => { throw new Error('read boom'); },
+      }],
+      client: mockClient(),
+      operation: 'merge',
+      onSettledCall: (o) => { seen.push(o); },
+    });
+    await assert.rejects(
+      () => r.tools.find((t) => t.name === 'read_file').execute({}),
+      /read boom/,
+    );
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].route, 'PASSTHROUGH');
+    assert.equal(seen[0].terminal, 'THREW');
+  });
+
+  it('j. BYPASSED+RETURNED: forceReadonly heuristic mutator (failHard false) is route BYPASSED', async () => {
+    const seen = [];
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_thing', execute: async () => 'raw-ok' }],
+      client: mockClient(),
+      operation: 'merge',
+      registry: { forceReadonly: ['edit_thing'], failOnUnguardedMutator: false },
+      onSettledCall: (o) => { seen.push(o); },
+    });
+    assert.equal(r.registry_report.coverage, 'BYPASSED');
+    const t = r.tools.find((x) => x.name === 'edit_thing');
+    assert.equal(t._coderifts.guarded, false);
+    const out = await t.execute({});
+    assert.equal(out, 'raw-ok');
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].route, 'BYPASSED');
+    assert.equal(seen[0].terminal, 'RETURNED');
+    assert.equal(seen[0].result, 'raw-ok');
+  });
+
+  it('j2. BYPASSED+THREW: forceReadonly passthrough throw is observed then rethrown', async () => {
+    const seen = [];
+    const r = withCodeRifts({
+      tools: [{
+        name: 'edit_thing',
+        execute: async () => { throw new Error('bypass boom'); },
+      }],
+      client: mockClient(),
+      operation: 'merge',
+      registry: { forceReadonly: ['edit_thing'], failOnUnguardedMutator: false },
+      onSettledCall: (o) => { seen.push(o); },
+    });
+    await assert.rejects(
+      () => r.tools.find((x) => x.name === 'edit_thing').execute({}),
+      /bypass boom/,
+    );
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].route, 'BYPASSED');
+    assert.equal(seen[0].terminal, 'THREW');
+  });
+
+  it('k. zero settled calls: fold is zeros; fraction is absent (not zero)', () => {
+    const counts = foldTableSettledCalls([]);
+    assert.deepEqual(counts, { GUARDED: 0, PASSTHROUGH: 0, BYPASSED: 0 });
+    const frac = guardedFractionAmongRoutes(counts);
+    assert.equal(frac.kind, 'absent');
+    assert.equal(frac.why, 'no_settled_calls');
+    assert.equal('fraction' in frac, false);
+  });
+
+  it('l. one-route-only observation: fraction is absent (not a number) — partial data property', () => {
+    const onlyGuarded = foldTableSettledCalls([
+      {
+        kind: 'settled_call', route: 'GUARDED', terminal: 'RETURNED',
+        toolName: 'a', outcome: { executed: true, verdict: { kind: 'ALLOW' } },
+      },
+      {
+        kind: 'settled_call', route: 'GUARDED', terminal: 'RETURNED',
+        toolName: 'b', outcome: { executed: true, verdict: { kind: 'ALLOW' } },
+      },
+    ]);
+    assert.equal(onlyGuarded.GUARDED, 2);
+    assert.equal(onlyGuarded.PASSTHROUGH, 0);
+    const frac = guardedFractionAmongRoutes(onlyGuarded);
+    assert.equal(frac.kind, 'absent');
+    assert.equal(frac.why, 'one_route_only');
+    assert.equal(typeof frac.fraction, 'undefined');
+    // Explicit: no helper may yield a number from one-sided data.
+    assert.notEqual(frac.kind, 'present');
+  });
+
+  it('m. multi-route observation: fold counts and fraction present only when ≥2 routes seen', () => {
+    const events = [
+      {
+        kind: 'settled_call', route: 'GUARDED', terminal: 'RETURNED',
+        toolName: 'edit_file', outcome: { executed: true, verdict: { kind: 'ALLOW' } },
+      },
+      {
+        kind: 'settled_call', route: 'PASSTHROUGH', terminal: 'RETURNED',
+        toolName: 'read_file', result: 'ok',
+      },
+    ];
+    const counts = foldTableSettledCalls(events);
+    assert.deepEqual(counts, { GUARDED: 1, PASSTHROUGH: 1, BYPASSED: 0 });
+    const frac = guardedFractionAmongRoutes(counts);
+    assert.equal(frac.kind, 'present');
+    assert.equal(frac.fraction, 0.5);
+  });
+
+  it('n. neither hook changes composition_assurance', () => {
     const r = withCodeRifts({
       tools: cleanMutators(),
       client: mockClient(),
       operation: 'merge',
       onEvent: () => {},
-      onOutcome: () => {},
+      onSettledCall: () => {},
     });
     assert.equal(r.composition_assurance.coverage, 'PARTIAL');
     assert.equal(r.composition_assurance.inescapable_runtime, false);

@@ -243,23 +243,43 @@ There is no separate `publishGate` export: the function is already generic over 
 aliases would grow a frozen public surface for a parameter that already does the job. That is a
 deliberate choice, not an omission.
 
-### Observation hooks (`onEvent` + `onOutcome`)
+### Observation hooks (`onEvent` + `onSettledCall`)
 
-Optional hooks on `withCodeRifts` for seeing what guarded calls do. Neither changes
-`composition_assurance` (still `PARTIAL` / `inescapable_runtime: false` until the gaps above land).
-`onOutcome` is pure observation; `onEvent` is also the monitoring **presence** gate (next section).
+Optional hooks on `withCodeRifts` for seeing what calls through the **returned** tool table do.
+Neither changes `composition_assurance` (still `PARTIAL` / `inescapable_runtime: false` until the
+gaps above land). `onSettledCall` is pure observation; `onEvent` is also the monitoring **presence**
+gate (next section).
 
 ```typescript
+import {
+  withCodeRifts,
+  foldTableSettledCalls,
+  guardedFractionAmongRoutes,
+  type SettledCallObservation,
+} from '@coderifts/agent-guard';
+
+const settled: SettledCallObservation[] = [];
 const { tools } = withCodeRifts({
   tools: rawTools,
   client,
   operation: 'merge',
   onEvent: (e) => { /* frozen-core lifecycle event; partial — see gaps */ },
-  onOutcome: ({ toolName, outcome }) => {
-    // composition post-call: full GuardOutcome for this guarded tool
-    // e.g. outcome.executed === false && outcome.verdict.kind === 'BLOCK'
+  onSettledCall: (o) => {
+    settled.push(o);
+    // Discriminated: o.kind === 'settled_call', o.route, o.terminal are EXPLICIT tags.
+    // GUARDED + RETURNED → o.outcome is a non-optional GuardOutcome
+    //   e.g. o.outcome.executed === false && o.outcome.verdict.kind === 'BLOCK'
+    // PASSTHROUGH / BYPASSED + RETURNED → o.result (raw tool return)
+    // any route + THREW → o.error (then the rejection still propagates to the host)
   },
 });
+
+// Host-owned fold only. The package holds no counters and never computes a ratio at runtime.
+const counts = foldTableSettledCalls(settled);
+const share = guardedFractionAmongRoutes(counts);
+// share.kind === 'absent' when zero calls or only one route was observed — never a misleading 0 or 1.
+// These numbers describe only settled calls through the returned table — not "total operations"
+// and not "100% enforcement coverage".
 ```
 
 **Why two hooks (not redundant):**
@@ -267,23 +287,24 @@ const { tools } = withCodeRifts({
 | Hook | What it is |
 |------|------------|
 | **`onEvent`** | The frozen core’s lifecycle emitter (`GuardConfig.onEvent`), forwarded **unchanged** into the guard config. Partial telemetry. |
-| **`onOutcome`** | Composition post-call observation: fires after each **guarded** tool’s `execute` returns, with `{ toolName, outcome }` where `outcome` is the full **`GuardOutcome`**. |
+| **`onSettledCall`** | Composition post-call observation: fires **exactly once** for every **settled** call through the **returned** table. Discriminated union `SettledCallObservation` with explicit `route` (`GUARDED` \| `PASSTHROUGH` \| `BYPASSED`) and `terminal` (`RETURNED` \| `THREW`). Replaces the former guarded-only `onOutcome` / `ObservedOutcome`. |
 
-Neither replaces the other. Lifecycle crumbs ≠ full outcome; full outcome ≠ every lifecycle event.
+Neither replaces the other. Lifecycle crumbs ≠ full settle record; settle record ≠ every lifecycle event.
 
 **Gaps (same weight as the features — do not build an “every mutation was checked” claim on these hooks alone):**
 
-- **`onEvent` has no dedicated BLOCK / REQUIRE_APPROVAL event.** After `preflight_result`, those paths return blocked with no further emit. Those outcomes are visible via **`onOutcome`** (`outcome.executed === false`, `outcome.verdict.kind === 'BLOCK' | 'APPROVAL'`), not via `onEvent`.
-- **Event payload carries no envelope, receipt, or fingerprint** — only optional `decisionId` (and action/cause/signals/…). **`onOutcome`** carries the full outcome, including `outcome.verdict.envelope` where the frozen path attached one (BLOCK / APPROVAL / ALLOW / MONITOR).
-- **`onOutcome` fires only for guarded tools** (`_coderifts.guarded === true`). Readonly passthrough tools never enter `guardToolCall` and produce no `GuardOutcome` — they are not wrapped and never fire `onOutcome`.
+- **`onEvent` has no dedicated BLOCK / REQUIRE_APPROVAL event.** After `preflight_result`, those paths return blocked with no further emit. Those outcomes are visible via **`onSettledCall`** on the GUARDED arm (`outcome.executed === false`, `outcome.verdict.kind === 'BLOCK' | 'APPROVAL'`), not via `onEvent`.
+- **Event payload carries no envelope, receipt, or fingerprint** — only optional `decisionId` (and action/cause/signals/…). **GUARDED+RETURNED** carries the full outcome, including `outcome.verdict.envelope` where the frozen path attached one (BLOCK / APPROVAL / ALLOW / MONITOR).
+- **`onSettledCall` sees only the returned table.** Host-registered raw tools outside that table are invisible. Passthrough and forced-bypass (break-glass readonly) routes **do** fire; that is deliberate so hosts can count table traffic without inventing “total operations.”
 - **`onEvent` is partial on other branches too** (e.g. some closed-availability stops may emit only `preflight_start`). The declared type **`execution_skipped` is never emitted** by the frozen core.
-- Neither hook alone is receipt carry-forward: `onEvent` lacks envelope/receipt; `onOutcome` exposes them when present but does not retain or re-inject them across calls.
+- Neither hook alone is receipt carry-forward: `onEvent` lacks envelope/receipt; `onSettledCall` exposes them when present on GUARDED+RETURNED but does not retain or re-inject them across calls.
+- **No package-held ratio.** Pure helpers `foldTableSettledCalls` / `guardedFractionAmongRoutes` run on a host list; the latter returns **absent** (not zero) when observation is one-sided.
 
 **Safety guarantees (observation must not change execution):**
 
-- The host receives the **same outcome object** the hook saw; observation does not alter the return value.
-- A throwing `onOutcome` does not break the call; a **returned rejected promise** is handled (not left unhandled).
-- If the tool/`guardToolCall` path **rejects**, the rejection **propagates** and **no** outcome is invented — `onOutcome` is not called with a fake object.
+- The host receives the **same return value** the unwrapped tool produced; observation does not alter it.
+- A throwing `onSettledCall` does not break the call; a **returned rejected promise** is handled (not left unhandled).
+- If the tool/`guardToolCall` path **rejects**, the rejection **propagates** after the THREW observation fires — no fake GuardOutcome is invented on that arm.
 
 ### Receipt chaining (optional, host-threaded — no package cursor)
 
@@ -303,8 +324,10 @@ const { tools } = withCodeRifts({
   operation: 'merge',
   // Read on each preflight; the package does not store or advance this value.
   previousReceipt: () => lastToken,
-  onOutcome: ({ outcome }) => {
-    const v = outcome.verdict;
+  onSettledCall: (o) => {
+    // Advance the chain only on a GUARDED return that carries a receipt token.
+    if (o.kind !== 'settled_call' || o.route !== 'GUARDED' || o.terminal !== 'RETURNED') return;
+    const v = o.outcome.verdict;
     if (v && 'envelope' in v && v.envelope?.receipt?.token) {
       lastToken = v.envelope.receipt.token; // host advances the cursor
     }
@@ -316,9 +339,9 @@ The same field exists on `GuardConfig` for direct `guardToolCall` / `guardToolRe
 (`previousReceipt?: string | (() => string | undefined | null)`). A plain string works if the host
 mutates it between calls; a getter is preferred so the package never looks like it owns the value.
 
-**Concurrency (serial only for a linear chain):** The getter/onOutcome pattern above is correct when
-guarded contract calls run **one after another**. Modern agents often issue **overlapping** tool
-calls. `onOutcome` runs **after** a call finishes, so two preflights in flight can both read the
+**Concurrency (serial only for a linear chain):** The getter/`onSettledCall` pattern above is correct
+when guarded contract calls run **one after another**. Modern agents often issue **overlapping** tool
+calls. `onSettledCall` runs **after** a call settles, so two preflights in flight can both read the
 same `lastToken` before either advances it. The issuer then produces two children of one parent —
 a **forest**, not a single linear chain. The package holds nothing, so it cannot serialise that
 advance; **the host owns the ordering rule**. If you need a linear chain under concurrency, you
@@ -362,7 +385,8 @@ Receipts are **absent** on at least:
 - **Detector-skipped** calls (`SKIPPED` / not a contract call) — no preflight, no envelope.
 - Calls that **failed closed before the oracle** (e.g. missing artifact content) — no issuance.
 - **Open-passthrough** availability paths that execute with a null envelope — no this-call receipt.
-- **Readonly passthrough** tools — never enter `guardToolCall`; no `onOutcome` either.
+- **Readonly passthrough** tools — never enter `guardToolCall`; they still settle via `onSettledCall`
+  as `PASSTHROUGH` (no GuardOutcome / no receipt).
 
 A receipt **can exist when the tool then threw** after approval (`executed: false`, `error` set).
 The chain records an issued decision for a mutation that may never have landed — do not read
@@ -388,7 +412,8 @@ On a MONITOR/WARN path the guard emits `monitoring_required` when the handler is
 enforceable).
 
 **Three different jobs (not three sinks):** `onEvent` = lifecycle events **and** the monitoring
-presence gate; `onOutcome` = full `GuardOutcome` per guarded call and gates nothing.
+presence gate; `onSettledCall` = one settle record per returned-table call (GUARDED arm carries
+`GuardOutcome`) and gates nothing.
 
 Pass `onEvent` on `withCodeRifts({ …, onEvent })`, or on `guardToolCall` / `guardToolRegistry`’s
 `guard: { client, onEvent }` — same field.

@@ -354,6 +354,15 @@ export function guardToolRegistry(rawTools: RawTool[], config: GuardToolRegistry
       anyForced = true;
       warnings.push(`force_readonly_on_mutator_heuristic:${tool.name}`);
     }
+    // forceReadonly listed this tool but resolution took explicit mutationClass first — break-glass
+    // request was silently a no-op. Emit a warning so callers are not given false safety.
+    if (
+      Array.isArray(config.forceReadonly)
+      && config.forceReadonly.includes(tool.name)
+      && source === 'mutationClass'
+    ) {
+      warnings.push(`force_readonly_ignored_explicit_mutation_class:${tool.name}`);
+    }
     if (source === 'unknown' && cls === 'readonly') anyUnknownReadonly = true;
     staged.push({ tool, cls, forced });
   }
