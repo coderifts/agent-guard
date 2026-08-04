@@ -23,8 +23,9 @@ import type { GateStatusState, EnforcementState } from './merge-gate.js';
 
 export type { GateStatusState, EnforcementState } from './merge-gate.js';
 
-/** The 13 deploy-gate reason codes (§1.1). Success uses allow_current_deploy; enforcement_not_configured
- *  and bypass_open name the honesty residual on an otherwise-green check. */
+/** The 14 deploy-gate reason codes (§1.1 + change-set residual). Success uses allow_current_deploy;
+ *  enforcement_not_configured / bypass_open / change_set_not_rebound name honesty residuals on an
+ *  otherwise-green check; fingerprint_mismatch is a hard failure (not a residual). */
 export type DeployGateReason =
   | 'allow_current_deploy'
   | 'no_receipt'
@@ -38,7 +39,13 @@ export type DeployGateReason =
   | 'decision_not_allow'
   | 'inputs_incomplete'
   | 'enforcement_not_configured'
-  | 'bypass_open';
+  | 'bypass_open'
+  /**
+   * Host did not supply expected_fingerprint — the optional change-set re-bind was skipped.
+   * Residual only (does not flip deploy_allowed / inescapable_deploy). Distinct from
+   * fingerprint_mismatch, which is the hard failure when a re-bind WAS requested and disagreed.
+   */
+  | 'change_set_not_rebound';
 
 /** What is being deployed — all fields are INPUTS (the pure function performs no discovery). */
 export type DeployTarget = {
@@ -246,6 +253,14 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
   if (!inescapable_deploy) {
     if (enforcement_state === 'ENFORCING') residual = 'bypass_open';        // enforced, but a bypass exists
     else residual = 'enforcement_not_configured';                          // ADVISORY / ABSENT / UNKNOWN
+  }
+
+  // Optional change-set re-bind skipped: record the gap, do not flip the claim (same residual-only
+  // shape as merge-gate change_set_not_rebound / required_check_app_*). Only fills when no residual
+  // is already named. Distinct from fingerprint_mismatch (hard fail when a re-bind was requested
+  // and disagreed).
+  if (rc.expected_fingerprint == null && residual === undefined) {
+    residual = 'change_set_not_rebound';
   }
 
   return {

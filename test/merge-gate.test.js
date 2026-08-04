@@ -185,7 +185,8 @@ describe('gateDecision — required_check_app_bound residual (claim not flipped)
     const g = gateDecision(enforcingNoBypassInput({ required_check_app_bound: true }));
     assert.equal(g.state, 'success');
     assert.equal(g.inescapable_merge, true);
-    assert.equal(g.residual, undefined, 'confirmed app-bound: no honesty residual');
+    // MG-001 supplies expected_fingerprint (matching) — change-set re-bind present, no residual.
+    assert.equal(g.residual, undefined, 'confirmed app-bound + change-set re-bind: no honesty residual');
   });
 
   it('field ABSENT + ENFORCING + no admin bypass → inescapable_merge still TRUE and residual required_check_app_binding_unknown (both halves — deliberate non-flip)', () => {
@@ -220,5 +221,58 @@ describe('gateDecision — required_check_app_bound residual (claim not flipped)
     advPlus.requiredContext.protection.required_check_app_bound = false;
     const g = gateDecision(advPlus);
     assert.equal(g.residual, 'protection_advisory_only', 'no duplicate/conflicting app residual under ADVISORY');
+  });
+});
+
+// ── change_set_not_rebound residual (optional re-bind; claim not flipped) ─────────────────────────
+// expected_fingerprint is optional. When supplied it fails hard on mismatch. When omitted the gate
+// still greens on head match and names residual change_set_not_rebound — does not flip
+// inescapable_merge (same residual-only honesty shape as required_check_app_*).
+describe('gateDecision — change_set_not_rebound residual (claim not flipped)', () => {
+  /** Fully green ENFORCING input: app-bound confirmed so residual is free for the change-set axis. */
+  function cleanEnforcingInput() {
+    const base = JSON.parse(JSON.stringify(row('MG-001').input));
+    base.requiredContext.protection.required_check_app_bound = true;
+    return base;
+  }
+
+  it('expected_fingerprint supplied and matching → success, no change_set residual, claim unchanged', () => {
+    const input = cleanEnforcingInput();
+    assert.equal(
+      input.requiredContext.expected_fingerprint,
+      input.receipt.verdict_fingerprint,
+      'fixture preconditions: matching expected_fingerprint',
+    );
+    const g = gateDecision(input);
+    assert.equal(g.state, 'success');
+    assert.equal(g.merge_allowed, true);
+    assert.equal(g.reason, 'allow_current_head');
+    assert.equal(g.inescapable_merge, true);
+    assert.notEqual(g.residual, 'change_set_not_rebound');
+    assert.notEqual(g.reason, 'fingerprint_mismatch');
+    assert.equal(g.residual, undefined, 're-bind present and matched: no change-set residual');
+  });
+
+  it('expected_fingerprint supplied and mismatched → fingerprint_mismatch failure (existing path)', () => {
+    const input = cleanEnforcingInput();
+    input.requiredContext.expected_fingerprint = 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const g = gateDecision(input);
+    assert.equal(g.merge_allowed, false);
+    assert.equal(g.state, 'failure');
+    assert.equal(g.reason, 'fingerprint_mismatch');
+    assert.equal(g.inescapable_merge, false);
+    assert.equal(g.residual, undefined, 'hard failure path — not a residual');
+  });
+
+  it('expected_fingerprint absent → residual change_set_not_rebound; decision and claim unchanged', () => {
+    const input = cleanEnforcingInput();
+    delete input.requiredContext.expected_fingerprint;
+    const g = gateDecision(input);
+    assert.equal(g.state, 'success', 'decision unchanged: still green');
+    assert.equal(g.merge_allowed, true, 'merge_allowed unchanged');
+    assert.equal(g.reason, 'allow_current_head');
+    assert.equal(g.inescapable_merge, true, 'claim not flipped — residual only');
+    assert.equal(g.residual, 'change_set_not_rebound', 'honesty: receipt not re-bound to current change set');
+    assert.notEqual(g.reason, 'fingerprint_mismatch', 'must not confusable with hard mismatch failure');
   });
 });

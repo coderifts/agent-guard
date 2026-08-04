@@ -179,6 +179,18 @@ The package cannot fill the other three. It sees the agent’s tool table, not b
 deployment target, not content resolution. Hosts produce those with the exports that already own them:
 **`gateDecision`** (merge), **`deployGate`** (deploy), **`resolveArtifacts`** (content).
 
+**Change-set re-bind is optional; its absence is residual-only.** A green `gateDecision` /
+`deployGate` without `requiredContext.expected_fingerprint` means the receipt matched the **head**
+(or deploy artifact/env bind), **not** that it was re-bound to the host’s current change set. The
+optional fingerprint step still fails hard with `fingerprint_mismatch` when an expected value is
+supplied and disagrees; when it is omitted, the gate stays green and names residual
+`change_set_not_rebound` (claim flags `inescapable_merge` / `inescapable_deploy` are not flipped).
+That distinction bites when the base moves, or when a different artifact subset was analysed at the
+same tip: same head, different change set, receipt still greens without a re-bind.
+The residual field is a **single slot**: when another honesty residual is already named
+(e.g. app-binding or enforcement), `change_set_not_rebound` is not written — so **absence of a
+residual is not evidence that the corresponding gap is closed**; it may only have been outranked.
+
 **Applicability is not a placeholder for “unknown.”** The `applicability` map is four booleans. Setting
 a placement to `false` asserts that placement **does not apply** — not that you have not measured it
 yet. A host that passes only the runtime placement and marks `merge`, `deploy`, and `content` false is

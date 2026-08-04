@@ -178,3 +178,52 @@ describe('deployGate — determinism + purity', () => {
     }
   });
 });
+
+// ── change_set_not_rebound residual (optional re-bind; claim not flipped) ─────────────────────────
+// Same honesty shape as merge-gate: optional expected_fingerprint; mismatch still hard-fails;
+// absence greens with residual change_set_not_rebound and does not flip inescapable_deploy.
+describe('deployGate — change_set_not_rebound residual (claim not flipped)', () => {
+  function cleanEnforcingInput() {
+    return JSON.parse(JSON.stringify(row('DG-001').input));
+  }
+
+  it('expected_fingerprint supplied and matching → success, no change_set residual, claim unchanged', () => {
+    const input = cleanEnforcingInput();
+    assert.equal(
+      input.requiredContext.expected_fingerprint,
+      input.receipt.verdict_fingerprint,
+      'fixture preconditions: matching expected_fingerprint',
+    );
+    const g = deployGate(input);
+    assert.equal(g.state, 'success');
+    assert.equal(g.deploy_allowed, true);
+    assert.equal(g.reason, 'allow_current_deploy');
+    assert.equal(g.inescapable_deploy, true);
+    assert.notEqual(g.residual, 'change_set_not_rebound');
+    assert.notEqual(g.reason, 'fingerprint_mismatch');
+    assert.equal(g.residual, undefined, 're-bind present and matched: no change-set residual');
+  });
+
+  it('expected_fingerprint supplied and mismatched → fingerprint_mismatch failure (existing path)', () => {
+    const input = cleanEnforcingInput();
+    input.requiredContext.expected_fingerprint = 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const g = deployGate(input);
+    assert.equal(g.deploy_allowed, false);
+    assert.equal(g.state, 'failure');
+    assert.equal(g.reason, 'fingerprint_mismatch');
+    assert.equal(g.inescapable_deploy, false);
+    assert.equal(g.residual, undefined, 'hard failure path — not a residual');
+  });
+
+  it('expected_fingerprint absent → residual change_set_not_rebound; decision and claim unchanged', () => {
+    const input = cleanEnforcingInput();
+    delete input.requiredContext.expected_fingerprint;
+    const g = deployGate(input);
+    assert.equal(g.state, 'success', 'decision unchanged: still green');
+    assert.equal(g.deploy_allowed, true, 'deploy_allowed unchanged');
+    assert.equal(g.reason, 'allow_current_deploy');
+    assert.equal(g.inescapable_deploy, true, 'claim not flipped — residual only');
+    assert.equal(g.residual, 'change_set_not_rebound', 'honesty: receipt not re-bound to current change set');
+    assert.notEqual(g.reason, 'fingerprint_mismatch', 'must not confusable with hard mismatch failure');
+  });
+});

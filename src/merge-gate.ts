@@ -19,8 +19,9 @@
 
 export type GateStatusState = 'success' | 'failure' | 'pending';
 
-/** Gate reason codes (§1.1 + app-binding honesty residuals). Success uses allow_current_head;
- *  protection_* / admin_bypass_open / required_check_app_* name honesty residuals;
+/** Gate reason codes (§1.1 + honesty residuals). Success uses allow_current_head;
+ *  protection_* / admin_bypass_open / required_check_app_* / change_set_not_rebound name honesty
+ *  residuals on an otherwise-green check; fingerprint_mismatch is a hard failure (not a residual);
  *  server_unreachable is a host-supplied fail-closed policy input. */
 export type GateReason =
   | 'allow_current_head'
@@ -40,7 +41,13 @@ export type GateReason =
   /** Host did not report whether the required check is app-bound (field absent). Not the same as not bound. */
   | 'required_check_app_binding_unknown'
   /** Host reported the required check is not bound to a GitHub App (name-only / spoofable). */
-  | 'required_check_app_not_bound';
+  | 'required_check_app_not_bound'
+  /**
+   * Host did not supply expected_fingerprint — the optional change-set re-bind was skipped.
+   * Residual only (does not flip merge_allowed / inescapable_merge). Distinct from
+   * fingerprint_mismatch, which is the hard failure when a re-bind WAS requested and disagreed.
+   */
+  | 'change_set_not_rebound';
 
 export type EnforcementState = 'ENFORCING' | 'ADVISORY' | 'UNKNOWN' | 'ABSENT';
 
@@ -238,6 +245,13 @@ export function gateDecision(input: GateDecisionInput): GateDecision {
     } else {
       residual = 'required_check_app_binding_unknown'; // field absent: unknown ≠ not bound
     }
+  }
+
+  // Optional change-set re-bind skipped: record the gap, do not flip the claim (same residual-only
+  // shape as required_check_app_*). Only fills when no residual is already named. Distinct from
+  // fingerprint_mismatch (hard fail when a re-bind was requested and disagreed).
+  if (rc.expected_fingerprint == null && residual === undefined) {
+    residual = 'change_set_not_rebound';
   }
 
   return {
