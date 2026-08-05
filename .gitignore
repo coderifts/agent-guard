@@ -3,5 +3,4 @@ dist/
 *.tgz
 .DS_Store
 smoke-live.*
-node_modules/
-dist/
+package.json.publish-bak

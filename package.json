@@ -30,7 +30,9 @@
     "lint": "tsc -p tsconfig.json --noEmit",
     "pretest": "npm run build",
     "test": "node --test test/*.test.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prepack": "node scripts/publish-package-json.mjs strip",
+    "postpack": "node scripts/publish-package-json.mjs restore"
   },
   "keywords": [
     "coderifts",
