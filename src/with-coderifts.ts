@@ -222,8 +222,15 @@ export type WithCodeRiftsInput = {
    * Optional. Forwarded UNCHANGED onto the guard config (config.guard.onEvent) so the frozen
    * guardToolCall emit path can reach it. Not wrapped, not filtered, no extra events added.
    * See header TELEMETRY GAPS: partial; does not carry envelope/receipt/fingerprint.
+   * Alone does NOT unlock WARN/MONITOR — also set monitoringSinkWired: true (host assertion).
    */
   onEvent?: (e: GuardEvent) => void;
+  /**
+   * Optional. Host assertion that a monitoring sink is intentionally wired. Forwarded onto
+   * GuardConfig.monitoringSinkWired. Must agree with onEvent for CONTINUE_WITH_MONITORING.
+   * See GuardConfig.monitoringSinkWired docs: claim, not delivery proof.
+   */
+  monitoringSinkWired?: boolean;
   /**
    * Optional. Invoked once per SETTLED call through the returned tool table (every route and both
    * terminals). Discriminated union — see SettledCallObservation. Throws and rejected promises are
@@ -422,11 +429,14 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   //    composition_unknown_treated_as_readonly residual below.
   //  - failOnUnguardedMutator: NOT defaulted here — the registry owns its own default (true). Forward
   //    the caller's value if given so there is a single source of truth for it.
-  // Guard config: client + operation always; onEvent forwarded UNCHANGED when provided (no second
-  // try/catch layer — frozen emit already swallows sync throws).
+  // Guard config: client + operation always; onEvent + monitoringSinkWired forwarded UNCHANGED when
+  // provided (no second try/catch layer — frozen emit already swallows sync throws).
   const guard: GuardConfig = { client: input.client, operation: input.operation };
   if (input.onEvent !== undefined) {
     guard.onEvent = input.onEvent;
+  }
+  if (input.monitoringSinkWired !== undefined) {
+    guard.monitoringSinkWired = input.monitoringSinkWired;
   }
   if (input.previousReceipt !== undefined) {
     guard.previousReceipt = input.previousReceipt;

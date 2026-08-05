@@ -36,7 +36,19 @@ export interface GuardConfig {
   observeOnly?: boolean;                     // preflight + report; executes regardless but marks enforced:false; default false
   redactor?: (d: ToolCallDescriptor) => ToolCallDescriptor; // D4: runs BEFORE fingerprint/anything leaves the process
   verifyReceipts?: boolean;                  // verify returned + lkg receipt signatures; default true
-  onEvent?: (e: GuardEvent) => void;         // wrapped; never throws
+  onEvent?: (e: GuardEvent) => void;         // wrapped; never throws; lifecycle emitter only — NOT proof of monitoring
+  /**
+   * Host ASSERTION that a monitoring sink is intentionally wired for WARN /
+   * CONTINUE_WITH_MONITORING. Required together with a present `onEvent` for MONITOR to proceed.
+   *
+   * - `true`  + `onEvent` present  → monitoring treated as wired (gate opens for MONITOR).
+   * - `true`  + no `onEvent`       → contradiction → fail-closed MONITORING_UNWIRED.
+   * - absent / `false`             → monitoring treated as unwired (even if `onEvent` exists).
+   *
+   * This is a claim the host records, not a fact the package checks: a callback cannot prove
+   * delivery to any destination. Empty/no-op handlers are indistinguishable from real sinks.
+   */
+  monitoringSinkWired?: boolean;
   /**
    * Optional prior chain-receipt token for the preflight `previous_receipt` field (server hashes it
    * into the signed `prev` slot). Host-owned only: a string the host updates between calls, or a
@@ -120,7 +132,7 @@ export type IntegrityCause =
   | 'ANALYSIS_DEGRADED'           // analysis_complete=false / degraded_reasons / degraded / coverage_gap (§111)
   | 'ARTIFACT_MISMATCH'           // envelope artifact_digest / input_fingerprint ≠ locally-recomputed value
   | 'RECEIPT_MISSING'             // contract-triggering executable decision with no verifiable receipt (no unenforced execute)
-  | 'MONITORING_UNWIRED'          // CONTINUE_WITH_MONITORING but no onEvent sink → cannot enforce monitoring
+  | 'MONITORING_UNWIRED'          // CONTINUE_WITH_MONITORING but monitoring not declared+callback-agreeing → cannot enforce monitoring
   | 'MISSING_ARTIFACT_CONTENT';   // detector triggered (preflight required) but no analyzable artifacts[] with before/after → fail closed LOCALLY (developer must supply content), never send an empty list to the server
 export type UnavailableCause = AvailabilityCause | IntegrityCause;
 

@@ -156,7 +156,7 @@ describe('CE-CC — chain coherence + §111 degraded', () => {
     assert.equal(r.outcome.verdict.cause, 'ANALYSIS_DEGRADED');
   });
 
-  it('CE-CC-04: MONITOR without an onEvent sink → fail-closed (MONITORING_UNWIRED)', async () => {
+  it('CE-CC-04: MONITOR without monitoring declaration+sink → fail-closed (MONITORING_UNWIRED)', async () => {
     const env = envelope({ decision: 'WARN', execution_action: 'CONTINUE_WITH_MONITORING' });
     const r = await run(env);
     assert.ok(failClosed(r));
@@ -197,10 +197,14 @@ describe('enforced ⟺ executed invariant + happy path', () => {
     assert.equal(r.outcome.result, 'SIDE_EFFECT');
   });
 
-  it('HAPPY PATH (MONITOR + wired sink): still executes enforced:true', async () => {
+  it('HAPPY PATH (MONITOR + declared + onEvent): still executes enforced:true', async () => {
     const env = envelope({ decision: 'WARN', execution_action: 'CONTINUE_WITH_MONITORING' });
     let executed = false;
-    const o = await guardToolCall(TRIGGER, async () => { executed = true; return 'SIDE_EFFECT'; }, { client: client(env), onEvent: () => {} });
+    const o = await guardToolCall(TRIGGER, async () => { executed = true; return 'SIDE_EFFECT'; }, {
+      client: client(env),
+      monitoringSinkWired: true,
+      onEvent: () => {},
+    });
     assert.equal(executed, true);
     assert.equal(o.enforced, true);
   });

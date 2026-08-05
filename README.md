@@ -247,8 +247,8 @@ deliberate choice, not an omission.
 
 Optional hooks on `withCodeRifts` for seeing what calls through the **returned** tool table do.
 Neither changes `composition_assurance` (still `PARTIAL` / `inescapable_runtime: false` until the
-gaps above land). `onSettledCall` is pure observation; `onEvent` is also the monitoring **presence**
-gate (next section).
+gaps above land). `onSettledCall` is pure observation; `onEvent` is the lifecycle emitter and, only
+together with host `monitoringSinkWired: true`, satisfies the MONITOR gate (next section).
 
 ```typescript
 import {
@@ -286,7 +286,7 @@ const share = guardedFractionAmongRoutes(counts);
 
 | Hook | What it is |
 |------|------------|
-| **`onEvent`** | The frozen core’s lifecycle emitter (`GuardConfig.onEvent`), forwarded **unchanged** into the guard config. Partial telemetry. |
+| **`onEvent`** | The frozen core’s lifecycle emitter (`GuardConfig.onEvent`), forwarded **unchanged** into the guard config. Partial telemetry. Alone does **not** unlock MONITOR — pair with `monitoringSinkWired: true`. |
 | **`onSettledCall`** | Composition post-call observation: fires **exactly once** for every **settled** call through the **returned** table. Discriminated union `SettledCallObservation` with explicit `route` (`GUARDED` \| `PASSTHROUGH` \| `BYPASSED`) and `terminal` (`RETURNED` \| `THREW`). Replaces the former guarded-only `onOutcome` / `ObservedOutcome`. |
 
 Neither replaces the other. Lifecycle crumbs ≠ full settle record; settle record ≠ every lifecycle event.
@@ -395,28 +395,42 @@ The chain records an issued decision for a mutation that may never have landed �
 Do **not** claim an intact chain proves session completeness, that edits landed, or that downstream
 CI may skip re-analysis. Prefer tamper-evident language over “tamper-proof.”
 
-### WARN / `CONTINUE_WITH_MONITORING` needs `onEvent`
+### WARN / `CONTINUE_WITH_MONITORING` needs a host assertion + `onEvent`
 
-Without an `onEvent` handler, a **WARN** verdict does **not** proceed. The outcome is fail-closed with
-cause **`MONITORING_UNWIRED`**, and the tool **does not run**. That is intentional, not a transport bug.
+Without both **`monitoringSinkWired: true`** and an **`onEvent`** handler, a **WARN** verdict does
+**not** proceed. The outcome is fail-closed with cause **`MONITORING_UNWIRED`**, and the tool **does
+not run**. That is intentional, not a transport bug.
 
-The check is **presence only**: `sinkWired = !!config.onEvent`. Any truthy handler counts. The guard does
-**not** require the handler to persist, forward, or acknowledge events — a no-op `() => {}` satisfies
-the gate the same as a real logger.
+The host **asserts** that a monitoring sink is intentionally wired (`monitoringSinkWired: true`). The
+package records that claim and checks only that it **agrees** with a present `onEvent` callback. It
+does **not** and **cannot** confirm that any event reaches a destination — a no-op `() => {}` is
+indistinguishable from a real logger, and we do not try to detect empty functions. A declaration is
+a claim we record, not a fact we verify.
 
-**Sharp edge:** wiring `onEvent` only to debug lifecycle events **also** enables WARN to proceed as
-`CONTINUE_WITH_MONITORING` (when the receipt is verified). Presence is the whole precondition.
+**Agreement (fail closed on contradiction):**
 
-On a MONITOR/WARN path the guard emits `monitoring_required` when the handler is present, or
+| `monitoringSinkWired` | `onEvent` | MONITOR gate |
+|-----------------------|-----------|--------------|
+| `true` | function present | wired — proceeds (when receipt verified) |
+| `true` | absent | contradiction → `MONITORING_UNWIRED` |
+| absent / `false` | function present | **unwired** — declaration required; `onEvent` alone is not enough |
+| absent / `false` | absent | unwired (same as today with no sink) |
+
+**Absent declaration = unwired** (breaking for callers that only passed `onEvent`). That closes the
+hole where `onEvent: () => {}` unlocked MONITOR while observing nothing. Cost: every host that wants
+WARN to proceed must set `monitoringSinkWired: true` in addition to `onEvent`.
+
+On a MONITOR/WARN path the guard emits `monitoring_required` when the gate is wired, or
 `monitoring_unwired` when it is not (then `MONITORING_UNWIRED` if the call would otherwise be
 enforceable).
 
-**Three different jobs (not three sinks):** `onEvent` = lifecycle events **and** the monitoring
-presence gate; `onSettledCall` = one settle record per returned-table call (GUARDED arm carries
+**Three different jobs (not three sinks):** `onEvent` = lifecycle events; `monitoringSinkWired` =
+host claim that monitoring is intentionally wired (opens MONITOR only when it agrees with
+`onEvent`); `onSettledCall` = one settle record per returned-table call (GUARDED arm carries
 `GuardOutcome`) and gates nothing.
 
-Pass `onEvent` on `withCodeRifts({ …, onEvent })`, or on `guardToolCall` / `guardToolRegistry`’s
-`guard: { client, onEvent }` — same field.
+Pass both on `withCodeRifts({ …, onEvent, monitoringSinkWired: true })`, or on `guardToolCall` /
+`guardToolRegistry`’s `guard: { client, onEvent, monitoringSinkWired: true }` — same fields.
 
 ## Guarantees (tsc-verified)
 

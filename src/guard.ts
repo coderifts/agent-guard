@@ -349,7 +349,12 @@ export async function guardToolCall<T>(
   // An expired decision cannot be honored fresh => closed (integrity: wrong-time state).
   if (expired) { breakerRecord(config); return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy); }
 
-  const sinkWired = !!config.onEvent; // v1: onEvent is the telemetry sink for MONITOR.
+  // MONITOR gate: host must ASSERT monitoring is wired (monitoringSinkWired === true) AND supply
+  // onEvent. Presence of a function alone is not enough — () => {} used to unlock this gate while
+  // observing nothing. The package still cannot prove delivery; the declaration is a host claim.
+  // Absent declaration = unwired (breaking for onEvent-only callers; closes the empty-callback hole).
+  // Declared true without onEvent = contradiction → unwired (fail closed).
+  const sinkWired = config.monitoringSinkWired === true && typeof config.onEvent === 'function';
   if (kind === 'MONITOR') {
     if (sinkWired) emit(config, { type: 'monitoring_required', at: iso(), decisionId: envelope.decision_id });
     else emit(config, { type: 'monitoring_unwired', at: iso(), decisionId: envelope.decision_id });

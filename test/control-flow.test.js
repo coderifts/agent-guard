@@ -82,17 +82,51 @@ test('APPROVAL: non-executable, factory never runs', async () => {
   assert.equal(o.executionAttempted, false);
 });
 
-// ── MONITOR: sink vs no-sink ──────────────────────────────────────────────────────
-test('MONITOR + wired sink (onEvent) => enforced:true', async () => {
-  const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient({ preflight: () => response('CONTINUE_WITH_MONITORING', 'WARN') }), onEvent: () => {} });
+// ── MONITOR: host declaration + onEvent agreement ─────────────────────────────────
+// monitoringSinkWired is a host ASSERTION (not delivery proof). Gate opens only when
+// monitoringSinkWired === true AND typeof onEvent === 'function'. Absent declaration = unwired
+// (closes the () => {} alone hole; breaks onEvent-only callers until they declare).
+const monitorClient = () => mockClient({ preflight: () => response('CONTINUE_WITH_MONITORING', 'WARN') });
+
+test('MONITOR + declared and wired (monitoringSinkWired + onEvent) => enforced:true', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, {
+    client: monitorClient(),
+    monitoringSinkWired: true,
+    onEvent: () => {},
+  });
   assert.equal(o.verdict.kind, 'MONITOR');
   assert.equal(o.enforced, true);
   assert.equal(o.executed, true);
 });
-// P0-c (CE-CC-04 + enforced⟺executed invariant): MONITOR without a monitoring sink can no longer
-// enforce the monitoring obligation, so it FAILS CLOSED (does NOT execute) — was executed:true/enforced:false.
-test('MONITOR without a sink => FAIL-CLOSED (not executed) — MONITORING_UNWIRED', async () => {
-  const o = await guardToolCall(TRIGGER, okFactory, { client: mockClient({ preflight: () => response('CONTINUE_WITH_MONITORING', 'WARN') }) });
+
+test('MONITOR + declared but no callback => FAIL-CLOSED (contradiction) — MONITORING_UNWIRED', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, {
+    client: monitorClient(),
+    monitoringSinkWired: true,
+    // no onEvent
+  });
+  assert.equal(o.executed, false);
+  assert.equal(o.enforced, false);
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.cause, 'MONITORING_UNWIRED');
+});
+
+// Choice: absent monitoringSinkWired = unwired even when onEvent is present.
+test('MONITOR + callback but not declared (onEvent only) => FAIL-CLOSED — absent declaration is unwired', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, {
+    client: monitorClient(),
+    onEvent: () => {}, // would have unlocked the gate under the old !!onEvent check
+  });
+  assert.equal(o.executed, false);
+  assert.equal(o.enforced, false);
+  assert.equal(o.verdict.kind, 'UNAVAILABLE');
+  assert.equal(o.verdict.cause, 'MONITORING_UNWIRED');
+});
+
+// P0-c (CE-CC-04 + enforced⟺executed invariant): MONITOR with neither declaration nor sink
+// FAILS CLOSED (does NOT execute).
+test('MONITOR + neither declaration nor callback => FAIL-CLOSED — MONITORING_UNWIRED', async () => {
+  const o = await guardToolCall(TRIGGER, okFactory, { client: monitorClient() });
   assert.equal(o.executed, false);
   assert.equal(o.enforced, false);
   assert.equal(o.verdict.kind, 'UNAVAILABLE');
