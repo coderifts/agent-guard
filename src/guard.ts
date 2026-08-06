@@ -19,6 +19,7 @@ import { builtinDetector } from './detector.js';
 import { bindReceiptToEnvelope } from './receipt-binding.js';
 import type { BindCause, VerifyReceiptResultLike } from './receipt-binding.js';
 import { evaluateEnvelope } from './enforcement-gate.js';
+import { buildExecutionProof } from './execution-proof.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();
@@ -141,28 +142,35 @@ async function verifyEnvelope(
 }
 
 // ── Outcome builders (keep the discriminated union satisfied) ────────────────────
+// Every path attaches a guard-produced `proof` block. Callers cannot pass proof fields in;
+// buildExecutionProof reads only the outcome facts the guard just observed.
 async function runEnforced<T>(config: GuardConfig, factory: ExecuteFactory<T>, approved: ApprovedVerdict, redacted: ToolCallDescriptor): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso(), action: approved.action, decisionId: approved.envelope.decision_id });
   try {
     const result = await factory(approved.envelope, redacted);
-    return { executionAttempted: true, executed: true, enforced: true, result, verdict: approved, preflighted: true };
+    const base = { executionAttempted: true as const, executed: true as const, enforced: true as const, result, verdict: approved, preflighted: true as const };
+    return { ...base, proof: buildExecutionProof(base) };
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso(), action: approved.action });
-    return { executionAttempted: true, executed: false, enforced: true, error, verdict: approved, preflighted: true };
+    const base = { executionAttempted: true as const, executed: false as const, enforced: true as const, error, verdict: approved, preflighted: true as const };
+    return { ...base, proof: buildExecutionProof(base) };
   }
 }
 async function runUnenforced<T>(config: GuardConfig, factory: ExecuteFactory<T>, envelope: DecisionResultEnvelope | null, verdict: GuardVerdict, preflighted: boolean, redacted: ToolCallDescriptor): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso() });
   try {
     const result = await factory(envelope, redacted);
-    return { executionAttempted: true, executed: true, enforced: false, result, verdict, preflighted };
+    const base = { executionAttempted: true as const, executed: true as const, enforced: false as const, result, verdict, preflighted };
+    return { ...base, proof: buildExecutionProof(base) };
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso() });
-    return { executionAttempted: true, executed: false, enforced: false, error, verdict, preflighted };
+    const base = { executionAttempted: true as const, executed: false as const, enforced: false as const, error, verdict, preflighted };
+    return { ...base, proof: buildExecutionProof(base) };
   }
 }
 function blocked<T>(verdict: GuardVerdict, preflighted: boolean): GuardOutcome<T> {
-  return { executionAttempted: false, executed: false, enforced: false, verdict, preflighted };
+  const base = { executionAttempted: false as const, executed: false as const, enforced: false as const, verdict, preflighted };
+  return { ...base, proof: buildExecutionProof(base) };
 }
 
 /**

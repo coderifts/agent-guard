@@ -80,19 +80,24 @@ export type ApprovedVerdict =
   | { kind: 'MONITOR'; action: 'CONTINUE_WITH_MONITORING'; envelope: DecisionResultEnvelope } )
   & { receiptVerified: true };
 
+// GuardExecutionProof is defined in execution-proof.ts (assembled only from guard-observed state).
+import type { GuardExecutionProof } from './execution-proof.js';
+export type { GuardExecutionProof, ExecutionResultHash } from './execution-proof.js';
+
 export type GuardOutcome<T> =
   // enforced:true is its OWN arm — only ApprovedVerdict + receiptVerified:true + preflighted:true reach it.
-  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true }
+  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof }
   // executed but NOT enforced (SKIPPED / observeOnly / open- or lkg-UNAVAILABLE pass-through):
-  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean }
+  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof }
   // guard blocked before the factory ran:
-  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean }
+  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof }
   // factory threw AFTER a fully-enforced approval (side effect may have landed; enforced passes through per rule 11):
-  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true }
+  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof }
   // factory threw after an UNENFORCED execution (SKIPPED / observeOnly / open- or lkg-pass-through):
-  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean };
+  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
+// proof is always present and is guard-produced (not caller-writable).
 
 export type GuardVerdict =
   | { kind: 'ALLOW';    action: 'CONTINUE';                 envelope: DecisionResultEnvelope; receiptVerified: boolean }

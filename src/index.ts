@@ -71,7 +71,17 @@ export type {
   DecisionResultEnvelope,
   ExecutionAction,
   Artifact,
+  GuardExecutionProof,
+  ExecutionResultHash,
 } from './types.js';
+
+// Guard-produced execution proof (assembled from observed state only; never caller-supplied).
+export {
+  buildExecutionProof,
+  hashExecutionResult,
+  assertEnforcedReceiptInvariant,
+  EXECUTION_PROOF_SPEC,
+} from './execution-proof.js';
 
 // artifactResolver — automatic base/head contract artifacts from a pure git snapshot (upstream of
 // preflight; produces artifacts, never decides). Companion to MISSING_ARTIFACT_CONTENT.
