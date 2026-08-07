@@ -218,13 +218,42 @@ That overstates coverage.
 a report it produced alone would either guess the other three or assert they do not apply — neither is
 honest, so the composition hands the caller the piece it owns and stops.
 
+#### `deployGate` and deploy-time `bindDeploy`
+
+`deployGate` is the pure decision. **`bindDeploy`** is the pure **caller** at the moment of
+deploying: the host supplies `{ environment, artifact_id, receipt, pipeline_enforcement }`; the
+package composes `deployGate` and returns a decision. No I/O, no receipt re-verify, no CD call.
+
+Same shape as the merge gate (`gateDecision` is pure; GitHub enforces outside us). Deploy differs:
+there is no PR status check to hang on, and **the environment name is a host assertion** — the
+receipt’s `bound_environment` is signed evidence; the target environment string is not. A host can
+claim `staging` while deploying to production; the package cannot tell. The result always reports
+`environment.provenance: 'host_asserted'` (never `verified`).
+
+```typescript
+import { bindDeploy } from '@coderifts/agent-guard';
+
+const r = bindDeploy({
+  environment: { name: 'production', provenance: 'host_asserted' },
+  artifact_id: digest,
+  receipt: receiptView, // finished view — not re-verified here
+  pipeline_enforcement: { enforcement: 'ENFORCING', bypass_possible: false },
+});
+// r.decision_allows_deploy  — pure decision only
+// r.pipeline_action         — always 'not_observed' (we did not block or run the pipeline)
+// r.environment.provenance  — always 'host_asserted'
+// r.inescapable_deploy      — only true under ENFORCING ∧ ¬bypass (from the gate, not a host flag)
+if (!r.decision_allows_deploy) process.exit(1); // host pipeline chooses to honour
+```
+
 #### `deployGate` is also the publish / register gate
 
 `deployGate` gates any **artifact-bound application** operation — not only CD deploys. The target is
 `{ environment, artifact_id }`; the operation label is `requiredContext.operation` (default
 `'deploy'`). The receipt must have been issued for **that same** operation: merge is not deploy is not
 publish. Binding checks are the same regardless of the label (environment + artifact match, allow-class
-verdict, enforcement residual).
+verdict, enforcement residual). Prefer **`bindDeploy`** at the live step; raw `deployGate` remains
+for hosts that already build the full input.
 
 ```typescript
 import { deployGate } from '@coderifts/agent-guard';

@@ -148,6 +148,11 @@ export type {
   DeployGateInput, DeployGateDecision, DeployReceiptView, DeployRequiredContext,
   DeployEnforcementState, DeployTarget, DeployGateReason,
 } from './deploy-gate.js';
+// bindDeploy — pure deploy-TIME caller over deployGate (host asserts env; pipeline action not observed).
+export { bindDeploy, DEPLOY_REPAIRABLE_REASONS } from './deploy-bind.js';
+export type {
+  BindDeployInput, BindDeployResult, HostAssertedEnvironment,
+} from './deploy-bind.js';
 
 // enforcement-coverage report (#9) — the PURE tetrad aggregator. No I/O; reads the primitives' states.
 export { coverageReport } from './coverage-report.js';
