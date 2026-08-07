@@ -8,6 +8,22 @@ Security core **FROZEN** (agent-guard-api v1.0). Built on [`@coderifts/sdk`](htt
 npm install @coderifts/agent-guard @coderifts/sdk
 ```
 
+### Host git wiring (example in-repo, not in the tarball)
+
+The package is pure: `resolveArtifacts` reads a host-supplied `blobs` map keyed by
+`blobMapKey(ref, path)` (`${ref}:${path}`). Git I/O is the host’s job.
+
+A **worked example** (injectable fake git, offline-runnable) lives in the git tree at
+[`examples/host-git-resolve.mjs`](./examples/host-git-resolve.mjs) — it is **not**
+published in the npm package (`files` is only `dist` + `README.md`), so the tarball
+stays free of git/fs. Production PR artifact derivation:
+[`coderifts/contract-gate`](https://github.com/coderifts/contract-gate) `src/artifacts.js`
+(do not copy it here).
+
+**TOCTOU is unclosed.** Resolving content proves what was true *at measurement time*;
+a host that then writes unconditionally still races. Neither the example nor this
+package supplies a version token or conditional write.
+
 ```typescript
 import { guardToolCall } from '@coderifts/agent-guard';
 import { CodeRifts } from '@coderifts/sdk';

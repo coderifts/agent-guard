@@ -224,8 +224,19 @@ function assembleSide(
 }
 
 // ── blob access ───────────────────────────────────────────────────────────────────────────────
+/**
+ * Pure snapshot map key for a blob at a given ref and path.
+ *
+ * Format: `${ref}:${path}` — the same shape `git show <ref>:<path>` accepts.
+ * Hosts that build `ResolveInput.blobs` MUST use this helper (or an identical
+ * concatenation). Do not invent a second key scheme.
+ */
+export function blobMapKey(ref: string, path: string): string {
+  return `${ref}:${path}`;
+}
+
 function getBlob(input: ResolveInput, ref: string, path: string): BlobValue | undefined {
-  return input.blobs[`${ref}:${path}`];
+  return input.blobs[blobMapKey(ref, path)];
 }
 
 // ── load a selected root → artifact | unresolved (§3 + §4) ─────────────────────────────────────
