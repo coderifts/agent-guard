@@ -149,7 +149,8 @@ export type IntegrityCause =
   | 'REQUEST_REJECTED'    // 422 and other request-attributable rejections
   | 'RECEIPT_ENVELOPE_MISMATCH'   // P0-a: valid receipt NOT bound to THIS envelope (substitution/replay/scope)
   // P0-b/c client-enforcement gates (§106/§111/§115 mirrored client-side):
-  | 'DECISION_INCONSISTENT'       // decision↔execution_action mismatch, missing decision, or safe_for_agent=false on allow-class
+  | 'DECISION_INCONSISTENT'       // decision↔execution_action mismatch (known action disagrees), missing decision, or safe_for_agent=false on allow-class
+  | 'EXECUTION_ACTION_UNRECOGNISED' // execution_action PRESENT but outside the closed set (version skew) — not the same as missing; not a decision↔action mismatch
   | 'ANALYSIS_DEGRADED'           // analysis_complete=false / degraded_reasons / degraded / coverage_gap (§111)
   | 'ARTIFACT_MISMATCH'           // envelope artifact_digest / input_fingerprint ≠ locally-recomputed value
   | 'RECEIPT_MISSING'             // contract-triggering executable decision with no verifiable receipt (no unenforced execute)

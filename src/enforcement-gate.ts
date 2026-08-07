@@ -1,7 +1,14 @@
 /**
  * Client-side authorization gate (P0-b/c) — mirrors the server §106 (binding), §111 (fail-closed on
- * degraded) and §115 (safe_for_agent) in the guard, so the client never executes off a raw
- * execution_action an attacker/proxy can flip. All checks are LOCAL and fail-closed.
+ * degraded) and §115 (safe_for_agent) in the guard. All checks are LOCAL and fail-closed.
+ *
+ * Threat model (bounded): a raw execution_action is not trusted alone when the response has NO
+ * receipt — without a signed decision_body_hash, a proxy or intermediary can flip fields. When a
+ * receipt IS present, decision_body_hash covers the RFC 8785-canonical envelope (minus receipt and
+ * the hash field itself) and the receipt signature covers that hash, so execution_action cannot be
+ * flipped without the recomputed hash diverging or a forged signature. The gate still reconciles
+ * decision↔action locally (stricter wins), fails closed on a PRESENT-but-unrecognised action
+ * (version skew — not a missing-action fallback), and never treats an unknown value as permission.
  *
  * Composes with the P0-a receipt binding (receipt-binding.ts). This module reconciles the DECISION
  * itself; receipt-binding authenticates the envelope the decision rides on.
@@ -55,6 +62,8 @@ export type GateResult =
 
 /**
  * Reconcile an envelope's decision fail-closed. Order:
+ *  0. execution_action PRESENT but not in closed set         → EXECUTION_ACTION_UNRECOGNISED
+ *     (version skew; distinct from DECISION_INCONSISTENT — reconciliation is impossible)
  *  1. decision present + valid enum                          (CE-EP-04)   → DECISION_INCONSISTENT
  *  2. effective decision = STRICTEST(envelope.decision, action-implied, top-level decision/action)
  *     (CE-EP-01, CE-CC-01)  — BLOCK/REQUIRE_APPROVAL → clean block (positive control CE-EP-02 kept)
@@ -64,24 +73,42 @@ export type GateResult =
  *
  * @param response   the raw preflight response (for the top-level decision/action, CE-CC-01)
  * @param envelope   the decision_result envelope
- * @param executionAction  rd.executionAction from readDecision
+ * @param executionAction  rd.executionAction from readDecision (closed Action, or raw string if unrecognised)
  * @param sentArtifacts    the artifacts the guard sent to preflight (for the digest bind)
  */
 export function evaluateEnvelope(
   response: unknown,
   envelope: Record<string, unknown>,
-  executionAction: Action,
+  executionAction: Action | string,
   sentArtifacts: Artifact[],
 ): GateResult {
+  const top = (response && typeof response === 'object') ? response as Record<string, unknown> : {};
+
+  // 0. PRESENT-but-unrecognised action — before any decision map or reconciliation.
+  //    Missing action is not handled here (readDecision maps legacy missing → closed Action).
+  const candidates: unknown[] = [executionAction, envelope.execution_action, top.execution_action];
+  for (const cand of candidates) {
+    if (cand === undefined || cand === null || cand === '') continue; // missing — skip
+    if (!isAction(cand)) {
+      return {
+        verdict: 'fail-closed',
+        cause: 'EXECUTION_ACTION_UNRECOGNISED',
+        detail: `execution_action=${JSON.stringify(cand)} is present but not in the closed set`,
+      };
+    }
+  }
+
   // 1. decision required + valid enum.
   const dec = envelope.decision;
   if (!isDecision(dec)) {
     return { verdict: 'fail-closed', cause: 'DECISION_INCONSISTENT', detail: `decision=${JSON.stringify(dec)} is missing/invalid` };
   }
 
+  // Known closed action from here (step 0 rejected unknowns).
+  const action = executionAction as Action;
+
   // 2. Strictest of every decision signal present (envelope, action-implied, top-level).
-  const signals: Decision[] = [dec, ACTION_TO_DECISION[executionAction]];
-  const top = (response && typeof response === 'object') ? response as Record<string, unknown> : {};
+  const signals: Decision[] = [dec, ACTION_TO_DECISION[action]];
   if (isDecision(top.decision)) signals.push(top.decision);
   if (isAction(top.execution_action)) signals.push(ACTION_TO_DECISION[top.execution_action]);
   const effective = signals.reduce((a, b) => (DECISION_RANK[b] > DECISION_RANK[a] ? b : a));
@@ -92,8 +119,8 @@ export function evaluateEnvelope(
   }
 
   // (effective is ALLOW or WARN — but ALSO require the envelope's own action to agree, else tamper.)
-  if (DECISION_TO_ACTION[dec] !== executionAction) {
-    return { verdict: 'fail-closed', cause: 'DECISION_INCONSISTENT', detail: `decision=${dec} ≠ execution_action=${executionAction}` };
+  if (DECISION_TO_ACTION[dec] !== action) {
+    return { verdict: 'fail-closed', cause: 'DECISION_INCONSISTENT', detail: `decision=${dec} ≠ execution_action=${action}` };
   }
 
   // 3. §115 — safe_for_agent=false is NEVER executable, regardless of action.

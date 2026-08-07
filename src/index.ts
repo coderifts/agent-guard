@@ -42,7 +42,10 @@ export type {
 // and local artifact_digest / input_fingerprint recomputation.
 export { evaluateEnvelope, computeArtifactDigest, computeBundleFingerprint } from './enforcement-gate.js';
 export type { GateResult } from './enforcement-gate.js';
-export { readDecision } from '@coderifts/sdk';
+// Guard-local readDecision: present-but-unrecognised execution_action does NOT fall through to
+// the decision map (SDK ladder did — that reinvented permission). Missing action still maps.
+export { readDecision } from './read-decision.js';
+export type { ReadDecisionResult, ReadDecisionReason } from './read-decision.js';
 // Additive session-taint surface (SEPARATE from the frozen single-call detector; own version).
 export {
   SessionTaintTracker, SESSION_TAINT_VERSION, updateSession, evaluate, computeTainted,

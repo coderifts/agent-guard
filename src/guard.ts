@@ -9,11 +9,11 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readDecision } from '@coderifts/sdk';
+import { readDecision, isClosedAction } from './read-decision.js';
 import type {
   GuardConfig, GuardOutcome, GuardVerdict, ApprovedVerdict, UnavailableCause, AvailabilityCause,
   IntegrityCause, ToolCallDescriptor, ExecuteFactory, GuardEvent, ReceiptVerifiedEnvelope,
-  DecisionResultEnvelope, UnavailableVerdict, Artifact,
+  DecisionResultEnvelope, UnavailableVerdict, Artifact, ExecutionAction,
 } from './types.js';
 import { builtinDetector } from './detector.js';
 import { bindReceiptToEnvelope } from './receipt-binding.js';
@@ -368,12 +368,24 @@ export async function guardToolCall<T>(
 
   // We have a response. Read the decision (envelope-first) and verify the receipt.
   const rd = readDecision(pf.response);
+  // PRESENT but unrecognised action — halt with its own code before any decision map or reconcile.
+  // (Missing action still maps from decision inside readDecision; that path never sets this reason.)
+  if (rd.reason === 'EXECUTION_ACTION_UNRECOGNISED') {
+    breakerRecord(config);
+    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, redacted, detection.artifacts);
+  }
   if (rd.reason === 'UNREADABLE_DECISION' || !rd.envelope) {
     // Schema-invalid / no envelope => integrity => closed.
     breakerRecord(config);
     return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, redacted, detection.artifacts);
   }
   const envelope = rd.envelope;
+  // Past unrecognised early-return: action is a closed ExecutionAction (or we treat non-closed as integrity).
+  if (!isClosedAction(rd.executionAction)) {
+    breakerRecord(config);
+    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, redacted, detection.artifacts);
+  }
+  const closedAction: ExecutionAction = rd.executionAction;
 
   // 5. expiry check before honoring any decision.
   const expired = isExpired(envelope);
@@ -382,7 +394,7 @@ export async function guardToolCall<T>(
   const verified = bindResult.verified;
   const receiptVerified = !!verified;
   if (!receiptVerified) emit(config, { type: 'receipt_unverified', at: iso(), decisionId: envelope.decision_id });
-  emit(config, { type: 'preflight_result', at: iso(), action: rd.executionAction, decisionId: envelope.decision_id });
+  emit(config, { type: 'preflight_result', at: iso(), action: closedAction, decisionId: envelope.decision_id });
 
   // A receipt that fails to verify OR fails to BIND to this envelope (P0 substitution/replay/scope) is
   // an INTEGRITY attack signal => fail closed. RECEIPT_ENVELOPE_MISMATCH names a valid-but-unbound
@@ -394,10 +406,14 @@ export async function guardToolCall<T>(
   }
 
   // ── Client-side authorization gate (P0-b/c): mirror §106/§111/§115 before honoring any action. ──
-  // A raw execution_action is NEVER trusted alone. The gate reconciles decision↔action (stricter
-  // wins), honors safe_for_agent, fails closed on degraded, and binds the analyzed artifacts to what
-  // we actually sent. Only an allow-class, safe, non-degraded, artifact-bound verdict is executable.
-  const gate = evaluateEnvelope(pf.response, envelope as unknown as Record<string, unknown>, rd.executionAction, detection.artifacts);
+  // Threat model (bounded): without a receipt, fields including execution_action are not
+  // tamper-evident — a proxy can flip them, so the gate never trusts the raw action alone and
+  // reconciles decision↔action (stricter wins). With a receipt, decision_body_hash covers the
+  // RFC 8785-canonical envelope (minus receipt and the hash) and the signature covers that hash,
+  // so a flip without the signing key fails the bind. Either way: a PRESENT-but-unrecognised
+  // action has already halted above; known actions are reconciled, safe_for_agent and degraded
+  // are fail-closed, artifacts bind locally. Only allow-class + safe + non-degraded + bound runs.
+  const gate = evaluateEnvelope(pf.response, envelope as unknown as Record<string, unknown>, closedAction, detection.artifacts);
   if (gate.verdict === 'fail-closed') {
     breakerRecord(config);
     return closedIntegrity(config, gate.cause, failPolicy, fctx, redacted, detection.artifacts);
@@ -440,7 +456,7 @@ export async function guardToolCall<T>(
   // observeOnly is an EXPLICIT report-only opt-in: execute but never enforce (the one sanctioned
   // unenforced-execution mode alongside failPolicy=open; both are documented opt-ins, not the default).
   if (config.observeOnly) {
-    emit(config, { type: 'observe_only_passthrough', at: iso(), action: rd.executionAction });
+    emit(config, { type: 'observe_only_passthrough', at: iso(), action: closedAction });
     const verdict: GuardVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
