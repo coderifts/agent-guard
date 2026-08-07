@@ -55,7 +55,10 @@
  *   (2) Receipt carry-forward (S5) — host-threaded chaining is POSSIBLE (optional previousReceipt +
  *       verifyReceiptChainLinkage). NOT met for this constant: the composition holds no cursor.
  *   (3) A freshness-safe source of prior content for write-style calls (path + new content only) —
- *       NOT done.
+ *       PURE CORE shipped (`assessFreshness` / `assessWriteStylePrior` in freshness.ts): content-
+ *       identity recompute, four outcomes, write-style requires artifact id. NOT DONE: wiring into
+ *       guardToolCall enforce path, host resolve adapter, receipt-bound optional tree hash, or
+ *       flipping COMPOSITION_CALL_POLICY_COMPLETE.
  *
  * THE TWO-SCOPE RULE (never merged):
  *   - `registry_report` is EXACTLY what `guardToolRegistry` returned, passed through untouched.
@@ -271,7 +274,8 @@ export type WithCodeRiftsResult = {
  *   (1) DONE — automatic binders for shapes that already carry both edit sides (old_string/new_string,
  *       edits[] → artifacts). Does NOT cover write-style path+new-content-only calls.
  *   (2) NOT DONE — receipt carry-forward (S5).
- *   (3) NOT DONE — freshness-safe prior content for write-style calls.
+ *   (3) NOT DONE — freshness-safe prior for write-style calls. Pure assessFreshness exists;
+ *       enforce-path recompute + host resolve-by-artifact-id are still unwired.
  *
  * UNCHANGED by S2 / composition observation (observing ≠ enforcing). Value stays false until all three.
  */
