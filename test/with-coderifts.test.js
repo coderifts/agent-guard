@@ -572,3 +572,290 @@ describe('withCodeRifts — composition observation (onEvent + onSettledCall)', 
     assert.ok(r.composition_assurance.residuals.includes('composition_call_policy_incomplete'));
   });
 });
+
+// ── S5 receipt carry-forward (composition cursor) ───────────────────────────────────────────────
+// The composition holds a per-instance token cursor. It does NOT verify chain authenticity.
+// Host previousReceipt always wins. Overlap refuses to advance (asserted, not just documented).
+
+/**
+ * Client that captures each preflight's previous_receipt and issues unique receipt tokens.
+ * verifyReceipt is token-keyed so concurrent preflights do not cross-bind envelopes.
+ * @param {{ tokens?: string[], decisions?: Array<'ALLOW'|'BLOCK'> }} [opts]
+ */
+function threadingClient(opts = {}) {
+  const tokens = opts.tokens || ['TOK_A', 'TOK_B', 'TOK_C', 'TOK_D'];
+  const decisions = opts.decisions || [];
+  const captures = [];
+  const envsByToken = new Map();
+  let i = 0;
+  return {
+    captures,
+    client: {
+      async preflightChangeSet(req) {
+        captures.push({ previous_receipt: req && req.previous_receipt });
+        const decision = decisions[i] || 'ALLOW';
+        const execution_action = decision === 'ALLOW' ? 'CONTINUE' : 'STOP';
+        const token = tokens[i] || `TOK_${i}`;
+        i += 1;
+        const env = envelope(execution_action, decision);
+        // Unique fingerprint per call so body-hash bind stays independent of token.
+        env.fingerprint = 'sha256:' + String(i).padStart(64, '0');
+        env.receipt = {
+          token, format_version: 'crchain.v1', key_id: 'k', issued_at: 'x',
+        };
+        envsByToken.set(token, env);
+        return { decision, execution_action, decision_result: env };
+      },
+      async verifyReceipt(tok) {
+        const env = envsByToken.get(tok);
+        return env ? boundVerify(env) : { valid: false, status: 'INVALID' };
+      },
+    },
+  };
+}
+
+// envelope() helper above uses opts.noReceipt; extend token via opts for threading tests.
+// Patch: envelope already accepts opts.fingerprint; receipt token is hardcoded 'tok'.
+// threadingClient overwrites lastEnv.receipt after envelope() — good.
+
+describe('withCodeRifts — S5 receipt carry-forward (composition cursor)', () => {
+  it('1. second call receives first call receipt without host passing previousReceipt', async () => {
+    const { client, captures } = threadingClient({ tokens: ['R1', 'R2'] });
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'ok' }],
+      client,
+      operation: 'merge',
+    });
+    assert.equal(r.receipt_thread.enabled, true);
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    const o1 = await tool.execute(CONTRACT_ARGS);
+    assert.equal(o1.enforced, true);
+    assert.equal(captures[0].previous_receipt, undefined, 'first call is a root');
+    assert.equal(r.receipt_thread.lastToken(), 'R1');
+    assert.equal(r.receipt_thread.lastSkipReason(), null);
+
+    const o2 = await tool.execute(CONTRACT_ARGS);
+    assert.equal(o2.enforced, true);
+    assert.equal(captures[1].previous_receipt, 'R1', 'cursor threaded first receipt into second preflight');
+    assert.equal(r.receipt_thread.lastToken(), 'R2');
+  });
+
+  it('2. explicit previousReceipt from the host overrides the cursor', async () => {
+    const { client, captures } = threadingClient({ tokens: ['R1', 'R2'] });
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'ok' }],
+      client,
+      operation: 'merge',
+      previousReceipt: 'HOST_PRIOR',
+    });
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    await tool.execute(CONTRACT_ARGS);
+    assert.equal(captures[0].previous_receipt, 'HOST_PRIOR');
+    // Cursor still advances from the outcome (composition remembers last enforced receipt).
+    assert.equal(r.receipt_thread.lastToken(), 'R1');
+    await tool.execute(CONTRACT_ARGS);
+    // Host override still wins on the second call — not the cursor.
+    assert.equal(captures[1].previous_receipt, 'HOST_PRIOR');
+  });
+
+  it('3. host getter override is re-read each call and wins over cursor', async () => {
+    const { client, captures } = threadingClient({ tokens: ['R1', 'R2'] });
+    let n = 0;
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'ok' }],
+      client,
+      operation: 'merge',
+      previousReceipt: () => { n += 1; return n === 1 ? 'G1' : 'G2'; },
+    });
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    await tool.execute(CONTRACT_ARGS);
+    await tool.execute(CONTRACT_ARGS);
+    assert.equal(captures[0].previous_receipt, 'G1');
+    assert.equal(captures[1].previous_receipt, 'G2');
+    assert.equal(n, 2);
+  });
+
+  it('4. BLOCK does not advance the cursor', async () => {
+    const { client, captures } = threadingClient({
+      tokens: ['R1', 'R_BLOCK', 'R3'],
+      decisions: ['ALLOW', 'BLOCK', 'ALLOW'],
+    });
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'ok' }],
+      client,
+      operation: 'merge',
+    });
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    await tool.execute(CONTRACT_ARGS);
+    assert.equal(r.receipt_thread.lastToken(), 'R1');
+
+    const blocked = await tool.execute(CONTRACT_ARGS);
+    assert.equal(blocked.executed, false);
+    assert.equal(blocked.enforced, false);
+    assert.equal(r.receipt_thread.lastToken(), 'R1', 'cursor stays at last enforced receipt');
+    assert.equal(r.receipt_thread.lastSkipReason(), 'not_enforced');
+    // Second preflight still saw R1 as previous (first advanced); third should still see R1.
+    assert.equal(captures[1].previous_receipt, 'R1');
+
+    await tool.execute(CONTRACT_ARGS);
+    assert.equal(captures[2].previous_receipt, 'R1', 'BLOCK did not move the cursor');
+    assert.equal(r.receipt_thread.lastToken(), 'R3');
+  });
+
+  it('5. unenforced path (ALLOW without verifiable receipt) does not advance', async () => {
+    // Client returns ALLOW with a receipt token that FAILS verify → fail-closed, not enforced.
+    let lastEnv = null;
+    let n = 0;
+    const captures = [];
+    const client = {
+      async preflightChangeSet(req) {
+        captures.push({ previous_receipt: req && req.previous_receipt });
+        n += 1;
+        lastEnv = envelope('CONTINUE', 'ALLOW', { token: `U${n}` });
+        lastEnv.fingerprint = 'sha256:' + String(n).padStart(64, '0');
+        lastEnv.receipt = { token: `U${n}`, format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' };
+        return { decision: 'ALLOW', execution_action: 'CONTINUE', decision_result: lastEnv };
+      },
+      async verifyReceipt() {
+        return { valid: false, status: 'INVALID' }; // receipt not verified → not enforced
+      },
+    };
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'ok' }],
+      client,
+      operation: 'merge',
+    });
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    const o1 = await tool.execute(CONTRACT_ARGS);
+    assert.equal(o1.enforced, false);
+    assert.equal(r.receipt_thread.lastToken(), undefined);
+    assert.equal(r.receipt_thread.lastSkipReason(), 'not_enforced');
+    await tool.execute(CONTRACT_ARGS);
+    assert.equal(captures[1].previous_receipt, undefined, 'no cursor to thread');
+  });
+
+  it('6. threadReceipts:false disables carry-forward (opt-out)', async () => {
+    const { client, captures } = threadingClient({ tokens: ['R1', 'R2'] });
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'ok' }],
+      client,
+      operation: 'merge',
+      threadReceipts: false,
+    });
+    assert.equal(r.receipt_thread.enabled, false);
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    await tool.execute(CONTRACT_ARGS);
+    await tool.execute(CONTRACT_ARGS);
+    assert.equal(captures[0].previous_receipt, undefined);
+    assert.equal(captures[1].previous_receipt, undefined);
+    assert.equal(r.receipt_thread.lastToken(), undefined);
+  });
+
+  it('7. concurrent overlap refuses to advance (asserted) — no last-write-wins chain', async () => {
+    // Hold preflight until both calls are in flight, then release with distinct tokens.
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let started = 0;
+    const envsByToken = new Map();
+    const captures = [];
+    let seq = 0;
+    const client = {
+      async preflightChangeSet(req) {
+        captures.push({ previous_receipt: req && req.previous_receipt });
+        started += 1;
+        if (started === 2) release();
+        await gate;
+        seq += 1;
+        const token = seq === 1 ? 'OVERLAP_A' : (seq === 2 ? 'OVERLAP_B' : `AFTER_${seq}`);
+        const env = envelope('CONTINUE', 'ALLOW');
+        env.fingerprint = 'sha256:' + String(seq).padStart(64, '0');
+        env.receipt = { token, format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' };
+        envsByToken.set(token, env);
+        return { decision: 'ALLOW', execution_action: 'CONTINUE', decision_result: env };
+      },
+      async verifyReceipt(tok) {
+        const env = envsByToken.get(tok);
+        return env ? boundVerify(env) : { valid: false, status: 'INVALID' };
+      },
+    };
+
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'ok' }],
+      client,
+      operation: 'merge',
+    });
+    // Both concurrent calls start from empty cursor (root) — after they finish, cursor must
+    // still be empty because overlap refused both advances.
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    const p1 = tool.execute(CONTRACT_ARGS);
+    const p2 = tool.execute(CONTRACT_ARGS);
+    const [o1, o2] = await Promise.all([p1, p2]);
+    assert.equal(o1.enforced, true);
+    assert.equal(o2.enforced, true);
+    assert.equal(
+      r.receipt_thread.lastToken(),
+      undefined,
+      'overlap must not advance the cursor to either concurrent receipt',
+    );
+    assert.equal(r.receipt_thread.lastSkipReason(), 'concurrent_overlap');
+
+    // After overlap clears, a sequential call still sees no cursor (not OVERLAP_A/B).
+    const o3 = await tool.execute(CONTRACT_ARGS);
+    assert.equal(o3.enforced, true);
+    assert.equal(captures[2].previous_receipt, undefined);
+    assert.ok(r.receipt_thread.lastToken(), 'sequential call after overlap may advance');
+  });
+
+  it('8. sequential after seed: concurrent pair does not clobber a prior good cursor', async () => {
+    let phase = 'seed';
+    let release;
+    let gate = Promise.resolve();
+    let startedInPhase = 0;
+    const envsByToken = new Map();
+    let n = 0;
+    const captures = [];
+    const client = {
+      async preflightChangeSet(req) {
+        captures.push({ previous_receipt: req && req.previous_receipt, phase });
+        n += 1;
+        if (phase === 'overlap') {
+          startedInPhase += 1;
+          if (startedInPhase === 2) release();
+          await gate;
+        }
+        const token = `T${n}`;
+        const env = envelope('CONTINUE', 'ALLOW');
+        env.fingerprint = 'sha256:' + String(n).padStart(64, '0');
+        env.receipt = { token, format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' };
+        envsByToken.set(token, env);
+        return { decision: 'ALLOW', execution_action: 'CONTINUE', decision_result: env };
+      },
+      async verifyReceipt(tok) {
+        const env = envsByToken.get(tok);
+        return env ? boundVerify(env) : { valid: false, status: 'INVALID' };
+      },
+    };
+    const r = withCodeRifts({
+      tools: [{ name: 'edit_file', mutationClass: 'mutating', execute: async () => 'ok' }],
+      client,
+      operation: 'merge',
+    });
+    const tool = r.tools.find((t) => t.name === 'edit_file');
+    await tool.execute(CONTRACT_ARGS);
+    assert.equal(r.receipt_thread.lastToken(), 'T1');
+
+    phase = 'overlap';
+    startedInPhase = 0;
+    gate = new Promise((resolve) => { release = resolve; });
+    await Promise.all([tool.execute(CONTRACT_ARGS), tool.execute(CONTRACT_ARGS)]);
+    assert.equal(r.receipt_thread.lastToken(), 'T1', 'overlap must not clobber the prior sequential cursor');
+    assert.equal(r.receipt_thread.lastSkipReason(), 'concurrent_overlap');
+
+    phase = 'after';
+    await tool.execute(CONTRACT_ARGS);
+    // After overlap, sequential call still threads the PRE-OVERLAP cursor (T1), not T2/T3.
+    const afterCap = captures.filter((c) => c.phase === 'after')[0];
+    assert.equal(afterCap.previous_receipt, 'T1');
+    assert.equal(r.receipt_thread.lastToken(), 'T4');
+  });
+});

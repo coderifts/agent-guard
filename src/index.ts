@@ -165,4 +165,5 @@ export {
 export type {
   WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, CompositionAssurance,
   SettledCallObservation, CallRoute, CallTerminal, TableSettledCallRouteCounts,
+  ReceiptThreadHandle, ReceiptCursorSkipReason,
 } from './with-coderifts.js';

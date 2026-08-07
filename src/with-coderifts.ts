@@ -36,9 +36,10 @@
  *     enforcement coverage".
  *   - onEvent is partial even for other branches (e.g. closed-availability stops may emit only
  *     preflight_start; the declared type 'execution_skipped' is never emitted by the frozen core).
- *   - Neither hook alone is a complete substrate for receipt carry-forward: onEvent lacks the
- *     envelope/receipt; onSettledCall exposes them when present on the GUARDED+RETURNED arm but does
- *     not retain or re-inject them across calls (that is a later slice).
+ *   - onEvent still lacks envelope/receipt. onSettledCall exposes them on GUARDED+RETURNED when present.
+ *     S5: when threadReceipts is enabled (default), the composition ALSO retains the last enforced
+ *     receipt token and re-injects it as previous_receipt on the next preflight — host previousReceipt
+ *     always wins over the cursor. This is carry-forward of a token, not chain authenticity.
  *
  * S2 does NOT re-guard what the registry already fails closed on. A `forceReadonly`/`classify`
  * downgrade of a heuristic mutator is, under the registry's default `failOnUnguardedMutator:true`,
@@ -52,8 +53,10 @@
  * inescapability) requires ALL of the following — do not flip the constant when only a subset lands:
  *   (1) Automatic binders for call shapes that ALREADY carry both sides of the change (old_string/
  *       new_string, edits[]) — DONE. Not the same as covering every real agent edit shape.
- *   (2) Receipt carry-forward (S5) — host-threaded chaining is POSSIBLE (optional previousReceipt +
- *       verifyReceiptChainLinkage). NOT met for this constant: the composition holds no cursor.
+ *   (2) Receipt carry-forward (S5) — composition cursor EXISTS (threadReceipts default on; host
+ *       previousReceipt overrides; advance only on enforced + receipt token; refuse under overlap).
+ *       NOT sufficient alone to flip this constant: package never self-attests chain authenticity
+ *       (consumer re-runs verifyReceiptChainLinkage), and concurrent overlap refuses to advance.
  *   (3) A freshness-safe source of prior content for write-style calls (path + new content only) —
  *       PURE CORE shipped (`assessFreshness` / `assessWriteStylePrior` in freshness.ts): content-
  *       identity recompute, four outcomes, write-style requires artifact id. NOT DONE: wiring into
@@ -242,10 +245,21 @@ export type WithCodeRiftsInput = {
    */
   onSettledCall?: (o: SettledCallObservation) => void | PromiseLike<void>;
   /**
-   * Optional prior chain-receipt token (or getter) forwarded onto GuardConfig.previousReceipt.
-   * Host-owned; the composition does not retain or advance it between calls.
+   * Optional prior chain-receipt token (or getter). When set, ALWAYS wins over the composition
+   * cursor for the preflight `previous_receipt` field — the host may know a prior the composition
+   * does not. String or zero-arg getter (same shape as GuardConfig.previousReceipt).
    */
   previousReceipt?: string | (() => string | undefined | null);
+  /**
+   * Automatic receipt carry-forward for this composition instance (default true).
+   * When enabled, each enforced+receipt-verified guarded call advances a per-composition cursor
+   * that is supplied as previous_receipt on the next preflight unless the host overrides.
+   *
+   * Default ON (opt-out) — unlike freshness, which is opt-in because it needs a host resolver:
+   * threading only reuses a token the composition already observed. Set false for independent
+   * root receipts every call. Does not verify or re-sign; does not claim chain authenticity.
+   */
+  threadReceipts?: boolean;
   /**
    * Optional freshness prior resolver (opt-in). Forwarded onto GuardConfig.resolvePriorContent.
    * When absent: composition residual composition_freshness_not_configured; per-call basis
@@ -277,6 +291,11 @@ export type WithCodeRiftsResult = {
   registry_report: RegistryCoverageReport;
   /** Product-level assurance — deliberately narrower than the registry. */
   composition_assurance: CompositionAssurance;
+  /**
+   * Per-composition receipt cursor handle (always present). When enabled is false the getters
+   * stay empty / skip as disabled. NOT product-truth chain evidence.
+   */
+  receipt_thread: ReceiptThreadHandle;
   /** Carried through untouched from input when present (no resolution behaviour in S1/S2). */
   repository?: string;
 };
@@ -289,7 +308,8 @@ export type WithCodeRiftsResult = {
  * Conditions (all required; do NOT flip this constant because a subset landed):
  *   (1) DONE — automatic binders for shapes that already carry both edit sides (old_string/new_string,
  *       edits[] → artifacts). Does NOT cover write-style path+new-content-only calls.
- *   (2) NOT DONE — receipt carry-forward (S5).
+ *   (2) PARTIAL — composition receipt cursor (S5) ships; still not product-level chain authenticity
+ *       and refuses under concurrent overlap (honest non-order, not a guessed order).
  *   (3) NOT DONE for product claim — pure core + opt-in wiring exist (resolvePriorContent +
  *       per-call basis). COMPOSITION_CALL_POLICY_COMPLETE stays false until freshness is ACTIVE
  *       by default for writes AND remaining conjuncts land. Host may still omit the resolver.
@@ -297,6 +317,36 @@ export type WithCodeRiftsResult = {
  * UNCHANGED by S2 / composition observation (observing ≠ enforcing). Value stays false until all three.
  */
 const COMPOSITION_CALL_POLICY_COMPLETE = false;
+
+/**
+ * Why the composition receipt cursor did not advance after a settled guarded call.
+ * Concurrent overlap is a first-class reason: a last-write-wins cursor under parallelism would
+ * produce a chain that LOOKS ordered and is not — refuse and report rather than guess.
+ */
+export type ReceiptCursorSkipReason =
+  | 'concurrent_overlap'
+  | 'not_enforced'
+  | 'no_receipt_token'
+  | 'threw_before_outcome';
+
+/**
+ * Composition-held receipt carry-forward diagnostics.
+ *
+ * This is a TOKEN cursor only: it does not verify signatures, linkage, or authorization.
+ * Consumers that need product truth re-run verifyReceiptChainLinkage (and signature verify)
+ * on an export they hold — the package never reports its own chain as authentic.
+ */
+export type ReceiptThreadHandle = {
+  /** Automatic carry-forward enabled for this composition instance. */
+  enabled: boolean;
+  /** Last token advanced into the cursor (undefined if never advanced). */
+  lastToken: () => string | undefined;
+  /**
+   * Why the most recent settled guarded call did not advance the cursor.
+   * null means the last considered call advanced (or no call has settled yet).
+   */
+  lastSkipReason: () => ReceiptCursorSkipReason | null;
+};
 
 const RESIDUAL_CALL_POLICY_INCOMPLETE = 'composition_call_policy_incomplete';
 /** Composition residual: host did not supply resolvePriorContent (NOT the same as DEGRADED). */
@@ -414,6 +464,132 @@ function routeForTool(tool: ProtectedTool, bypassed: Set<string>): CallRoute {
   return 'PASSTHROUGH';
 }
 
+/** Resolve host previousReceipt the same way the frozen guard does (string or getter). */
+function resolveHostPreviousReceipt(
+  pr: string | (() => string | undefined | null),
+): string | undefined {
+  let raw: unknown;
+  if (typeof pr === 'function') {
+    try { raw = pr(); } catch { return undefined; }
+  } else {
+    raw = pr;
+  }
+  if (typeof raw !== 'string') return undefined;
+  const s = raw.trim();
+  return s.length > 0 ? s : undefined;
+}
+
+/**
+ * Per-composition receipt cursor. Scope is this withCodeRifts instance only (not process/session).
+ *
+ * Concurrency: if a second guarded call starts while another is in flight, overlapDirty is set and
+ * NO completion advances the cursor until inFlight returns to 0. Last-write-wins under parallelism
+ * would invent an order the package did not observe — refuse and report concurrent_overlap instead.
+ *
+ * Advance only when: threading enabled, no overlap, outcome.enforced === true, and a non-empty
+ * receipt token is present on the verified envelope. BLOCK / unenforced / throw-before-outcome do not.
+ */
+type ReceiptCursorState = {
+  enabled: boolean;
+  token: string | undefined;
+  inFlight: number;
+  overlapDirty: boolean;
+  lastSkip: ReceiptCursorSkipReason | null;
+  begin: () => void;
+  end: () => void;
+  considerOutcome: (outcome: GuardOutcome<unknown>) => void;
+  considerThrow: () => void;
+  handle: ReceiptThreadHandle;
+};
+
+function createReceiptCursor(enabled: boolean): ReceiptCursorState {
+  const state: ReceiptCursorState = {
+    enabled,
+    token: undefined,
+    inFlight: 0,
+    overlapDirty: false,
+    lastSkip: null,
+    begin() {
+      if (!enabled) return;
+      if (state.inFlight > 0) state.overlapDirty = true;
+      state.inFlight += 1;
+    },
+    end() {
+      if (!enabled) return;
+      state.inFlight -= 1;
+      if (state.inFlight <= 0) {
+        state.inFlight = 0;
+        state.overlapDirty = false;
+      }
+    },
+    considerOutcome(outcome: GuardOutcome<unknown>) {
+      if (!enabled) return;
+      if (state.overlapDirty) {
+        state.lastSkip = 'concurrent_overlap';
+        return;
+      }
+      if (!outcome || typeof outcome !== 'object' || outcome.enforced !== true) {
+        state.lastSkip = 'not_enforced';
+        return;
+      }
+      const token = (outcome.verdict as { envelope?: { receipt?: { token?: unknown } } } | undefined)
+        ?.envelope?.receipt?.token;
+      if (typeof token !== 'string' || token.trim().length === 0) {
+        state.lastSkip = 'no_receipt_token';
+        return;
+      }
+      state.token = token.trim();
+      state.lastSkip = null;
+    },
+    considerThrow() {
+      if (!enabled) return;
+      if (state.overlapDirty) {
+        state.lastSkip = 'concurrent_overlap';
+        return;
+      }
+      state.lastSkip = 'threw_before_outcome';
+    },
+    handle: {
+      enabled,
+      lastToken: () => state.token,
+      lastSkipReason: () => state.lastSkip,
+    },
+  };
+  return state;
+}
+
+/**
+ * Wrap a GUARDED tool so the composition can begin/end the cursor around the call and advance
+ * from the GuardOutcome the frozen path returns. Does not change guardToolCall's signature.
+ */
+function wrapForReceiptCursor(tool: ProtectedTool, cursor: ReceiptCursorState): ProtectedTool {
+  if (!tool._coderifts.guarded || !cursor.enabled) return tool;
+  const innerExecute = tool.execute;
+  const shell: ProtectedTool = {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    meta: tool.meta,
+    _coderifts: tool._coderifts,
+    execute: async (args: unknown) => {
+      cursor.begin();
+      try {
+        const result = await innerExecute(args);
+        // Guarded execute returns GuardOutcome (does not throw on BLOCK).
+        cursor.considerOutcome(result as GuardOutcome<unknown>);
+        return result;
+      } catch (error) {
+        cursor.considerThrow();
+        throw error;
+      } finally {
+        cursor.end();
+      }
+    },
+  };
+  if (!Object.isFrozen(shell._coderifts)) Object.freeze(shell._coderifts);
+  return Object.freeze(shell);
+}
+
 /**
  * Wrap guardToolRegistry with a mandatory operation and a separately-computed composition assurance.
  * Fails at CONSTRUCTION (never at first tool call) for a missing client, a missing/empty operation, an
@@ -452,6 +628,12 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   //    composition_unknown_treated_as_readonly residual below.
   //  - failOnUnguardedMutator: NOT defaulted here — the registry owns its own default (true). Forward
   //    the caller's value if given so there is a single source of truth for it.
+  // Receipt cursor: per composition instance. Default ON (opt-out via threadReceipts:false).
+  // Host previousReceipt always wins over the cursor at resolve time.
+  const threadReceipts = input.threadReceipts !== false;
+  const receiptCursor = createReceiptCursor(threadReceipts);
+  const hostPreviousReceipt = input.previousReceipt;
+
   // Guard config: client + operation always; onEvent + monitoringSinkWired forwarded UNCHANGED when
   // provided (no second try/catch layer — frozen emit already swallows sync throws).
   const guard: GuardConfig = { client: input.client, operation: input.operation };
@@ -461,8 +643,16 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   if (input.monitoringSinkWired !== undefined) {
     guard.monitoringSinkWired = input.monitoringSinkWired;
   }
-  if (input.previousReceipt !== undefined) {
-    guard.previousReceipt = input.previousReceipt;
+  // previousReceipt getter: host override > composition cursor > undefined.
+  // Always install a getter when threading is on OR the host supplied an override, so the frozen
+  // path reads current values per call without a guardToolCall signature change.
+  if (hostPreviousReceipt !== undefined || threadReceipts) {
+    guard.previousReceipt = () => {
+      if (hostPreviousReceipt !== undefined) {
+        return resolveHostPreviousReceipt(hostPreviousReceipt);
+      }
+      return receiptCursor.token;
+    };
   }
   if (input.resolvePriorContent !== undefined) {
     guard.resolvePriorContent = input.resolvePriorContent;
@@ -536,22 +726,29 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
     freshness_resolver_wired,
   };
 
-  // Settled-call observation: registry returns FROZEN ProtectedTool objects (and a frozen tools array).
-  // We cannot reassign execute on a frozen tool, so we build NEW shells for EVERY tool in the table
-  // when onSettledCall is provided — including passthrough and forced-bypass (readonly) tools.
+  // Settled-call observation + receipt cursor: registry returns FROZEN ProtectedTool objects.
+  // We build NEW shells (cannot reassign execute). Layering from inside out:
+  //   registry guard → receipt cursor (GUARDED only) → onSettledCall observation (all routes)
+  // begin() runs before preflight so concurrent overlap is visible to the cursor rule.
   let toolsOut: ProtectedTool[] = tools as ProtectedTool[];
+  if (threadReceipts) {
+    toolsOut = toolsOut.map((t) => wrapForReceiptCursor(t, receiptCursor));
+  }
   if (input.onSettledCall) {
     const onSettledCall = input.onSettledCall;
     const bypassed = bypassedToolNames(report);
     toolsOut = Object.freeze(
-      tools.map((t) => wrapForSettledCallObservation(t, routeForTool(t, bypassed), onSettledCall)),
+      toolsOut.map((t) => wrapForSettledCallObservation(t, routeForTool(t, bypassed), onSettledCall)),
     ) as ProtectedTool[];
+  } else if (threadReceipts) {
+    toolsOut = Object.freeze(toolsOut) as ProtectedTool[];
   }
 
   const result: WithCodeRiftsResult = {
     tools: toolsOut,
     registry_report: report,
     composition_assurance,
+    receipt_thread: receiptCursor.handle,
   };
   if (input.repository !== undefined) result.repository = input.repository;
   return result;
