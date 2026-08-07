@@ -20,9 +20,9 @@ On Python 3.9, pin the compatible release: `pip install "langgraph==0.6.11"`.
 ## Expected output
 
 ```
-[guard] get_order_status: decision=BLOCK should_block=True breaking_changes=1 patterns=[FIELD_REMOVAL]
-[abort] CodeRifts BLOCK -> get_order_status not called, agent halted
-final: aborted get_order_status (CodeRifts BLOCK)
+[guard] get_order_status: execution_action='STOP' reason=STOP ... patterns=[FIELD_REMOVAL]
+[abort] CodeRifts STOP -> get_order_status not called, agent halted
+final: aborted get_order_status (CodeRifts STOP)
 ```
 
 ## What it shows
@@ -48,31 +48,39 @@ the safe additive change it does.
 
 ## How the guard node reads the verdict
 
-The guard treats the structured verdict as the source of truth: it blocks when
-`should_block` is true or `omega_decision == "BLOCK"`, and surfaces the detected patterns
-(e.g. `FIELD_REMOVAL`) and the reflex triggers that drove the decision.
+Control flow follows `/.well-known/coderifts.json` → `recommended_usage`:
+**branch on `execution_action`**, not `decision` / `omega_decision` / `safe_for_agent`.
+The LangGraph node and `@coderifts_guard` share `evaluate_verdict` in
+`coderifts_decorator.py` so they cannot diverge.
 
+## Control-flow semantics (`execution_action`)
 
-## Decision semantics
+| `execution_action` | Guard |
+|---|---|
+| `CONTINUE` | Proceed |
+| `CONTINUE_WITH_MONITORING` | Proceed only if `monitoring_sink_wired=True` |
+| `REQUEST_APPROVAL` | Halt (approval is not optional) |
+| `STOP` | Halt |
+| anything else, **present** | Halt as unrecognised — never fall back to `decision` |
+| **absent** | Legacy `decision`→action map, then the same rules |
 
-What the guard does with each CodeRifts decision:
-
-| Decision | Meaning | Default guard | `strict=True` |
-|---|---|---|---|
-| `BLOCK` | Breaking contract change | Halts (raises `CodeRiftsBlocked`) | Halts |
-| `REQUIRE_APPROVAL` | Flagged for human review; not a hard break | Proceeds | Halts |
-| `WARN` / `ALLOW` | Safe | Proceeds | Proceeds |
-
-Every breaking change resolves to `BLOCK`, so the default guard (halt on `BLOCK`) catches all genuine contract breaks. `REQUIRE_APPROVAL` is for changes that are not breaking but still warrant a human look (for example a new required field that ships with a default, or a deprecation). Auto-proceeding on those is usually fine for an agent; if you want a human in the loop on anything CodeRifts flags, pass `strict=True`.
+`strict=` is deprecated and has no remaining job: under the published floor
+`REQUEST_APPROVAL` already always halts.
 
 ```python
-# Default: halt only on breaking changes (BLOCK)
 @coderifts_guard(old_spec, new_spec)
 def call_tool(...): ...
 
-# Strict: also halt on REQUIRE_APPROVAL (human-in-the-loop)
-@coderifts_guard(old_spec, new_spec, strict=True)
+# MONITOR action only proceeds when the host asserts a sink is wired:
+@coderifts_guard(old_spec, new_spec, monitoring_sink_wired=True)
 def call_tool(...): ...
 ```
 
-On a halt the guard raises `CodeRiftsBlocked`. Inspect `err.decision` (`'BLOCK'` or `'REQUIRE_APPROVAL'`) and `err.verdict` for the full decision object.
+On a halt the guard raises `CodeRiftsBlocked`. Inspect `err.execution_action`,
+`err.reason`, and `err.verdict`. `err.decision` is diagnostic only.
+
+Offline checks (no network, stdlib only):
+
+```
+python3 test_execution_action.py
+```

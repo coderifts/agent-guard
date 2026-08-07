@@ -4,9 +4,11 @@ CodeRifts guard node for LangGraph
 
 Wires the CodeRifts verdict directly into the agent loop. Before the agent
 acts on a tool whose API contract may have drifted, a guard node diffs the
-tool's old vs new spec against the zero-auth CodeRifts endpoint. On BLOCK the
-graph routes to `abort` and the unsafe call never runs. On a safe verdict it
-proceeds to `execute`.
+tool's old vs new spec against the zero-auth CodeRifts endpoint. Control flow
+follows execution_action (shared evaluate_verdict from coderifts_decorator —
+same rules as @coderifts_guard). On halt the graph routes to `abort` and the
+unsafe call never runs; on CONTINUE (or MONITOR with a wired sink) it proceeds
+to `execute`.
 
 Endpoint: POST https://app.coderifts.com/api/v1/demo  (zero-auth, synchronous)
 Run:      pip install langgraph  &&  python coderifts_langgraph_guard.py
@@ -17,6 +19,8 @@ import urllib.request
 from typing import TypedDict
 
 from langgraph.graph import StateGraph, START, END
+
+from coderifts_decorator import evaluate_verdict
 
 CODERIFTS_DEMO_URL = "https://app.coderifts.com/api/v1/demo"
 
@@ -43,7 +47,9 @@ class AgentState(TypedDict, total=False):
     old_spec: dict          # contract the agent was built against
     new_spec: dict          # contract currently served by the API
     verdict: dict           # full CodeRifts verdict
-    blocked: bool           # guard decision
+    blocked: bool           # guard decision (halt)
+    halt_reason: str        # evaluate_verdict reason
+    execution_action: str   # closed or raw unrecognised action
     result: str             # outcome of the run
 
 
@@ -52,14 +58,22 @@ class AgentState(TypedDict, total=False):
 def guard(state: AgentState) -> AgentState:
     """Self-check: ask CodeRifts whether the contract drift is safe to act on."""
     verdict = call_coderifts(state["old_spec"], state["new_spec"])
-    blocked = bool(verdict.get("should_block")) or verdict.get("omega_decision") == "BLOCK"
-    patterns = ", ".join(p.get("type", "") for p in verdict.get("detected_patterns", [])) or "none"
+    # Same control flow as @coderifts_guard — branch_on execution_action.
+    ev = evaluate_verdict(verdict, monitoring_sink_wired=False)
+    patterns = ", ".join(
+        p.get("name") or p.get("type", "") for p in verdict.get("detected_patterns", [])
+    ) or "none"
     print(
-        f"[guard] {state['tool_name']}: omega_decision="
-        f"{verdict.get('omega_decision')} should_block={verdict.get('should_block')} "
-        f"breaking_changes={verdict.get('breaking_changes')} patterns=[{patterns}]"
+        f"[guard] {state['tool_name']}: execution_action={ev['execution_action']!r} "
+        f"reason={ev['reason']} source={ev['action_source']} "
+        f"decision={ev['decision']!r}(diagnostic) patterns=[{patterns}]"
     )
-    return {"verdict": verdict, "blocked": blocked}
+    return {
+        "verdict": verdict,
+        "blocked": bool(ev["halt"]),
+        "halt_reason": ev["reason"],
+        "execution_action": ev["execution_action"] or "",
+    }
 
 
 def route(state: AgentState) -> str:
@@ -73,9 +87,12 @@ def execute(state: AgentState) -> AgentState:
 
 
 def abort(state: AgentState) -> AgentState:
-    """Reached on BLOCK: the agent halts before the unsafe call."""
-    print(f"[abort] CodeRifts BLOCK -> {state['tool_name']} not called, agent halted")
-    return {"result": f"aborted {state['tool_name']} (CodeRifts BLOCK)"}
+    """Reached on halt: the agent stops before the unsafe call."""
+    reason = state.get("halt_reason") or "halt"
+    print(
+        f"[abort] CodeRifts {reason} -> {state['tool_name']} not called, agent halted"
+    )
+    return {"result": f"aborted {state['tool_name']} (CodeRifts {reason})"}
 
 
 # ---- graph -----------------------------------------------------------------
