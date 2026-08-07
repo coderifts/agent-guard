@@ -20,6 +20,7 @@ import { guardToolCall } from './guard.js';
 import type { GuardConfig, ToolCallDescriptor, DecisionResultEnvelope, Artifact } from './types.js';
 import { classifyByName } from './artifact-resolver.js';
 import type { ArtifactType } from './artifact-resolver.js';
+import { collectFreshnessCallContext } from './freshness.js';
 
 // ── public types (§1.1) ─────────────────────────────────────────────────────────────────────────
 export type ToolMutationClass =
@@ -291,11 +292,22 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
     meta: tool.meta,
     execute: async (args: unknown) => {
       const call = binder(tool, args, cls);
+      // RUNNER collects prior content (async host I/O) and passes VALUES into the pure guard path.
+      // The guard never invokes resolvePriorContent itself.
+      const fctx = await collectFreshnessCallContext({
+        call: {
+          toolName: call.toolName,
+          artifacts: call.artifacts,
+          arguments: call.arguments,
+        },
+        resolvePriorContent: guardCfg.resolvePriorContent,
+      });
       return guardToolCall(
         call,
         async (_envelope: DecisionResultEnvelope | null, redacted: ToolCallDescriptor) =>
           rawExecute(redacted ? redacted.arguments : args),
         guardCfg,
+        fctx,
       );
     },
     _coderifts: { guarded: true, mutationClass: cls, operation },

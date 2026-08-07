@@ -83,14 +83,17 @@ export {
   EXECUTION_PROOF_SPEC,
 } from './execution-proof.js';
 
-// Freshness pure core (TOCTOU / fresh-snapshot conjunct). Content identity recompute;
-// four outcomes; write-style requires artifact id. NOT yet wired into guardToolCall enforce path.
+// Freshness: pure assess + runner collect (values into guardToolCall). Opt-in resolvePriorContent.
 export {
   assessFreshness,
   assessWriteStylePrior,
   contentByteIdentical,
   computePathSetTreeHash,
   freshnessAllowsEnforce,
+  isWriteStyleCall,
+  artifactIdsForResolve,
+  collectFreshnessCallContext,
+  buildFreshnessBasis,
 } from './freshness.js';
 export type {
   FreshnessOutcome,
@@ -99,6 +102,11 @@ export type {
   FreshnessAssessResult,
   WriteStylePriorInput,
   WriteStylePriorResult,
+  FreshnessWiringState,
+  FreshnessBasis,
+  FreshnessCallContext,
+  PriorContentResolver,
+  FreshnessDegradeReason,
 } from './freshness.js';
 
 // artifactResolver — automatic base/head contract artifacts from a pure git snapshot (upstream of

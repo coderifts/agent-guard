@@ -56,6 +56,19 @@ export interface GuardConfig {
    * advance, or remember it — the package remains stateless across calls.
    */
   previousReceipt?: string | (() => string | undefined | null);
+  /**
+   * Optional host resolver for freshness recompute (opt-in). The RUNNER invokes this and passes
+   * VALUES into guardToolCall — the pure assessFreshness path never calls it.
+   * Absent → freshness wiring NOT_CONFIGURED (existing integrations keep working).
+   */
+  resolvePriorContent?: import('./freshness.js').PriorContentResolver;
+  /**
+   * Policy: when true, a write-style call without ACTIVE freshness measurement does not proceed
+   * (fail-closed at the permission). Default false — API remains opt-in.
+   */
+  requireFreshness?: boolean;
+  /** Forwarded into assessFreshness when tree/contract STALE_CONTEXT is evaluated. */
+  allowStaleContext?: boolean;
 }
 
 export interface ToolCallDescriptor {
@@ -83,21 +96,24 @@ export type ApprovedVerdict =
 // GuardExecutionProof is defined in execution-proof.ts (assembled only from guard-observed state).
 import type { GuardExecutionProof } from './execution-proof.js';
 export type { GuardExecutionProof, ExecutionResultHash } from './execution-proof.js';
+import type { FreshnessBasis } from './freshness.js';
+export type { FreshnessBasis, FreshnessWiringState, FreshnessCallContext, PriorContentResolver } from './freshness.js';
 
 export type GuardOutcome<T> =
   // enforced:true is its OWN arm — only ApprovedVerdict + receiptVerified:true + preflighted:true reach it.
-  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof }
+  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis }
   // executed but NOT enforced (SKIPPED / observeOnly / open- or lkg-UNAVAILABLE pass-through):
-  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof }
+  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis }
   // guard blocked before the factory ran:
-  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof }
+  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis }
   // factory threw AFTER a fully-enforced approval (side effect may have landed; enforced passes through per rule 11):
-  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof }
+  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis }
   // factory threw after an UNENFORCED execution (SKIPPED / observeOnly / open- or lkg-pass-through):
-  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof };
+  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
 // proof is always present and is guard-produced (not caller-writable).
+// freshness is always present: per-call forensic basis (NOT_CONFIGURED | DEGRADED | ACTIVE+assessment).
 
 export type GuardVerdict =
   | { kind: 'ALLOW';    action: 'CONTINUE';                 envelope: DecisionResultEnvelope; receiptVerified: boolean }
@@ -138,7 +154,9 @@ export type IntegrityCause =
   | 'ARTIFACT_MISMATCH'           // envelope artifact_digest / input_fingerprint ≠ locally-recomputed value
   | 'RECEIPT_MISSING'             // contract-triggering executable decision with no verifiable receipt (no unenforced execute)
   | 'MONITORING_UNWIRED'          // CONTINUE_WITH_MONITORING but monitoring not declared+callback-agreeing → cannot enforce monitoring
-  | 'MISSING_ARTIFACT_CONTENT';   // detector triggered (preflight required) but no analyzable artifacts[] with before/after → fail closed LOCALLY (developer must supply content), never send an empty list to the server
+  | 'MISSING_ARTIFACT_CONTENT'   // detector triggered (preflight required) but no analyzable artifacts[] with before/after → fail closed LOCALLY (developer must supply content), never send an empty list to the server
+  | 'FRESHNESS_REQUIRED'         // write-style (or requireFreshness) without ACTIVE measurement (NOT_CONFIGURED / DEGRADED)
+  | 'FRESHNESS_FAILED'           // ACTIVE measurement ran; assessFreshness failClosed (TARGET_MUTATED / STALE / TAMPER / UNKNOWN)
 export type UnavailableCause = AvailabilityCause | IntegrityCause;
 
 // D-detector — fail-safe + versioned (the trust core; the Grok corpus of 68

@@ -20,6 +20,12 @@ import { bindReceiptToEnvelope } from './receipt-binding.js';
 import type { BindCause, VerifyReceiptResultLike } from './receipt-binding.js';
 import { evaluateEnvelope } from './enforcement-gate.js';
 import { buildExecutionProof } from './execution-proof.js';
+import {
+  buildFreshnessBasis,
+  isWriteStyleCall,
+  type FreshnessBasis,
+  type FreshnessCallContext,
+} from './freshness.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();
@@ -142,35 +148,61 @@ async function verifyEnvelope(
 }
 
 // ── Outcome builders (keep the discriminated union satisfied) ────────────────────
-// Every path attaches a guard-produced `proof` block. Callers cannot pass proof fields in;
-// buildExecutionProof reads only the outcome facts the guard just observed.
-async function runEnforced<T>(config: GuardConfig, factory: ExecuteFactory<T>, approved: ApprovedVerdict, redacted: ToolCallDescriptor): Promise<GuardOutcome<T>> {
+// Every path attaches a guard-produced `proof` block and a per-call `freshness` basis.
+// Callers cannot pass proof/freshness fields in; builders observe only.
+async function runEnforced<T>(config: GuardConfig, factory: ExecuteFactory<T>, approved: ApprovedVerdict, redacted: ToolCallDescriptor, freshness: FreshnessBasis): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso(), action: approved.action, decisionId: approved.envelope.decision_id });
   try {
     const result = await factory(approved.envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: true as const, result, verdict: approved, preflighted: true as const };
-    return { ...base, proof: buildExecutionProof(base) };
+    return { ...base, proof: buildExecutionProof(base), freshness };
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso(), action: approved.action });
     const base = { executionAttempted: true as const, executed: false as const, enforced: true as const, error, verdict: approved, preflighted: true as const };
-    return { ...base, proof: buildExecutionProof(base) };
+    return { ...base, proof: buildExecutionProof(base), freshness };
   }
 }
-async function runUnenforced<T>(config: GuardConfig, factory: ExecuteFactory<T>, envelope: DecisionResultEnvelope | null, verdict: GuardVerdict, preflighted: boolean, redacted: ToolCallDescriptor): Promise<GuardOutcome<T>> {
+async function runUnenforced<T>(config: GuardConfig, factory: ExecuteFactory<T>, envelope: DecisionResultEnvelope | null, verdict: GuardVerdict, preflighted: boolean, redacted: ToolCallDescriptor, freshness: FreshnessBasis): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso() });
   try {
     const result = await factory(envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: false as const, result, verdict, preflighted };
-    return { ...base, proof: buildExecutionProof(base) };
+    return { ...base, proof: buildExecutionProof(base), freshness };
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso() });
     const base = { executionAttempted: true as const, executed: false as const, enforced: false as const, error, verdict, preflighted };
-    return { ...base, proof: buildExecutionProof(base) };
+    return { ...base, proof: buildExecutionProof(base), freshness };
   }
 }
-function blocked<T>(verdict: GuardVerdict, preflighted: boolean): GuardOutcome<T> {
+function blocked<T>(verdict: GuardVerdict, preflighted: boolean, freshness: FreshnessBasis): GuardOutcome<T> {
   const base = { executionAttempted: false as const, executed: false as const, enforced: false as const, verdict, preflighted };
-  return { ...base, proof: buildExecutionProof(base) };
+  return { ...base, proof: buildExecutionProof(base), freshness };
+}
+
+function preflightBeforeByIdFrom(arts: Artifact[] | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!Array.isArray(arts)) return out;
+  for (const a of arts) {
+    if (a && typeof a.id === 'string' && a.id && typeof a.before === 'string') {
+      out[a.id] = a.before;
+    }
+  }
+  return out;
+}
+
+function freshnessFor(
+  config: GuardConfig,
+  redacted: ToolCallDescriptor,
+  ctx: FreshnessCallContext,
+  preflightArts?: Artifact[],
+): { basis: FreshnessBasis; blockCause?: 'FRESHNESS_REQUIRED' | 'FRESHNESS_FAILED' } {
+  return buildFreshnessBasis({
+    writeStyle: isWriteStyleCall(redacted),
+    requireFreshness: config.requireFreshness === true,
+    ctx,
+    preflightBeforeById: preflightBeforeByIdFrom(preflightArts ?? redacted.artifacts),
+    allowStaleContext: config.allowStaleContext,
+  });
 }
 
 /**
@@ -199,12 +231,20 @@ function unavailableVerdict(parts: UvArm, count: number): UnavailableVerdict {
   return { kind: 'UNAVAILABLE', decisionMissing: true, unavailableCount: count, ...parts };
 }
 
+/**
+ * @param callContext  Runner-collected freshness values (optional). When omitted, wiring is
+ *   NOT_CONFIGURED — the pure path never invokes resolvePriorContent. The tool-registry runner
+ *   calls collectFreshnessCallContext and passes the result here.
+ */
 export async function guardToolCall<T>(
   call: ToolCallDescriptor,
   executeFactory: ExecuteFactory<T>,
   config: GuardConfig,
+  callContext?: FreshnessCallContext,
 ): Promise<GuardOutcome<T>> {
   const failPolicy = config.failPolicy ?? 'closed';
+  // Default: no runner collection → NOT_CONFIGURED (never invent ACTIVE).
+  const fctx: FreshnessCallContext = callContext ?? { wiring: 'NOT_CONFIGURED' };
 
   // 12. redactor runs FIRST; everything downstream uses the redacted descriptor.
   let redacted: ToolCallDescriptor;
@@ -213,7 +253,7 @@ export async function guardToolCall<T>(
   } catch {
     // A redactor throw is a CONFIG_ERROR (integrity) => closed.
     breakerRecord(config);
-    return closedIntegrity(config, 'CONFIG_ERROR', failPolicy);
+    return closedIntegrity(config, 'CONFIG_ERROR', failPolicy, fctx, call);
   }
   const inputFp = fingerprint(redacted); // used for LKG lookup (dormant in v1)
 
@@ -224,7 +264,7 @@ export async function guardToolCall<T>(
     detection = detector.detect(redacted);
   } catch {
     breakerRecord(config);
-    return closedIntegrity(config, 'DETECTOR_ERROR', failPolicy);
+    return closedIntegrity(config, 'DETECTOR_ERROR', failPolicy, fctx, redacted);
   }
 
   // requireExplicitArtifacts strict SKIP gate: suppress only when nonContract===true AND no signal.
@@ -235,7 +275,21 @@ export async function guardToolCall<T>(
   if (!detection.trigger || suppressedByStrict) {
     emit(config, { type: 'detection_skip', at: iso(), signals: detection.signals, detectorVersion: detector.version });
     const verdict: GuardVerdict = { kind: 'SKIPPED', reason: 'NOT_A_CONTRACT_CALL', signals: detection.signals, detectorVersion: detector.version };
-    return runUnenforced(config, executeFactory, null, verdict, false, redacted);
+    const { basis } = freshnessFor(config, redacted, fctx);
+    return runUnenforced(config, executeFactory, null, verdict, false, redacted, basis);
+  }
+
+  // Freshness permission gate for write-style under requireFreshness / DEGRADED (before preflight I/O).
+  {
+    const arts = (detection.artifacts && detection.artifacts.length > 0)
+      ? detection.artifacts
+      : redacted.artifacts;
+    const { basis, blockCause } = freshnessFor(config, redacted, fctx, arts);
+    if (blockCause === 'FRESHNESS_REQUIRED' || blockCause === 'FRESHNESS_FAILED') {
+      breakerRecord(config);
+      return closedIntegrity(config, blockCause, failPolicy, fctx, redacted, arts);
+    }
+    // basis retained via freshnessFor on later paths
   }
 
   // MISSING_ARTIFACT_CONTENT — developer-adoption fail-closed (audit #1). The detector says a contract
@@ -250,13 +304,14 @@ export async function guardToolCall<T>(
     emit(config, { type: 'artifact_content_missing', at: iso(), cause: 'MISSING_ARTIFACT_CONTENT', signals: detection.signals });
     const count = (breakers.get(config)?.fails.length) ?? 0;
     const v = unavailableVerdict({ cause: 'MISSING_ARTIFACT_CONTENT', failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-    return blocked(v, false);
+    const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
+    return blocked(v, false, basis);
   }
 
   // config validation: lkg policy requires an LkgStore.
   if (failPolicy === 'lkg' && !config.lkg) {
     breakerRecord(config);
-    return closedIntegrity(config, 'CONFIG_ERROR', failPolicy);
+    return closedIntegrity(config, 'CONFIG_ERROR', failPolicy, fctx, redacted, detection.artifacts);
   }
 
   // build the preflight request from the detected artifacts.
@@ -274,7 +329,7 @@ export async function guardToolCall<T>(
   const cap = config.maxPayloadBytes ?? 1_000_000;
   if (Buffer.byteLength(JSON.stringify(request), 'utf8') > cap) {
     breakerRecord(config);
-    return closedIntegrity(config, 'PAYLOAD_TOO_LARGE', failPolicy);
+    return closedIntegrity(config, 'PAYLOAD_TOO_LARGE', failPolicy, fctx, redacted, detection.artifacts);
   }
 
   emit(config, { type: 'preflight_start', at: iso() });
@@ -284,30 +339,31 @@ export async function guardToolCall<T>(
     // UNAVAILABLE. Integrity => always closed + breaker. Availability => failPolicy.
     breakerRecord(config);
     const count = (breakers.get(config)?.fails.length) ?? 1;
+    const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
     if (pf.integrity) {
       emit(config, { type: 'breaker_tripped', at: iso(), cause: pf.cause });
       const v = unavailableVerdict({ cause: pf.cause as IntegrityCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-      return blocked(v, false);
+      return blocked(v, false, basis);
     }
     // availability
     const availCause = pf.cause as AvailabilityCause;
     if (failPolicy === 'open' && !breakerTripped(config)) {
       emit(config, { type: 'preflight_unavailable', at: iso(), cause: availCause, action: 'CONTINUE' });
       const v = unavailableVerdict({ cause: availCause, failPolicy: 'open', resolution: 'OPEN_PASSTHROUGH', action: 'CONTINUE' }, count);
-      return runUnenforced(config, executeFactory, null, v, false, redacted);
+      return runUnenforced(config, executeFactory, null, v, false, redacted, basis);
     }
     if (failPolicy === 'lkg') {
       const lkg = await tryLkg(config, inputFp);
       if (lkg) {
         emit(config, { type: 'preflight_unavailable', at: iso(), cause: availCause, action: lkg.action });
         const v = unavailableVerdict({ cause: availCause, failPolicy: 'lkg', resolution: 'LKG_SUBSTITUTION', action: lkg.action, lkgEnvelope: lkg.envelope }, count);
-        return runUnenforced(config, executeFactory, lkg.envelope, v, false, redacted); // LKG NEVER enforces
+        return runUnenforced(config, executeFactory, lkg.envelope, v, false, redacted, basis); // LKG NEVER enforces
       }
       // LKG unusable (dormant in v1: binding fields absent) => closed.
     }
     if (breakerTripped(config)) emit(config, { type: 'breaker_tripped', at: iso(), cause: availCause });
     const v = unavailableVerdict({ cause: availCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-    return blocked(v, false);
+    return blocked(v, false, basis);
   }
 
   // We have a response. Read the decision (envelope-first) and verify the receipt.
@@ -315,7 +371,7 @@ export async function guardToolCall<T>(
   if (rd.reason === 'UNREADABLE_DECISION' || !rd.envelope) {
     // Schema-invalid / no envelope => integrity => closed.
     breakerRecord(config);
-    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy);
+    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, redacted, detection.artifacts);
   }
   const envelope = rd.envelope;
 
@@ -334,7 +390,7 @@ export async function guardToolCall<T>(
   // signature. Both trip the breaker and STOP — the guard NEVER executes off an unbound receipt.
   if (config.verifyReceipts !== false && !receiptVerified && envelope.receipt?.token) {
     breakerRecord(config);
-    return closedIntegrity(config, bindResult.cause ?? 'RECEIPT_UNVERIFIED', failPolicy);
+    return closedIntegrity(config, bindResult.cause ?? 'RECEIPT_UNVERIFIED', failPolicy, fctx, redacted, detection.artifacts);
   }
 
   // ── Client-side authorization gate (P0-b/c): mirror §106/§111/§115 before honoring any action. ──
@@ -344,18 +400,22 @@ export async function guardToolCall<T>(
   const gate = evaluateEnvelope(pf.response, envelope as unknown as Record<string, unknown>, rd.executionAction, detection.artifacts);
   if (gate.verdict === 'fail-closed') {
     breakerRecord(config);
-    return closedIntegrity(config, gate.cause, failPolicy);
+    return closedIntegrity(config, gate.cause, failPolicy, fctx, redacted, detection.artifacts);
   }
   if (gate.verdict === 'block-strict') {
     // A real (or stricter-reconciled) BLOCK / REQUIRE_APPROVAL — clean block; the factory never runs.
+    const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
     return gate.decision === 'BLOCK'
-      ? blocked({ kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true)
-      : blocked({ kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true);
+      ? blocked({ kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis)
+      : blocked({ kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis);
   }
   const kind = gate.kind; // 'ALLOW' | 'MONITOR' — allow-class, safe, non-degraded, artifact-bound.
 
   // An expired decision cannot be honored fresh => closed (integrity: wrong-time state).
-  if (expired) { breakerRecord(config); return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy); }
+  if (expired) {
+    breakerRecord(config);
+    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, redacted, detection.artifacts);
+  }
 
   // MONITOR gate: host must ASSERT monitoring is wired (monitoringSinkWired === true) AND supply
   // onEvent. Presence of a function alone is not enough — () => {} used to unlock this gate while
@@ -368,6 +428,15 @@ export async function guardToolCall<T>(
     else emit(config, { type: 'monitoring_unwired', at: iso(), decisionId: envelope.decision_id });
   }
 
+  // Freshness re-check immediately before any execution (ACTIVE assessment uses preflight befores).
+  const { basis: freshBasis, blockCause: freshBlock } = freshnessFor(
+    config, redacted, fctx, detection.artifacts,
+  );
+  if (freshBlock === 'FRESHNESS_REQUIRED' || freshBlock === 'FRESHNESS_FAILED') {
+    breakerRecord(config);
+    return closedIntegrity(config, freshBlock, failPolicy, fctx, redacted, detection.artifacts);
+  }
+
   // observeOnly is an EXPLICIT report-only opt-in: execute but never enforce (the one sanctioned
   // unenforced-execution mode alongside failPolicy=open; both are documented opt-ins, not the default).
   if (config.observeOnly) {
@@ -375,29 +444,45 @@ export async function guardToolCall<T>(
     const verdict: GuardVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
-    return runUnenforced(config, executeFactory, envelope, verdict, true, redacted);
+    return runUnenforced(config, executeFactory, envelope, verdict, true, redacted, freshBasis);
   }
 
   // ── enforced ⟺ executed INVARIANT (contract-triggering path): execute ONLY when we can ENFORCE. ──
   // enforceable = a bound-verified receipt AND (MONITOR) a wired sink. Anything else FAILS CLOSED —
   // the guard NEVER runs the factory unenforced on a contract change. Closes CE-EP-06 (no receipt),
   // CE-EP-08 (verifyReceipts:false), CE-CC-04 (MONITOR without a monitoring sink).
+  // Freshness is an additional conjunct when ACTIVE / requireFreshness — already applied above.
   const enforceable = receiptVerified && (kind === 'ALLOW' || sinkWired);
   if (enforceable) {
     const approved: ApprovedVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified: true }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified: true };
-    return runEnforced(config, executeFactory, approved, redacted);
+    return runEnforced(config, executeFactory, approved, redacted, freshBasis);
   }
   breakerRecord(config);
-  return closedIntegrity(config, receiptVerified ? 'MONITORING_UNWIRED' : 'RECEIPT_MISSING', failPolicy);
+  return closedIntegrity(
+    config,
+    receiptVerified ? 'MONITORING_UNWIRED' : 'RECEIPT_MISSING',
+    failPolicy,
+    fctx,
+    redacted,
+    detection.artifacts,
+  );
 }
 
-function closedIntegrity<T>(config: GuardConfig, cause: IntegrityCause, failPolicy: 'closed' | 'open' | 'lkg'): GuardOutcome<T> {
+function closedIntegrity<T>(
+  config: GuardConfig,
+  cause: IntegrityCause,
+  failPolicy: 'closed' | 'open' | 'lkg',
+  fctx: FreshnessCallContext,
+  redacted: ToolCallDescriptor,
+  arts?: Artifact[],
+): GuardOutcome<T> {
   const count = (breakers.get(config)?.fails.length) ?? 1;
   emit(config, { type: 'breaker_tripped', at: iso(), cause });
   const v = unavailableVerdict({ cause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-  return blocked(v, false);
+  const { basis } = freshnessFor(config, redacted, fctx, arts);
+  return blocked(v, false, basis);
 }
 
 function isExpired(envelope: DecisionResultEnvelope): boolean {

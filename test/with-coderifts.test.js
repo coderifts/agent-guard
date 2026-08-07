@@ -224,7 +224,9 @@ describe('withCodeRifts (S2) — startup honesty and classification defaults', (
     );
     // Not a heuristic force-downgrade residual — tool was never made readonly.
     assert.ok(!r.composition_assurance.residuals.includes('composition_forced_readonly_on_heuristic_mutator'));
-    assert.deepEqual(r.composition_assurance.residuals, ['composition_call_policy_incomplete']);
+    assert.ok(r.composition_assurance.residuals.includes('composition_call_policy_incomplete'));
+    assert.ok(r.composition_assurance.residuals.includes('composition_freshness_not_configured'));
+    assert.equal(r.composition_assurance.freshness_resolver_wired, false);
     assert.equal(r.composition_assurance.coverage, 'PARTIAL');
     assert.equal(r.composition_assurance.inescapable_runtime, false);
   });

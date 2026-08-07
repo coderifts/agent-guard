@@ -308,3 +308,301 @@ export function assessWriteStylePrior(input: WriteStylePriorInput): WriteStylePr
 export function freshnessAllowsEnforce(result: FreshnessAssessResult): boolean {
   return result.failClosed === false;
 }
+
+// ── wiring states (Decision 2) — NOT the same as FreshnessOutcome ───────────────────────────────
+
+/**
+ * Whether a resolver ran for THIS call.
+ *   ACTIVE         — resolver was supplied and returned content for at least one artifact id
+ *   NOT_CONFIGURED — no resolver on the host config; we never attempted measurement
+ *   DEGRADED       — resolver was supplied and threw, or returned nothing usable
+ *
+ * NOT_CONFIGURED ≠ UNKNOWN_FRESHNESS. The latter is an assessFreshness outcome after a measurement
+ * was attempted with empty/unusable resolved content under ACTIVE wiring.
+ */
+export type FreshnessWiringState = 'ACTIVE' | 'NOT_CONFIGURED' | 'DEGRADED';
+
+export type FreshnessDegradeReason =
+  | 'resolver_threw'
+  | 'resolver_returned_empty'
+  | 'resolver_returned_non_string';
+
+/**
+ * Per-call forensic basis. Rides on the GuardOutcome so a receipt chain audited later can see,
+ * call by call, whether the check ran — not only a composition-level "wired?" flag.
+ */
+export type FreshnessBasis = {
+  wiring: FreshnessWiringState;
+  /** Present when wiring === ACTIVE and assessFreshness ran against preflight before. */
+  assessment?: FreshnessAssessResult;
+  /** Present when wiring === DEGRADED — never report DEGRADED as NOT_CONFIGURED. */
+  degrade?: { reason: FreshnessDegradeReason; detail?: string };
+  /**
+   * Whether this call was treated as write-style (path + new content / needs prior resolve).
+   * Forensic: opt-out on a write is not silent.
+   */
+  write_style: boolean;
+  /** Config requireFreshness for this call (policy). */
+  require_freshness: boolean;
+};
+
+/** Host callback: artifact id → current prior content. Async I/O lives here — never inside assessFreshness. */
+export type PriorContentResolver = (req: {
+  artifactId: string;
+  path?: string;
+  toolName: string;
+}) => Promise<string | null | undefined> | string | null | undefined;
+
+/**
+ * Values the RUNNER collected before entering the pure guard path.
+ * The guard never invokes the resolver; it only consumes these values.
+ */
+export type FreshnessCallContext = {
+  wiring: FreshnessWiringState;
+  /** artifactId → resolved current before (only when wiring ACTIVE or partial DEGRADED with empties) */
+  priorResolved?: Record<string, string | null | undefined>;
+  degrade?: { reason: FreshnessDegradeReason; detail?: string };
+};
+
+/**
+ * Detect write-style: contract-relevant path present, but no both-side artifacts on the descriptor.
+ * (edits[]/old_string+new_string binders already lift both sides — those are not write-style.)
+ */
+export function isWriteStyleCall(call: {
+  artifacts?: ReadonlyArray<{ before?: unknown; after?: unknown }> | undefined;
+  arguments?: unknown;
+  filesTouched?: string[];
+}): boolean {
+  const arts = call.artifacts;
+  if (Array.isArray(arts) && arts.length > 0) {
+    const anyBoth = arts.some(
+      (a) =>
+        a
+        && typeof a.before === 'string'
+        && a.before.length > 0
+        && typeof a.after === 'string'
+        && a.after.length > 0,
+    );
+    if (anyBoth) return false;
+  }
+  const args = call.arguments && typeof call.arguments === 'object'
+    ? (call.arguments as Record<string, unknown>)
+    : {};
+  const path = typeof args.path === 'string' && args.path.length > 0
+    ? args.path
+    : (Array.isArray(call.filesTouched) && typeof call.filesTouched[0] === 'string'
+      ? call.filesTouched[0]
+      : '');
+  if (!path) return false;
+  // path + new content / contents without old_string both sides
+  const hasAfter =
+    (typeof args.contents === 'string' && args.contents.length > 0)
+    || (typeof args.content === 'string' && args.content.length > 0)
+    || (typeof args.new_string === 'string' && args.new_string.length > 0);
+  const hasOld = typeof args.old_string === 'string' && args.old_string.length > 0;
+  if (hasAfter && !hasOld) return true;
+  // path-only write-like with no artifacts
+  if (!Array.isArray(arts) || arts.length === 0) {
+    return hasAfter || typeof args.contents === 'string' || typeof args.content === 'string';
+  }
+  return false;
+}
+
+/** Artifact ids the runner should ask the host to resolve (from lifted artifacts or path-derived id). */
+export function artifactIdsForResolve(call: {
+  toolName?: string;
+  artifacts?: ReadonlyArray<{ id?: unknown }> | undefined;
+  arguments?: unknown;
+}): string[] {
+  const ids: string[] = [];
+  if (Array.isArray(call.artifacts)) {
+    for (const a of call.artifacts) {
+      if (a && typeof a.id === 'string' && a.id.trim()) ids.push(a.id);
+    }
+  }
+  if (ids.length > 0) return [...new Set(ids)];
+  const args = call.arguments && typeof call.arguments === 'object'
+    ? (call.arguments as Record<string, unknown>)
+    : {};
+  if (typeof args.artifact_id === 'string' && args.artifact_id.trim()) return [args.artifact_id.trim()];
+  if (typeof args.artifactId === 'string' && args.artifactId.trim()) return [args.artifactId.trim()];
+  // path alone is not an id — host must pass artifact id from preflight; still list path-key for resolve attempts
+  if (typeof args.path === 'string' && args.path.trim()) {
+    // Prefer explicit id fields only; path is path, not artifact id (Decision 2).
+  }
+  return ids;
+}
+
+/**
+ * RUNNER-side collection. Invokes the host resolver (async I/O). Never call from pure assessFreshness.
+ * - no resolver → NOT_CONFIGURED (did not try)
+ * - resolver throws → DEGRADED (opted in, failed)
+ * - resolver returns empty/non-string for all ids → DEGRADED
+ * - otherwise ACTIVE with priorResolved map
+ */
+export async function collectFreshnessCallContext(input: {
+  call: { toolName: string; artifacts?: ReadonlyArray<{ id?: unknown; before?: unknown }> | undefined; arguments?: unknown };
+  resolvePriorContent?: PriorContentResolver | null;
+}): Promise<FreshnessCallContext> {
+  const resolver = input.resolvePriorContent;
+  if (typeof resolver !== 'function') {
+    return { wiring: 'NOT_CONFIGURED' };
+  }
+
+  const ids = artifactIdsForResolve(input.call);
+  const args = input.call.arguments && typeof input.call.arguments === 'object'
+    ? (input.call.arguments as Record<string, unknown>)
+    : {};
+  const path = typeof args.path === 'string' ? args.path : undefined;
+
+  // Resolver present but nothing to resolve on this call — still ACTIVE commitment for wiring state
+  // only if we attempted; for zero ids, we attempted zero calls → ACTIVE with empty map means
+  // "resolver is configured" but assessment may UNKNOWN. Distinguish: DEGRADED only on throw/empty return.
+  if (ids.length === 0) {
+    // Host opted in; no artifact id to resolve. Not NOT_CONFIGURED (we would have resolved if we could).
+    // Leave ACTIVE with empty priorResolved — assess path handles missing content.
+    return { wiring: 'ACTIVE', priorResolved: {} };
+  }
+
+  const priorResolved: Record<string, string | null | undefined> = {};
+  try {
+    for (const artifactId of ids) {
+      const raw = await resolver({
+        artifactId,
+        path,
+        toolName: input.call.toolName,
+      });
+      if (raw === null || raw === undefined) {
+        priorResolved[artifactId] = raw;
+        continue;
+      }
+      if (typeof raw !== 'string') {
+        return {
+          wiring: 'DEGRADED',
+          degrade: { reason: 'resolver_returned_non_string', detail: `artifactId=${artifactId}` },
+          priorResolved,
+        };
+      }
+      if (raw.length === 0) {
+        priorResolved[artifactId] = raw;
+        continue;
+      }
+      priorResolved[artifactId] = raw;
+    }
+  } catch (err) {
+    return {
+      wiring: 'DEGRADED',
+      degrade: {
+        reason: 'resolver_threw',
+        detail: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+
+  const values = ids.map((id) => priorResolved[id]);
+  const allEmpty = values.every((v) => v === null || v === undefined || v === '');
+  if (allEmpty) {
+    return {
+      wiring: 'DEGRADED',
+      degrade: { reason: 'resolver_returned_empty' },
+      priorResolved,
+    };
+  }
+
+  return { wiring: 'ACTIVE', priorResolved };
+}
+
+/**
+ * Build the per-call basis and optional enforce block reason from context + preflight artifacts.
+ * Pure once priorResolved is a value (no I/O).
+ */
+export function buildFreshnessBasis(input: {
+  writeStyle: boolean;
+  requireFreshness: boolean;
+  ctx: FreshnessCallContext;
+  /** Preflight-bound before per artifact id (from call.artifacts after detect/bind). */
+  preflightBeforeById?: Record<string, string>;
+  allowStaleContext?: boolean;
+  preflightTreeHash?: string | null;
+  resolvedTreeHashNow?: string | null;
+}): {
+  basis: FreshnessBasis;
+  /** If set, enforced execution must not proceed (permission fail-closed). */
+  blockCause?: 'FRESHNESS_REQUIRED' | 'FRESHNESS_FAILED';
+} {
+  const require_freshness = input.requireFreshness === true;
+  const write_style = input.writeStyle === true;
+  const { ctx } = input;
+
+  if (ctx.wiring === 'NOT_CONFIGURED') {
+    const basis: FreshnessBasis = {
+      wiring: 'NOT_CONFIGURED',
+      write_style,
+      require_freshness,
+    };
+    // Policy requires freshness on write → permission denied (API still opt-in for non-required).
+    if (write_style && require_freshness) {
+      return { basis, blockCause: 'FRESHNESS_REQUIRED' };
+    }
+    return { basis };
+  }
+
+  if (ctx.wiring === 'DEGRADED') {
+    const basis: FreshnessBasis = {
+      wiring: 'DEGRADED',
+      write_style,
+      require_freshness,
+      degrade: ctx.degrade ?? { reason: 'resolver_returned_empty' },
+    };
+    // Opted in, then failed: never silently unprotected. Fail closed on write when required,
+    // and also when requireFreshness is false? Decision 1: permission fail when policy requires.
+    // Decision 2: DEGRADED must not drop to unprotected — for enforce path always block on DEGRADED
+    // for write-style, and for requireFreshness always block.
+    if (write_style || require_freshness) {
+      return { basis, blockCause: 'FRESHNESS_REQUIRED' };
+    }
+    return { basis };
+  }
+
+  // ACTIVE
+  const preflightMap = input.preflightBeforeById ?? {};
+  const ids = Object.keys(preflightMap);
+  // If we have preflight before sides, assess the first (or all — fail if any fails).
+  let assessment: FreshnessAssessResult | undefined;
+  if (ids.length > 0) {
+    for (const id of ids) {
+      const resolved = ctx.priorResolved ? ctx.priorResolved[id] : undefined;
+      const one = assessFreshness({
+        preflightBefore: preflightMap[id],
+        resolvedBeforeNow: resolved,
+        preflightTreeHash: input.preflightTreeHash,
+        resolvedTreeHashNow: input.resolvedTreeHashNow,
+        allowStaleContext: input.allowStaleContext,
+      });
+      assessment = one;
+      if (one.failClosed) break;
+    }
+  } else if (write_style) {
+    // ACTIVE but no preflight before to compare — measurement incomplete.
+    assessment = assessFreshness({
+      preflightBefore: '',
+      resolvedBeforeNow: null,
+      allowStaleContext: input.allowStaleContext,
+    });
+  }
+
+  const basis: FreshnessBasis = {
+    wiring: 'ACTIVE',
+    write_style,
+    require_freshness,
+    assessment,
+  };
+
+  if (assessment && assessment.failClosed) {
+    return { basis, blockCause: 'FRESHNESS_FAILED' };
+  }
+  if (write_style && require_freshness && !assessment) {
+    return { basis, blockCause: 'FRESHNESS_REQUIRED' };
+  }
+  return { basis };
+}

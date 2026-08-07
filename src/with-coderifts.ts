@@ -246,6 +246,16 @@ export type WithCodeRiftsInput = {
    * Host-owned; the composition does not retain or advance it between calls.
    */
   previousReceipt?: string | (() => string | undefined | null);
+  /**
+   * Optional freshness prior resolver (opt-in). Forwarded onto GuardConfig.resolvePriorContent.
+   * When absent: composition residual composition_freshness_not_configured; per-call basis
+   * NOT_CONFIGURED. When present: host commitment — failures are DEGRADED, not silent opt-out.
+   */
+  resolvePriorContent?: GuardConfig['resolvePriorContent'];
+  /** Policy: write-style without ACTIVE freshness does not proceed. Default false (API opt-in). */
+  requireFreshness?: boolean;
+  /** STALE_CONTEXT policy opt-out forwarded onto GuardConfig.allowStaleContext. */
+  allowStaleContext?: boolean;
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -253,6 +263,12 @@ export type CompositionAssurance = {
   coverage: EnforcementCoverage;
   inescapable_runtime: boolean;
   residuals: string[];
+  /**
+   * Whether the host supplied resolvePriorContent (composition-level claim).
+   * Does NOT mean any given call was fresh — that is outcome.freshness per call.
+   * Never implies inescapable_runtime.
+   */
+  freshness_resolver_wired: boolean;
 };
 
 export type WithCodeRiftsResult = {
@@ -274,14 +290,17 @@ export type WithCodeRiftsResult = {
  *   (1) DONE — automatic binders for shapes that already carry both edit sides (old_string/new_string,
  *       edits[] → artifacts). Does NOT cover write-style path+new-content-only calls.
  *   (2) NOT DONE — receipt carry-forward (S5).
- *   (3) NOT DONE — freshness-safe prior for write-style calls. Pure assessFreshness exists;
- *       enforce-path recompute + host resolve-by-artifact-id are still unwired.
+ *   (3) NOT DONE for product claim — pure core + opt-in wiring exist (resolvePriorContent +
+ *       per-call basis). COMPOSITION_CALL_POLICY_COMPLETE stays false until freshness is ACTIVE
+ *       by default for writes AND remaining conjuncts land. Host may still omit the resolver.
  *
  * UNCHANGED by S2 / composition observation (observing ≠ enforcing). Value stays false until all three.
  */
 const COMPOSITION_CALL_POLICY_COMPLETE = false;
 
 const RESIDUAL_CALL_POLICY_INCOMPLETE = 'composition_call_policy_incomplete';
+/** Composition residual: host did not supply resolvePriorContent (NOT the same as DEGRADED). */
+const RESIDUAL_FRESHNESS_NOT_CONFIGURED = 'composition_freshness_not_configured';
 // S2 weakening-override residuals — derived SOLELY from registry report.warnings (never recomputed).
 const RESIDUAL_FORCED_READONLY = 'composition_forced_readonly_on_heuristic_mutator';
 const RESIDUAL_UNKNOWN_READONLY = 'composition_unknown_treated_as_readonly';
@@ -445,6 +464,15 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   if (input.previousReceipt !== undefined) {
     guard.previousReceipt = input.previousReceipt;
   }
+  if (input.resolvePriorContent !== undefined) {
+    guard.resolvePriorContent = input.resolvePriorContent;
+  }
+  if (input.requireFreshness !== undefined) {
+    guard.requireFreshness = input.requireFreshness;
+  }
+  if (input.allowStaleContext !== undefined) {
+    guard.allowStaleContext = input.allowStaleContext;
+  }
   const config: GuardToolRegistryConfig = {
     guard,
     unknownToolPolicy: reg.unknownToolPolicy ?? 'mutating',
@@ -491,6 +519,13 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   if (report.warnings.includes('unknown_treated_as_readonly')) {
     residuals.push(RESIDUAL_UNKNOWN_READONLY);
   }
+  // Freshness resolver: composition-level visibility. Absence is residual NOT_CONFIGURED;
+  // presence is a host claim (freshness_resolver_wired), not proof every call was measured.
+  // Does NOT flip COMPOSITION_CALL_POLICY_COMPLETE or inescapable_runtime.
+  const freshness_resolver_wired = typeof input.resolvePriorContent === 'function';
+  if (!freshness_resolver_wired) {
+    residuals.push(RESIDUAL_FRESHNESS_NOT_CONFIGURED);
+  }
 
   // 'PARTIAL' from the existing EnforcementCoverage union — never 'COMPLETE' while inescapable_runtime
   // is false (that combination would contradict the registry's own formula). UNCHANGED by S2 / observation.
@@ -498,6 +533,7 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
     coverage: 'PARTIAL',
     inescapable_runtime: compositionInescapableRuntime,
     residuals,
+    freshness_resolver_wired,
   };
 
   // Settled-call observation: registry returns FROZEN ProtectedTool objects (and a frozen tools array).
