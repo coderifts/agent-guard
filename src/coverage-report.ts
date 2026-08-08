@@ -49,6 +49,16 @@ export type ContentPlacementInput = {
 
 export type CoverageReportInput = {
   applicability: Applicability;
+  /**
+   * Host attestation that the `applicability` map is complete and intentional (RT-P-16).
+   *
+   * **Absence semantics (not_reported discipline):** missing or any value other than
+   * strictly `true` is false-equivalent for claims. Unattested applicability can never
+   * support `FULLY_ENFORCED` (downgraded to `PARTIALLY_ENFORCED` when placements would
+   * otherwise all be ENFORCING) and always names residual `applicability_unattested`
+   * when at least one placement is applicable. Absence is not attestation.
+   */
+  applicability_attested?: boolean;
   runtime?: RuntimePlacementInput | null;
   merge?: MergePlacementInput | null;
   deploy?: DeployPlacementInput | null;
@@ -211,9 +221,20 @@ export function coverageReport(input: CoverageReportInput): CoverageReport {
     overall = 'UNKNOWN';
   }
 
+  // RT-P-16: applicability attestation (not_reported). Only strict true is attestation.
+  // Absence / false can never support FULLY — a green tetrad with unattested scope is PARTIAL.
+  const applicabilityAttested = input.applicability_attested === true;
+  if (!applicabilityAttested && overall === 'FULLY_ENFORCED') {
+    overall = 'PARTIALLY_ENFORCED';
+  }
+
   // §4.3 — residuals: union of applicable placements only, sorted unique (EXCLUDED contribute none).
   const residualSet = new Set<string>();
   for (const p of order) if (isApplicable(p)) for (const r of computed[p].residuals) residualSet.add(r);
+  // RT-P-16 residual: named whenever applicability is not attested and something is in scope.
+  if (!applicabilityAttested && applicableStrengths.length > 0) {
+    residualSet.add('applicability_unattested');
+  }
   const residuals = [...residualSet].sort();
 
   // §4.4 — claim key + deterministic honest language.
@@ -223,6 +244,7 @@ export function coverageReport(input: CoverageReportInput): CoverageReport {
   // §4.5 — flags (must not disagree with overall). RT-P-13: a per-placement inescapable claim tracks
   // the COMPUTED strength (flag ∧ consistent enforcement), never the raw flag alone — so an
   // inconsistent inescapable_* claim cannot leak into a may_claim_* true.
+  // may_claim_full_tetrad tracks overall only (which already requires attestation for FULLY).
   const flags = {
     may_claim_inescapable_runtime: isApplicable('runtime') && computed.runtime.strength === 'ENFORCING',
     may_claim_inescapable_merge: isApplicable('merge') && computed.merge.strength === 'ENFORCING',

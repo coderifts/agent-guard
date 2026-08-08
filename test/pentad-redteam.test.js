@@ -17,9 +17,14 @@
  *   - RT-P-12 (RTM-012): ENFORCING forces require_bound_artifact true → missing artifact bind → stale_artifact.
  *   - RTM-011b / RTM-012b: boundary mirrors (ADVISORY soft-false still allows; ENFORCING+correct bind allows).
  *
- * DEFERRED to P1/P2 (out of this round — design-missing checks, not soft-switch leaks):
- *   - RT-P-16 (RTM-016/016b): applicability_attested gate.
- *   - RT-P-20 (RTM-020): require_fingerprint on ENFORCING merge (check was never built).
+ * CLEARED this round (ID618):
+ *   - RT-P-16 (RTM-016/016b): coverageReport honors applicability_attested (absence ≠ attestation).
+ *
+ * STILL DEFERRED after re-measure (ID618) — do not force green:
+ *   - RT-P-20 (RTM-020): matrix expects hard fail fingerprint_mismatch when require_fingerprint
+ *     without expected_fingerprint. a790f4e intentionally made change-set re-bind residual-only
+ *     (success + change_set_not_rebound when no residual already named; RTM-020 currently surfaces
+ *     required_check_app_binding_unknown first and stays merge_allowed:true). Matrix case ≠ product.
  *
  * CONFIRMED_SAFE rows assert the already-shipped defenses (T7, stale head, env staging≠prod, full
  * SHA/artifact equality, missing→UNKNOWN) still hold against the CURRENT (now-fixed) code.
@@ -36,9 +41,8 @@ const MATRIX = JSON.parse(fs.readFileSync(path.join(__dirname, 'pentad-redteam-m
 const FIXTURES = MATRIX.fixtures;
 const PRIMITIVES = { gateDecision, deployGate, coverageReport };
 
-// findings deferred to P1/P2 — skipped with a visible reason (not fixed this round)
-// RT-P-11 / RT-P-12 un-deferred: soft-switch under ENFORCING is a real leak; fixed in deploy-gate.
-const DEFERRED = new Set(['RT-P-16', 'RT-P-20']);
+// RT-P-16 cleared (ID618). RT-P-20 remains deferred: re-measure failed vs matrix (see file header).
+const DEFERRED = new Set(['RT-P-20']);
 
 function assertGate(out, e, id) {
   if (e.merge_allowed !== undefined) assert.equal(out.merge_allowed, e.merge_allowed, `${id} merge_allowed`);
@@ -70,7 +74,9 @@ describe('pentad red-team regression — 20 fixtures', () => {
 
   for (const fx of FIXTURES) {
     const deferred = DEFERRED.has(fx.finding);
-    const opts = deferred ? { skip: `${fx.finding} deferred to P1/P2 — outside this round's two-P0 scope` } : {};
+    const opts = deferred
+      ? { skip: `${fx.finding} deferred — matrix expects hard fail; product is residual-only success (a790f4e); re-measure FAIL` }
+      : {};
     it(`${fx.id} [${fx.kind}/${fx.finding}]: ${fx.title.slice(0, 60)}`, opts, () => {
       const out = PRIMITIVES[fx.primitive](fx.input);
       const e = fx.expected || fx.expected_after_fix;

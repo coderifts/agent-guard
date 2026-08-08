@@ -13,6 +13,7 @@
       "title": "THE CLEAN ROW: all applicable ENFORCING non-bypassable → FULLY_ENFORCED",
       "input": {
         "applicability": { "runtime": true, "merge": true, "deploy": true, "content": true },
+        "applicability_attested": true,
         "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true, "residuals": [] },
         "merge": {
           "enforcement_state": "ENFORCING",
@@ -83,6 +84,7 @@
       "title": "Deploy not applicable + deploy ABSENT → still FULLY (no deploy residual)",
       "input": {
         "applicability": { "runtime": true, "merge": true, "deploy": false, "content": true },
+        "applicability_attested": true,
         "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
         "merge": { "enforcement_state": "ENFORCING", "inescapable_merge": true },
         "deploy": {
@@ -244,6 +246,7 @@
       "title": "Content EMPTY (no contracts) is ENFORCING vacuous — can FULLY",
       "input": {
         "applicability": { "runtime": true, "merge": true, "deploy": false, "content": true },
+        "applicability_attested": true,
         "runtime": { "coverage": "COMPLETE", "inescapable_runtime": true },
         "merge": { "enforcement_state": "ENFORCING", "inescapable_merge": true },
         "content": { "coverage": "EMPTY", "artifacts_ready": true }

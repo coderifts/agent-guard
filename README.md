@@ -186,6 +186,8 @@ const { tools, composition_assurance } = withCodeRifts({
 
 const report = coverageReport({
   applicability: { /* host-known — see warning below */ runtime: true, merge: true, deploy: true, content: true },
+  // Required for FULLY_ENFORCED: absence is not attestation (RT-P-16).
+  applicability_attested: true,
   runtime: composition_assurance, // complete RuntimePlacementInput — no remapping
   // merge / deploy / content: host still supplies (see next)
 });
@@ -213,6 +215,12 @@ yet. A host that passes only the runtime placement and marks `merge`, `deploy`, 
 claiming three enforcement boundaries are irrelevant to them; the aggregate report will treat those
 placements as `EXCLUDED` and will not residual or cap them. Do not set three falses just to typecheck.
 That overstates coverage.
+
+**`applicability_attested` (RT-P-16).** The map alone is not enough for a full-tetrad claim. Pass
+`applicability_attested: true` only when the host has deliberately decided which placements apply.
+If the field is absent or false, `coverageReport` names residual `applicability_unattested` and will
+not return `FULLY_ENFORCED` even when every applicable placement is ENFORCING (downgrade to
+`PARTIALLY_ENFORCED`). Absence is not attestation.
 
 `withCodeRifts` does not call `coverageReport` itself: it can only speak for the runtime placement, and
 a report it produced alone would either guess the other three or assert they do not apply — neither is

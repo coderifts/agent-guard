@@ -7,8 +7,8 @@
  * per_placement_strength.
  *
  * Plus: determinism, purity (no network I/O; input not mutated), and the honesty invariants
- * (C1/C2/C8/C10 — FULLY only when every applicable placement is ENFORCING; the language never
- * over-claims).
+ * (C1/C2/C8/C10 — FULLY only when every applicable placement is ENFORCING AND
+ * applicability_attested === true; the language never over-claims). RT-P-16.
  */
 
 const { describe, it } = require('node:test');
@@ -123,13 +123,50 @@ describe('coverageReport — named checklist', () => {
 });
 
 // ── honesty invariants (C1/C2/C4/C10) ───────────────────────────────────────────────────────────────
+describe('coverageReport — RT-P-16 applicability attestation', () => {
+  const greenUnattested = {
+    applicability: { runtime: true, merge: true, deploy: false, content: true },
+    // applicability_attested intentionally ABSENT — not_reported
+    runtime: { coverage: 'COMPLETE', inescapable_runtime: true },
+    merge: { enforcement_state: 'ENFORCING', inescapable_merge: true },
+    content: { coverage: 'COMPLETE' },
+  };
+
+  it('must-fail pre-fix: green placements without attestation cannot be FULLY', () => {
+    const rep = coverageReport(greenUnattested);
+    assert.equal(rep.overall_coverage, 'PARTIALLY_ENFORCED');
+    assert.ok(rep.residuals.includes('applicability_unattested'));
+    assert.equal(rep.honest_claim_key, 'claim_partially_enforced');
+    assert.equal(rep.flags.may_claim_full_tetrad, false);
+  });
+
+  it('explicit applicability_attested:false same as absence', () => {
+    const rep = coverageReport({ ...greenUnattested, applicability_attested: false });
+    assert.equal(rep.overall_coverage, 'PARTIALLY_ENFORCED');
+    assert.ok(rep.residuals.includes('applicability_unattested'));
+    assert.equal(rep.flags.may_claim_full_tetrad, false);
+  });
+
+  it('applicability_attested:true + all ENFORCING → FULLY (no unattested residual)', () => {
+    const rep = coverageReport({ ...greenUnattested, applicability_attested: true });
+    assert.equal(rep.overall_coverage, 'FULLY_ENFORCED');
+    assert.ok(!rep.residuals.includes('applicability_unattested'));
+    assert.equal(rep.flags.may_claim_full_tetrad, true);
+  });
+});
+
 describe('coverageReport — honesty invariants', () => {
-  it('C1/C2: FULLY_ENFORCED ⇔ every applicable placement strength is ENFORCING', () => {
+  it('C1/C2: FULLY_ENFORCED ⇔ every applicable ENFORCING AND applicability_attested === true', () => {
     for (const r of ROWS) {
       const rep = coverageReport(r.input);
       const applicableRows = rep.per_placement.filter((p) => p.applicable);
       const allEnf = applicableRows.length > 0 && applicableRows.every((p) => p.strength === 'ENFORCING');
-      assert.equal(rep.overall_coverage === 'FULLY_ENFORCED', allEnf, `${r.id} C1/C2`);
+      const attested = r.input.applicability_attested === true;
+      assert.equal(
+        rep.overall_coverage === 'FULLY_ENFORCED',
+        allEnf && attested,
+        `${r.id} C1/C2 (placements ENFORCING ∧ attested)`,
+      );
     }
   });
 
