@@ -76,6 +76,7 @@ export type {
   Artifact,
   GuardExecutionProof,
   ExecutionResultHash,
+  GuardToolCallContext,
 } from './types.js';
 
 // Guard-produced execution proof (assembled from observed state only; never caller-supplied).
@@ -111,6 +112,21 @@ export type {
   PriorContentResolver,
   FreshnessDegradeReason,
 } from './freshness.js';
+
+// Conditional-write surface (reporting only — package never writes). Opt-in requireConditionalWrite.
+export {
+  buildConditionalWriteBasis,
+  tokensEqual,
+  conditionalWriteResidual,
+  RESIDUAL_UNCONDITIONAL_WRITE,
+} from './conditional-write.js';
+export type {
+  VersionToken,
+  VersionedContent,
+  ConditionalWriteReport,
+  ConditionalWriteBasis,
+  ConditionalWriteCallContext,
+} from './conditional-write.js';
 
 // artifactResolver — automatic base/head contract artifacts from a pure git snapshot (upstream of
 // preflight; produces artifacts, never decides). Companion to MISSING_ARTIFACT_CONTENT.

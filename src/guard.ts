@@ -26,6 +26,11 @@ import {
   type FreshnessBasis,
   type FreshnessCallContext,
 } from './freshness.js';
+import {
+  buildConditionalWriteBasis,
+  type ConditionalWriteBasis,
+  type ConditionalWriteCallContext,
+} from './conditional-write.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();
@@ -148,35 +153,80 @@ async function verifyEnvelope(
 }
 
 // ── Outcome builders (keep the discriminated union satisfied) ────────────────────
-// Every path attaches a guard-produced `proof` block and a per-call `freshness` basis.
-// Callers cannot pass proof/freshness fields in; builders observe only.
-async function runEnforced<T>(config: GuardConfig, factory: ExecuteFactory<T>, approved: ApprovedVerdict, redacted: ToolCallDescriptor, freshness: FreshnessBasis): Promise<GuardOutcome<T>> {
+// Every path attaches proof + freshness + conditional_write bases (guard-produced only).
+async function runEnforced<T>(
+  config: GuardConfig,
+  factory: ExecuteFactory<T>,
+  approved: ApprovedVerdict,
+  redacted: ToolCallDescriptor,
+  freshness: FreshnessBasis,
+  conditional_write: ConditionalWriteBasis,
+): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso(), action: approved.action, decisionId: approved.envelope.decision_id });
   try {
     const result = await factory(approved.envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: true as const, result, verdict: approved, preflighted: true as const };
-    return { ...base, proof: buildExecutionProof(base), freshness };
+    return {
+      ...base,
+      proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
+      freshness,
+      conditional_write,
+    };
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso(), action: approved.action });
     const base = { executionAttempted: true as const, executed: false as const, enforced: true as const, error, verdict: approved, preflighted: true as const };
-    return { ...base, proof: buildExecutionProof(base), freshness };
+    return {
+      ...base,
+      proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
+      freshness,
+      conditional_write,
+    };
   }
 }
-async function runUnenforced<T>(config: GuardConfig, factory: ExecuteFactory<T>, envelope: DecisionResultEnvelope | null, verdict: GuardVerdict, preflighted: boolean, redacted: ToolCallDescriptor, freshness: FreshnessBasis): Promise<GuardOutcome<T>> {
+async function runUnenforced<T>(
+  config: GuardConfig,
+  factory: ExecuteFactory<T>,
+  envelope: DecisionResultEnvelope | null,
+  verdict: GuardVerdict,
+  preflighted: boolean,
+  redacted: ToolCallDescriptor,
+  freshness: FreshnessBasis,
+  conditional_write: ConditionalWriteBasis,
+): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso() });
   try {
     const result = await factory(envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: false as const, result, verdict, preflighted };
-    return { ...base, proof: buildExecutionProof(base), freshness };
+    return {
+      ...base,
+      proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
+      freshness,
+      conditional_write,
+    };
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso() });
     const base = { executionAttempted: true as const, executed: false as const, enforced: false as const, error, verdict, preflighted };
-    return { ...base, proof: buildExecutionProof(base), freshness };
+    return {
+      ...base,
+      proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
+      freshness,
+      conditional_write,
+    };
   }
 }
-function blocked<T>(verdict: GuardVerdict, preflighted: boolean, freshness: FreshnessBasis): GuardOutcome<T> {
+function blocked<T>(
+  verdict: GuardVerdict,
+  preflighted: boolean,
+  freshness: FreshnessBasis,
+  conditional_write: ConditionalWriteBasis,
+): GuardOutcome<T> {
   const base = { executionAttempted: false as const, executed: false as const, enforced: false as const, verdict, preflighted };
-  return { ...base, proof: buildExecutionProof(base), freshness };
+  return {
+    ...base,
+    proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
+    freshness,
+    conditional_write,
+  };
 }
 
 function preflightBeforeByIdFrom(arts: Artifact[] | undefined): Record<string, string> {
@@ -203,6 +253,47 @@ function freshnessFor(
     preflightBeforeById: preflightBeforeByIdFrom(preflightArts ?? redacted.artifacts),
     allowStaleContext: config.allowStaleContext,
   });
+}
+
+function conditionalWriteFor(
+  config: GuardConfig,
+  redacted: ToolCallDescriptor,
+  ctx: ConditionalWriteCallContext,
+): { basis: ConditionalWriteBasis; blockCause?: 'CONDITIONAL_WRITE_REQUIRED' } {
+  return buildConditionalWriteBasis({
+    writeStyle: isWriteStyleCall(redacted),
+    requireConditionalWrite: config.requireConditionalWrite === true,
+    ctx,
+  });
+}
+
+/** Split legacy FreshnessCallContext 4th arg from optional conditional-write host report fields. */
+function splitCallContext(callContext?: FreshnessCallContext & ConditionalWriteCallContext): {
+  fctx: FreshnessCallContext;
+  cwctx: ConditionalWriteCallContext;
+} {
+  if (!callContext || typeof callContext !== 'object') {
+    return { fctx: { wiring: 'NOT_CONFIGURED' }, cwctx: {} };
+  }
+  const {
+    conditional_write,
+    conditioned_on_token,
+    versioned_content,
+    wiring,
+    priorResolved,
+    degrade,
+  } = callContext as FreshnessCallContext & ConditionalWriteCallContext;
+  const fctx: FreshnessCallContext = {
+    wiring: wiring ?? 'NOT_CONFIGURED',
+    ...(priorResolved !== undefined ? { priorResolved } : {}),
+    ...(degrade !== undefined ? { degrade } : {}),
+  };
+  const cwctx: ConditionalWriteCallContext = {
+    ...(conditional_write !== undefined ? { conditional_write } : {}),
+    ...(conditioned_on_token !== undefined ? { conditioned_on_token } : {}),
+    ...(versioned_content !== undefined ? { versioned_content } : {}),
+  };
+  return { fctx, cwctx };
 }
 
 /**
@@ -232,19 +323,18 @@ function unavailableVerdict(parts: UvArm, count: number): UnavailableVerdict {
 }
 
 /**
- * @param callContext  Runner-collected freshness values (optional). When omitted, wiring is
- *   NOT_CONFIGURED — the pure path never invokes resolvePriorContent. The tool-registry runner
- *   calls collectFreshnessCallContext and passes the result here.
+ * @param callContext  Runner-collected freshness values (optional) plus optional conditional-write
+ *   host report fields. When omitted, freshness wiring is NOT_CONFIGURED and conditional_write is
+ *   not_reported. The tool-registry runner calls collectFreshnessCallContext and passes the result.
  */
 export async function guardToolCall<T>(
   call: ToolCallDescriptor,
   executeFactory: ExecuteFactory<T>,
   config: GuardConfig,
-  callContext?: FreshnessCallContext,
+  callContext?: FreshnessCallContext & ConditionalWriteCallContext,
 ): Promise<GuardOutcome<T>> {
   const failPolicy = config.failPolicy ?? 'closed';
-  // Default: no runner collection → NOT_CONFIGURED (never invent ACTIVE).
-  const fctx: FreshnessCallContext = callContext ?? { wiring: 'NOT_CONFIGURED' };
+  const { fctx, cwctx } = splitCallContext(callContext);
 
   // 12. redactor runs FIRST; everything downstream uses the redacted descriptor.
   let redacted: ToolCallDescriptor;
@@ -253,7 +343,7 @@ export async function guardToolCall<T>(
   } catch {
     // A redactor throw is a CONFIG_ERROR (integrity) => closed.
     breakerRecord(config);
-    return closedIntegrity(config, 'CONFIG_ERROR', failPolicy, fctx, call);
+    return closedIntegrity(config, 'CONFIG_ERROR', failPolicy, fctx, cwctx, call);
   }
   const inputFp = fingerprint(redacted); // used for LKG lookup (dormant in v1)
 
@@ -264,7 +354,7 @@ export async function guardToolCall<T>(
     detection = detector.detect(redacted);
   } catch {
     breakerRecord(config);
-    return closedIntegrity(config, 'DETECTOR_ERROR', failPolicy, fctx, redacted);
+    return closedIntegrity(config, 'DETECTOR_ERROR', failPolicy, fctx, cwctx, redacted);
   }
 
   // requireExplicitArtifacts strict SKIP gate: suppress only when nonContract===true AND no signal.
@@ -276,7 +366,8 @@ export async function guardToolCall<T>(
     emit(config, { type: 'detection_skip', at: iso(), signals: detection.signals, detectorVersion: detector.version });
     const verdict: GuardVerdict = { kind: 'SKIPPED', reason: 'NOT_A_CONTRACT_CALL', signals: detection.signals, detectorVersion: detector.version };
     const { basis } = freshnessFor(config, redacted, fctx);
-    return runUnenforced(config, executeFactory, null, verdict, false, redacted, basis);
+    const { basis: cwBasis } = conditionalWriteFor(config, redacted, cwctx);
+    return runUnenforced(config, executeFactory, null, verdict, false, redacted, basis, cwBasis);
   }
 
   // Freshness permission gate for write-style under requireFreshness / DEGRADED (before preflight I/O).
@@ -284,12 +375,20 @@ export async function guardToolCall<T>(
     const arts = (detection.artifacts && detection.artifacts.length > 0)
       ? detection.artifacts
       : redacted.artifacts;
-    const { basis, blockCause } = freshnessFor(config, redacted, fctx, arts);
+    const { blockCause } = freshnessFor(config, redacted, fctx, arts);
     if (blockCause === 'FRESHNESS_REQUIRED' || blockCause === 'FRESHNESS_FAILED') {
       breakerRecord(config);
-      return closedIntegrity(config, blockCause, failPolicy, fctx, redacted, arts);
+      return closedIntegrity(config, blockCause, failPolicy, fctx, cwctx, redacted, arts);
     }
-    // basis retained via freshnessFor on later paths
+  }
+
+  // Conditional-write policy (requireConditionalWrite): write without host report true → refuse.
+  {
+    const { blockCause } = conditionalWriteFor(config, redacted, cwctx);
+    if (blockCause === 'CONDITIONAL_WRITE_REQUIRED') {
+      breakerRecord(config);
+      return closedIntegrity(config, blockCause, failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    }
   }
 
   // MISSING_ARTIFACT_CONTENT — developer-adoption fail-closed (audit #1). The detector says a contract
@@ -305,13 +404,14 @@ export async function guardToolCall<T>(
     const count = (breakers.get(config)?.fails.length) ?? 0;
     const v = unavailableVerdict({ cause: 'MISSING_ARTIFACT_CONTENT', failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
-    return blocked(v, false, basis);
+    const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
+    return blocked(v, false, basis, cw);
   }
 
   // config validation: lkg policy requires an LkgStore.
   if (failPolicy === 'lkg' && !config.lkg) {
     breakerRecord(config);
-    return closedIntegrity(config, 'CONFIG_ERROR', failPolicy, fctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'CONFIG_ERROR', failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
 
   // build the preflight request from the detected artifacts.
@@ -329,7 +429,7 @@ export async function guardToolCall<T>(
   const cap = config.maxPayloadBytes ?? 1_000_000;
   if (Buffer.byteLength(JSON.stringify(request), 'utf8') > cap) {
     breakerRecord(config);
-    return closedIntegrity(config, 'PAYLOAD_TOO_LARGE', failPolicy, fctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'PAYLOAD_TOO_LARGE', failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
 
   emit(config, { type: 'preflight_start', at: iso() });
@@ -340,30 +440,31 @@ export async function guardToolCall<T>(
     breakerRecord(config);
     const count = (breakers.get(config)?.fails.length) ?? 1;
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
+    const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
     if (pf.integrity) {
       emit(config, { type: 'breaker_tripped', at: iso(), cause: pf.cause });
       const v = unavailableVerdict({ cause: pf.cause as IntegrityCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-      return blocked(v, false, basis);
+      return blocked(v, false, basis, cw);
     }
     // availability
     const availCause = pf.cause as AvailabilityCause;
     if (failPolicy === 'open' && !breakerTripped(config)) {
       emit(config, { type: 'preflight_unavailable', at: iso(), cause: availCause, action: 'CONTINUE' });
       const v = unavailableVerdict({ cause: availCause, failPolicy: 'open', resolution: 'OPEN_PASSTHROUGH', action: 'CONTINUE' }, count);
-      return runUnenforced(config, executeFactory, null, v, false, redacted, basis);
+      return runUnenforced(config, executeFactory, null, v, false, redacted, basis, cw);
     }
     if (failPolicy === 'lkg') {
       const lkg = await tryLkg(config, inputFp);
       if (lkg) {
         emit(config, { type: 'preflight_unavailable', at: iso(), cause: availCause, action: lkg.action });
         const v = unavailableVerdict({ cause: availCause, failPolicy: 'lkg', resolution: 'LKG_SUBSTITUTION', action: lkg.action, lkgEnvelope: lkg.envelope }, count);
-        return runUnenforced(config, executeFactory, lkg.envelope, v, false, redacted, basis); // LKG NEVER enforces
+        return runUnenforced(config, executeFactory, lkg.envelope, v, false, redacted, basis, cw); // LKG NEVER enforces
       }
       // LKG unusable (dormant in v1: binding fields absent) => closed.
     }
     if (breakerTripped(config)) emit(config, { type: 'breaker_tripped', at: iso(), cause: availCause });
     const v = unavailableVerdict({ cause: availCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-    return blocked(v, false, basis);
+    return blocked(v, false, basis, cw);
   }
 
   // We have a response. Read the decision (envelope-first) and verify the receipt.
@@ -372,18 +473,18 @@ export async function guardToolCall<T>(
   // (Missing action still maps from decision inside readDecision; that path never sets this reason.)
   if (rd.reason === 'EXECUTION_ACTION_UNRECOGNISED') {
     breakerRecord(config);
-    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
   if (rd.reason === 'UNREADABLE_DECISION' || !rd.envelope) {
     // Schema-invalid / no envelope => integrity => closed.
     breakerRecord(config);
-    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
   const envelope = rd.envelope;
   // Past unrecognised early-return: action is a closed ExecutionAction (or we treat non-closed as integrity).
   if (!isClosedAction(rd.executionAction)) {
     breakerRecord(config);
-    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
   const closedAction: ExecutionAction = rd.executionAction;
 
@@ -402,7 +503,7 @@ export async function guardToolCall<T>(
   // signature. Both trip the breaker and STOP — the guard NEVER executes off an unbound receipt.
   if (config.verifyReceipts !== false && !receiptVerified && envelope.receipt?.token) {
     breakerRecord(config);
-    return closedIntegrity(config, bindResult.cause ?? 'RECEIPT_UNVERIFIED', failPolicy, fctx, redacted, detection.artifacts);
+    return closedIntegrity(config, bindResult.cause ?? 'RECEIPT_UNVERIFIED', failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
 
   // ── Client-side authorization gate (P0-b/c): mirror §106/§111/§115 before honoring any action. ──
@@ -416,21 +517,22 @@ export async function guardToolCall<T>(
   const gate = evaluateEnvelope(pf.response, envelope as unknown as Record<string, unknown>, closedAction, detection.artifacts);
   if (gate.verdict === 'fail-closed') {
     breakerRecord(config);
-    return closedIntegrity(config, gate.cause, failPolicy, fctx, redacted, detection.artifacts);
+    return closedIntegrity(config, gate.cause, failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
   if (gate.verdict === 'block-strict') {
     // A real (or stricter-reconciled) BLOCK / REQUIRE_APPROVAL — clean block; the factory never runs.
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
+    const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
     return gate.decision === 'BLOCK'
-      ? blocked({ kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis)
-      : blocked({ kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis);
+      ? blocked({ kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis, cw)
+      : blocked({ kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis, cw);
   }
   const kind = gate.kind; // 'ALLOW' | 'MONITOR' — allow-class, safe, non-degraded, artifact-bound.
 
   // An expired decision cannot be honored fresh => closed (integrity: wrong-time state).
   if (expired) {
     breakerRecord(config);
-    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
 
   // MONITOR gate: host must ASSERT monitoring is wired (monitoringSinkWired === true) AND supply
@@ -450,7 +552,14 @@ export async function guardToolCall<T>(
   );
   if (freshBlock === 'FRESHNESS_REQUIRED' || freshBlock === 'FRESHNESS_FAILED') {
     breakerRecord(config);
-    return closedIntegrity(config, freshBlock, failPolicy, fctx, redacted, detection.artifacts);
+    return closedIntegrity(config, freshBlock, failPolicy, fctx, cwctx, redacted, detection.artifacts);
+  }
+
+  // Conditional-write re-check immediately before enforced execution (same conjunct class as freshness).
+  const { basis: cwBasis, blockCause: cwBlock } = conditionalWriteFor(config, redacted, cwctx);
+  if (cwBlock === 'CONDITIONAL_WRITE_REQUIRED') {
+    breakerRecord(config);
+    return closedIntegrity(config, cwBlock, failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
 
   // observeOnly is an EXPLICIT report-only opt-in: execute but never enforce (the one sanctioned
@@ -460,20 +569,20 @@ export async function guardToolCall<T>(
     const verdict: GuardVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
-    return runUnenforced(config, executeFactory, envelope, verdict, true, redacted, freshBasis);
+    return runUnenforced(config, executeFactory, envelope, verdict, true, redacted, freshBasis, cwBasis);
   }
 
   // ── enforced ⟺ executed INVARIANT (contract-triggering path): execute ONLY when we can ENFORCE. ──
   // enforceable = a bound-verified receipt AND (MONITOR) a wired sink. Anything else FAILS CLOSED —
   // the guard NEVER runs the factory unenforced on a contract change. Closes CE-EP-06 (no receipt),
   // CE-EP-08 (verifyReceipts:false), CE-CC-04 (MONITOR without a monitoring sink).
-  // Freshness is an additional conjunct when ACTIVE / requireFreshness — already applied above.
+  // Freshness + conditional-write are additional conjuncts — already applied above.
   const enforceable = receiptVerified && (kind === 'ALLOW' || sinkWired);
   if (enforceable) {
     const approved: ApprovedVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified: true }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified: true };
-    return runEnforced(config, executeFactory, approved, redacted, freshBasis);
+    return runEnforced(config, executeFactory, approved, redacted, freshBasis, cwBasis);
   }
   breakerRecord(config);
   return closedIntegrity(
@@ -481,6 +590,7 @@ export async function guardToolCall<T>(
     receiptVerified ? 'MONITORING_UNWIRED' : 'RECEIPT_MISSING',
     failPolicy,
     fctx,
+    cwctx,
     redacted,
     detection.artifacts,
   );
@@ -491,6 +601,7 @@ function closedIntegrity<T>(
   cause: IntegrityCause,
   failPolicy: 'closed' | 'open' | 'lkg',
   fctx: FreshnessCallContext,
+  cwctx: ConditionalWriteCallContext,
   redacted: ToolCallDescriptor,
   arts?: Artifact[],
 ): GuardOutcome<T> {
@@ -498,7 +609,8 @@ function closedIntegrity<T>(
   emit(config, { type: 'breaker_tripped', at: iso(), cause });
   const v = unavailableVerdict({ cause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
   const { basis } = freshnessFor(config, redacted, fctx, arts);
-  return blocked(v, false, basis);
+  const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
+  return blocked(v, false, basis, cw);
 }
 
 function isExpired(envelope: DecisionResultEnvelope): boolean {

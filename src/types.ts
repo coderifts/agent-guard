@@ -69,6 +69,12 @@ export interface GuardConfig {
   requireFreshness?: boolean;
   /** Forwarded into assessFreshness when tree/contract STALE_CONTEXT is evaluated. */
   allowStaleContext?: boolean;
+  /**
+   * Policy: when true, a write-style call must report conditional_write:true (host conditioned
+   * the mutation on a version token). false / not_reported → no enforced:true.
+   * Default false — API remains opt-in. This package never writes; it only reports and refuses.
+   */
+  requireConditionalWrite?: boolean;
 }
 
 export interface ToolCallDescriptor {
@@ -96,24 +102,40 @@ export type ApprovedVerdict =
 // GuardExecutionProof is defined in execution-proof.ts (assembled only from guard-observed state).
 import type { GuardExecutionProof } from './execution-proof.js';
 export type { GuardExecutionProof, ExecutionResultHash } from './execution-proof.js';
-import type { FreshnessBasis } from './freshness.js';
+import type { FreshnessBasis, FreshnessCallContext } from './freshness.js';
 export type { FreshnessBasis, FreshnessWiringState, FreshnessCallContext, PriorContentResolver } from './freshness.js';
+import type { ConditionalWriteBasis, ConditionalWriteCallContext } from './conditional-write.js';
+export type {
+  ConditionalWriteBasis,
+  ConditionalWriteCallContext,
+  ConditionalWriteReport,
+  VersionedContent,
+  VersionToken,
+} from './conditional-write.js';
+
+/**
+ * Runner-collected context for guardToolCall (4th arg).
+ * FreshnessCallContext shape (wiring required) remains valid — conditional-write fields are optional.
+ * Default conditional_write when omitted: 'not_reported'.
+ */
+export type GuardToolCallContext = FreshnessCallContext & ConditionalWriteCallContext;
 
 export type GuardOutcome<T> =
   // enforced:true is its OWN arm — only ApprovedVerdict + receiptVerified:true + preflighted:true reach it.
-  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis }
+  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis }
   // executed but NOT enforced (SKIPPED / observeOnly / open- or lkg-UNAVAILABLE pass-through):
-  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis }
+  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis }
   // guard blocked before the factory ran:
-  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis }
+  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis }
   // factory threw AFTER a fully-enforced approval (side effect may have landed; enforced passes through per rule 11):
-  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis }
+  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis }
   // factory threw after an UNENFORCED execution (SKIPPED / observeOnly / open- or lkg-pass-through):
-  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis };
+  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
 // proof is always present and is guard-produced (not caller-writable).
 // freshness is always present: per-call forensic basis (NOT_CONFIGURED | DEGRADED | ACTIVE+assessment).
+// conditional_write is always present: three-valued host report (default not_reported).
 
 export type GuardVerdict =
   | { kind: 'ALLOW';    action: 'CONTINUE';                 envelope: DecisionResultEnvelope; receiptVerified: boolean }
@@ -158,6 +180,7 @@ export type IntegrityCause =
   | 'MISSING_ARTIFACT_CONTENT'   // detector triggered (preflight required) but no analyzable artifacts[] with before/after → fail closed LOCALLY (developer must supply content), never send an empty list to the server
   | 'FRESHNESS_REQUIRED'         // write-style (or requireFreshness) without ACTIVE measurement (NOT_CONFIGURED / DEGRADED)
   | 'FRESHNESS_FAILED'           // ACTIVE measurement ran; assessFreshness failClosed (TARGET_MUTATED / STALE / TAMPER / UNKNOWN)
+  | 'CONDITIONAL_WRITE_REQUIRED' // write-style + requireConditionalWrite but host report is false or not_reported
 export type UnavailableCause = AvailabilityCause | IntegrityCause;
 
 // D-detector — fail-safe + versioned (the trust core; the Grok corpus of 68

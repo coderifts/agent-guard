@@ -270,6 +270,12 @@ export type WithCodeRiftsInput = {
   requireFreshness?: boolean;
   /** STALE_CONTEXT policy opt-out forwarded onto GuardConfig.allowStaleContext. */
   allowStaleContext?: boolean;
+  /**
+   * Policy: write-style without host conditional_write:true does not enforce.
+   * Default false (API opt-in). Forwarded onto GuardConfig.requireConditionalWrite.
+   * Host residual when policy is on without host report: composition_unconditional_write_under_policy.
+   */
+  requireConditionalWrite?: boolean;
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -663,6 +669,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   if (input.allowStaleContext !== undefined) {
     guard.allowStaleContext = input.allowStaleContext;
   }
+  if (input.requireConditionalWrite !== undefined) {
+    guard.requireConditionalWrite = input.requireConditionalWrite;
+  }
   const config: GuardToolRegistryConfig = {
     guard,
     unknownToolPolicy: reg.unknownToolPolicy ?? 'mutating',
@@ -715,6 +724,11 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   const freshness_resolver_wired = typeof input.resolvePriorContent === 'function';
   if (!freshness_resolver_wired) {
     residuals.push(RESIDUAL_FRESHNESS_NOT_CONFIGURED);
+  }
+  // requireConditionalWrite policy without a host reporting path: residual only (inescapable stays false).
+  // Per-call truth is outcome.conditional_write; composition names the policy gap.
+  if (input.requireConditionalWrite === true) {
+    residuals.push('composition_unconditional_write_under_policy');
   }
 
   // 'PARTIAL' from the existing EnforcementCoverage union — never 'COMPLETE' while inescapable_runtime

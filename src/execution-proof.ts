@@ -116,6 +116,12 @@ export type ProofBuildInput = {
   result?: unknown;
   /** Present only when factory threw. */
   error?: unknown;
+  /** Optional conditional-write basis for the enforced+policy invariant. */
+  conditionalWriteBasis?: {
+    require_conditional_write: boolean;
+    write_style: boolean;
+    conditional_write: true | false | 'not_reported';
+  };
 };
 
 const LIMITS: GuardExecutionProof['limits'] = Object.freeze({
@@ -130,18 +136,32 @@ const LIMITS: GuardExecutionProof['limits'] = Object.freeze({
 /**
  * Runtime twin of the type-level enforced⟺receiptVerified invariant.
  * Throws if enforced:true is paired with anything other than receiptVerified+preflighted.
+ * When requireConditionalWrite+writeStyle: enforced:true also requires conditional_write:true
+ * (same refusal class as the permission gate — not a parallel path).
  * The proof block is read by consumers that do not have our TypeScript brands.
  */
 export function assertEnforcedReceiptInvariant(input: {
   enforced: boolean;
   preflighted: boolean;
   receiptVerified: boolean;
+  /** Policy requireConditionalWrite for this call (optional; omit = not checked here). */
+  requireConditionalWrite?: boolean;
+  writeStyle?: boolean;
+  /** Host report: true | false | 'not_reported'. */
+  conditionalWrite?: true | false | 'not_reported';
 }): void {
   if (input.enforced === true) {
     if (input.preflighted !== true || input.receiptVerified !== true) {
       throw new Error(
         '@coderifts/agent-guard: enforced:true without receiptVerified+preflighted (runtime invariant)',
       );
+    }
+    if (input.requireConditionalWrite === true && input.writeStyle === true) {
+      if (input.conditionalWrite !== true) {
+        throw new Error(
+          '@coderifts/agent-guard: enforced:true without conditional_write:true under requireConditionalWrite (runtime invariant)',
+        );
+      }
     }
   }
 }
@@ -218,10 +238,14 @@ function executionResultHashOf(input: ProofBuildInput): ExecutionResultHash {
  */
 export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof {
   const receiptVerified = receiptVerifiedOf(input.verdict);
+  const cwb = input.conditionalWriteBasis;
   assertEnforcedReceiptInvariant({
     enforced: input.enforced,
     preflighted: input.preflighted,
     receiptVerified,
+    requireConditionalWrite: cwb?.require_conditional_write,
+    writeStyle: cwb?.write_style,
+    conditionalWrite: cwb?.conditional_write,
   });
 
   const env = envelopeOf(input.verdict);
