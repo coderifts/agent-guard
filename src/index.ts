@@ -87,6 +87,20 @@ export {
   EXECUTION_PROOF_SPEC,
 } from './execution-proof.js';
 
+// ID645 — human-readable final-answer proof block (render layer over GuardExecutionProof).
+// Does not change the proof shape; surfaces limits; null currently_authorized ≠ pass.
+export {
+  renderFinalAnswerProof,
+  attachProofToAgentResponse,
+  deriveProofBanner,
+} from './final-answer-proof.js';
+export type {
+  RenderFinalAnswerProofOptions,
+  AttachProofToAgentResponseOptions,
+  FinalAnswerProofFormat,
+  FinalAnswerProofBanner,
+} from './final-answer-proof.js';
+
 // Freshness: pure assess + runner collect (values into guardToolCall). Opt-in resolvePriorContent.
 export {
   assessFreshness,

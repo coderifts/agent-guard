@@ -89,6 +89,24 @@ const { tools, registry_report, composition_assurance } = withCodeRifts({
 // the guard — the composition can only protect the table it returns.
 ```
 
+### Final-answer proof block (ID645)
+
+When a call produces a machine `GuardExecutionProof` (`outcome.proof`), you can embed a
+**human-readable** block in the agent’s final answer. The renderer is faithful: `currently_authorized: null`
+is **SKIPPED (not a pass)**; limits (e.g. host can still bypass; calls outside the guarded path are
+invisible) always appear. It does not change the proof shape.
+
+```typescript
+import { renderFinalAnswerProof, attachProofToAgentResponse } from '@coderifts/agent-guard';
+
+// After guardToolCall / withCodeRifts …
+const block = renderFinalAnswerProof(outcome.proof); // markdown string
+const answer = attachProofToAgentResponse('I applied the authorized edit.', outcome.proof);
+// string → appends block; object → adds final_answer_proof + final_answer_proof_text
+```
+
+See `examples/final-answer-proof.mjs` for verified vs skipped side by side.
+
 **OpenAI tool-calling (ID632 reference adapter).** Same input; OpenAI-shaped `tools` for
 `chat.completions`, plus the same unflattened assurance objects. Shape conversion only — does
 **not** claim product-level inescapability the core does not:

@@ -14,6 +14,7 @@ repo. They are **not** a claim that the freshness / TOCTOU story is closed.
 | [`anthropic-adapter.mjs`](./anthropic-adapter.mjs) | **ID632** thin Anthropic tool_use adapter: same pattern as OpenAI; target shape is `{ name, description?, input_schema }`. Assurance unflattened. |
 | [`langgraph-adapter.mjs`](./langgraph-adapter.mjs) | **ID632** thin LangChain/LangGraph adapter: plain descriptors `{ name, description?, schema, func, invoke }` (no hard framework dep). Host wires into `tool()` / `ToolNode`. Assurance unflattened. |
 | [`gemini-adapter.mjs`](./gemini-adapter.mjs) | **ID632** thin Google Gemini adapter: `tools: [{ functionDeclarations: [{ name, description?, parameters }] }]`. Assurance unflattened. |
+| [`final-answer-proof.mjs`](./final-answer-proof.mjs) | **ID645** human-readable final-answer proof block: verified/enforced vs skipped (`currently_authorized: null`) side by side; limits always surfaced. |
 
 ## Production-grade sibling
 
