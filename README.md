@@ -123,10 +123,13 @@ mutating tools):
   `withCodeRifts` passes it through **untouched**.
 - **`composition_assurance`** is the narrower, product-level statement — what `withCodeRifts` itself
   claims. Today it reports `PARTIAL` with `inescapable_runtime: false` and the residual
-  `composition_call_policy_incomplete`, because composition-level completeness still needs more than
-  tool wrapping: receipt carry-forward, and a freshness-safe prior for write-style calls (path + new
-  content only). Call-time STOP on BLOCK/RA is already on the frozen path; both-sides edit binders
-  (old_string/new_string, edits[]) are already shipped — neither alone flips this residual off.
+  `composition_call_policy_incomplete`, because **composition-call-policy completeness**
+  (`COMPOSITION_CALL_POLICY_COMPLETE`) is still false — not because tool wrapping or receipt
+  carry-forward are missing. Receipt carry-forward **ships** (per-composition cursor, `threadReceipts`
+  default on). Call-time STOP on BLOCK/RA and both-sides edit binders are already on the frozen path.
+  What still blocks the product-level claim includes a **freshness-safe prior for write-style calls**
+  (path + new content only) wired into enforce, among other policy gates — carry-forward alone does
+  not flip this residual off.
 - **This is deliberate, not a defect.** The composition will not claim runtime inescapability it cannot
   yet deliver.
 
@@ -136,17 +139,19 @@ does not weaken it. `composition_assurance` answers a *different* question: not 
 wrapped" (true today) but "is the whole execution path through this composition inescapable yet" (not
 yet). The composition says so rather than borrowing the registry's answer.
 
-**What you get today:** one entry point, every mutator in the returned table wrapped fail-closed, and an
-honest composition statement. **What you do not get yet:** any product-level claim of runtime
-inescapability — `composition_assurance.inescapable_runtime` stays `false` until receipt carry-forward
-and a freshness-safe prior for write-style calls (path + new content only) land. Both-sides edit
-binders already shipped; they do not complete that claim alone.
+**What you get today:** one entry point, every mutator in the returned table wrapped fail-closed,
+automatic receipt carry-forward on by default, and an honest composition statement. **What you do not
+get yet:** any product-level claim of runtime inescapability —
+`composition_assurance.inescapable_runtime` stays `false` while **composition-call-policy** remains
+incomplete (`COMPOSITION_CALL_POLICY_COMPLETE` is false). That is **not** because carry-forward is
+missing (it ships). A green construction is still **not** a product-level runtime-inescapability
+guarantee.
 
 **`requireCoverage?` (optional).** Aborts construction when the **registry** coverage is weaker than
 required, by the ordering `COMPLETE > PARTIAL > BYPASSED > UNKNOWN`. It constrains the **registry surface
-only** — it **cannot** demand product-level inescapability (still blocked on receipt carry-forward and
-write-style prior content, not on registry wrapping), and a green construction under it is not a
-product-level enforcement guarantee.
+only** — it **cannot** demand product-level inescapability (still gated on composition-call-policy
+completeness, not on registry wrapping or on whether carry-forward is enabled), and a green
+construction under it is not a product-level enforcement guarantee.
 
 **`unknownToolPolicy` defaults to `'mutating'`.** An unclassified tool (no `mutationClass`, no
 name-heuristic match) is treated as a mutator and wrapped — never silently downgraded to readonly, which
@@ -164,8 +169,11 @@ change it.
 artifacts when a contract path is present — it does **not** invent a `before` for write-style
 path+new-content-only calls (no IO; empty before is forbidden).
 
-**Not in this yet** (do not infer these from the one-call ergonomics): receipt carry-forward,
-freshness-safe prior content for write-style calls, and framework adapters.
+**Not in this yet** (do not infer these from the one-call ergonomics): freshness-safe prior content
+for write-style calls wired into enforce (path + new content only — pure core may exist; product
+path is incomplete), platform-native bypass exclusion, a concurrent receipt manager (overlap
+refuses to advance the package cursor — host owns serialisation if a linear chain is required), and
+framework adapters. **Receipt carry-forward is shipped** (see below); do not list it as missing.
 
 #### `composition_assurance` is the runtime placement input
 
@@ -359,48 +367,67 @@ Neither replaces the other. Lifecycle crumbs ≠ full settle record; settle reco
 - A throwing `onSettledCall` does not break the call; a **returned rejected promise** is handled (not left unhandled).
 - If the tool/`guardToolCall` path **rejects**, the rejection **propagates** after the THREW observation fires — no fake GuardOutcome is invented on that arm.
 
-### Receipt chaining (optional, host-threaded — no package cursor)
+### Receipt chaining (package cursor default-on; host may override)
 
 The signed receipt body has always carried a **previous-receipt** field (`prev`): the issuer stores
 the literal `null` when no prior token was supplied, or `sha256:`+hex of the prior token when the
 preflight request included `previous_receipt`. That makes **hash-linked sequences** possible.
-Historically the guard sent `previous_receipt: undefined` on every call, so every receipt was a
-root. Chaining is now **possible**, not automatic.
 
-**How to thread a prior (host-owned):**
+**Package-level composition cursor (shipped, default on):** `withCodeRifts` keeps a **per-composition-
+instance** receipt cursor. With `threadReceipts` defaulting to **true** (`threadReceipts !== false`),
+each enforced+receipt-verified guarded call can advance that cursor and supply it as
+`previous_receipt` on the next preflight for the same composition. Opt out with
+`threadReceipts: false` (every call is then a root unless the host threads manually). This is **not**
+process/session global; it is one cursor per `withCodeRifts` result. The package does **not** verify
+signatures or self-attest chain authenticity — re-run `verifyReceiptChainLinkage` (and signature
+verify) on tokens you export if you need product truth.
+
+**Host override (always wins):** `previousReceipt` on the composition (string or getter) overrides the
+package cursor at resolve time when set — use it to inject a prior the composition does not hold.
 
 ```typescript
-let lastToken: string | undefined;
-const { tools } = withCodeRifts({
+// Default: automatic carry-forward for this composition (threadReceipts defaults true).
+const { tools, receipt_thread } = withCodeRifts({
   tools: rawTools,
   client,
   operation: 'merge',
-  // Read on each preflight; the package does not store or advance this value.
+});
+// receipt_thread.enabled === true; receipt_thread.lastToken() after settled guarded calls.
+
+// Opt out of the package cursor:
+const { tools: t2 } = withCodeRifts({
+  tools: rawTools,
+  client,
+  operation: 'merge',
+  threadReceipts: false,
+});
+
+// Host-owned prior (overrides the package cursor when both exist):
+let lastToken: string | undefined;
+const { tools: t3 } = withCodeRifts({
+  tools: rawTools,
+  client,
+  operation: 'merge',
   previousReceipt: () => lastToken,
   onSettledCall: (o) => {
-    // Advance the chain only on a GUARDED return that carries a receipt token.
     if (o.kind !== 'settled_call' || o.route !== 'GUARDED' || o.terminal !== 'RETURNED') return;
     const v = o.outcome.verdict;
     if (v && 'envelope' in v && v.envelope?.receipt?.token) {
-      lastToken = v.envelope.receipt.token; // host advances the cursor
+      lastToken = v.envelope.receipt.token;
     }
   },
 });
 ```
 
-The same field exists on `GuardConfig` for direct `guardToolCall` / `guardToolRegistry` use
-(`previousReceipt?: string | (() => string | undefined | null)`). A plain string works if the host
-mutates it between calls; a getter is preferred so the package never looks like it owns the value.
+The same `previousReceipt` field exists on `GuardConfig` for direct `guardToolCall` /
+`guardToolRegistry` use (`previousReceipt?: string | (() => string | undefined | null)`).
 
-**Concurrency (serial only for a linear chain):** The getter/`onSettledCall` pattern above is correct
-when guarded contract calls run **one after another**. Modern agents often issue **overlapping** tool
-calls. `onSettledCall` runs **after** a call settles, so two preflights in flight can both read the
-same `lastToken` before either advances it. The issuer then produces two children of one parent —
-a **forest**, not a single linear chain. The package holds nothing, so it cannot serialise that
-advance; **the host owns the ordering rule**. If you need a linear chain under concurrency, you
-must serialise your own advance (no package mutex or queue is provided). Symptom of treating a
-fork as a line: `verifyReceiptChainLinkage` reports `broken_link` on a sequence you believed was
-linear, with no other explanation in the tokens themselves.
+**Concurrency (serial only for a linear chain):** Automatic advance is correct when guarded contract
+calls run **one after another**. Overlapping tool calls can race; the package **refuses to advance**
+the composition cursor under overlap rather than inventing a concurrent receipt manager. If you need
+a linear chain under concurrency, **the host owns the ordering rule** (no package mutex or queue).
+Symptom of treating a fork as a line: `verifyReceiptChainLinkage` reports `broken_link` on a
+sequence you believed was linear, with no other explanation in the tokens themselves.
 
 **Offline linkage check (not signature verification):**
 
