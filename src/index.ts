@@ -216,3 +216,15 @@ export type {
   AnthropicTool,
   WithCodeRiftsAnthropicResult,
 } from './adapters/anthropic.js';
+
+// ID632 slice 3 — thin LangChain/LangGraph tool adapter (plain descriptors; no framework dep).
+export {
+  withCodeRiftsLangGraph,
+  langGraphToolAdapter,
+  toLangGraphTools,
+  protectedToolToLangGraph,
+} from './adapters/langgraph.js';
+export type {
+  LangGraphToolDescriptor,
+  WithCodeRiftsLangGraphResult,
+} from './adapters/langgraph.js';

@@ -131,6 +131,34 @@ const {
 
 See also `examples/anthropic-adapter.mjs` (not published in the npm tarball).
 
+**LangChain / LangGraph (ID632 slice 3).** Same thin pattern; emits **dependency-free** plain
+descriptors the host can hand to LangChain `tool()` / LangGraph `ToolNode` / `bind_tools`. This
+package does **not** depend on langchain or langgraph — the host owns those imports. Assurance
+still unflattened:
+
+```typescript
+import { withCodeRiftsLangGraph } from '@coderifts/agent-guard';
+// host-owned (not a dependency of this package):
+// import { tool } from '@langchain/core/tools';
+// import { ToolNode } from '@langchain/langgraph/prebuilt';
+
+const {
+  tools,                 // [{ name, description?, schema, func, invoke }] — guarded execute bound
+  protected_tools,
+  registry_report,
+  composition_assurance, // still may be incomplete (inescapable_runtime:false) — do not drop
+  receipt_thread,
+} = withCodeRiftsLangGraph({ tools: rawTools, client, operation: 'merge' });
+
+// const lcTools = tools.map((d) =>
+//   tool(d.func, { name: d.name, description: d.description, schema: d.schema }),
+// );
+// const toolNode = new ToolNode(lcTools); // StateGraph … .addNode('tools', toolNode)
+// Host boundary: only `tools` / `protected_tools` enter the graph — raw tools stay out.
+```
+
+See also `examples/langgraph-adapter.mjs` (not published in the npm tarball).
+
 **Why `operation` is mandatory (no default).** Receipts bind to an operation and `merge` is not
 `deploy`, so a silent default would evaluate a deployment under merge semantics. `operation` is the
 session-level default for **generic** mutating tools only; a tool with a specialised mutation class
