@@ -191,3 +191,16 @@ export type {
   SettledCallObservation, CallRoute, CallTerminal, TableSettledCallRouteCounts,
   ReceiptThreadHandle, ReceiptCursorSkipReason,
 } from './with-coderifts.js';
+
+// ID632 slice 1 — thin OpenAI tool-calling adapter over withCodeRifts (reference adapter).
+// Shape converter only; assurance objects pass through untouched. LangGraph/Anthropic later.
+export {
+  withCodeRiftsOpenAI,
+  openAIToolAdapter,
+  toOpenAITools,
+  protectedToolToOpenAI,
+} from './adapters/openai.js';
+export type {
+  OpenAIFunctionTool,
+  WithCodeRiftsOpenAIResult,
+} from './adapters/openai.js';

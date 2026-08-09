@@ -89,6 +89,27 @@ const { tools, registry_report, composition_assurance } = withCodeRifts({
 // the guard — the composition can only protect the table it returns.
 ```
 
+**OpenAI tool-calling (ID632 reference adapter).** Same input; OpenAI-shaped `tools` for
+`chat.completions`, plus the same unflattened assurance objects. Shape conversion only — does
+**not** claim product-level inescapability the core does not:
+
+```typescript
+import { withCodeRiftsOpenAI } from '@coderifts/agent-guard';
+
+const {
+  tools,                 // OpenAI: [{ type:'function', function:{ name, description?, parameters } }]
+  protected_tools,       // guarded execute — dispatch tool_calls here, never re-register rawTools
+  registry_report,
+  composition_assurance, // still may be incomplete (inescapable_runtime:false) — do not drop
+  receipt_thread,
+} = withCodeRiftsOpenAI({ tools: rawTools, client, operation: 'merge' });
+
+// openai.chat.completions.create({ model, messages, tools })
+// Host boundary: only `tools` / `protected_tools` enter the model loop — raw tools stay out.
+```
+
+See also `examples/openai-adapter.mjs` (not published in the npm tarball).
+
 **Why `operation` is mandatory (no default).** Receipts bind to an operation and `merge` is not
 `deploy`, so a silent default would evaluate a deployment under merge semantics. `operation` is the
 session-level default for **generic** mutating tools only; a tool with a specialised mutation class
