@@ -11,6 +11,7 @@ repo. They are **not** a claim that the freshness / TOCTOU story is closed.
 |------|----------------|
 | [`host-git-resolve.mjs`](./host-git-resolve.mjs) | How a host builds `blobs` keys, feeds `resolveArtifacts`, and wires `resolvePriorContent` with an **injectable** git seam. Runnable offline with a fake. |
 | [`openai-adapter.mjs`](./openai-adapter.mjs) | **ID632** thin OpenAI tool-calling adapter: raw tools + client + `operation` → OpenAI `tools[]` + untouched `composition_assurance` / `registry_report` / `receipt_thread`. Shape only — does not upgrade assurance. |
+| [`anthropic-adapter.mjs`](./anthropic-adapter.mjs) | **ID632** thin Anthropic tool_use adapter: same pattern as OpenAI; target shape is `{ name, description?, input_schema }`. Assurance unflattened. |
 
 ## Production-grade sibling
 

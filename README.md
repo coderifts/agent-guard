@@ -110,6 +110,27 @@ const {
 
 See also `examples/openai-adapter.mjs` (not published in the npm tarball).
 
+**Anthropic tool_use (ID632 slice 2).** Same thin pattern; Anthropic Messages `tools` shape
+(`{ name, description?, input_schema }`) instead of OpenAI function tools. Assurance still
+unflattened — composition may remain incomplete:
+
+```typescript
+import { withCodeRiftsAnthropic } from '@coderifts/agent-guard';
+
+const {
+  tools,                 // Anthropic: [{ name, description?, input_schema }]
+  protected_tools,       // guarded execute — dispatch tool_use here, never re-register rawTools
+  registry_report,
+  composition_assurance, // still may be incomplete (inescapable_runtime:false) — do not drop
+  receipt_thread,
+} = withCodeRiftsAnthropic({ tools: rawTools, client, operation: 'merge' });
+
+// anthropic.messages.create({ model, messages, tools, max_tokens })
+// Host boundary: only `tools` / `protected_tools` enter the model loop — raw tools stay out.
+```
+
+See also `examples/anthropic-adapter.mjs` (not published in the npm tarball).
+
 **Why `operation` is mandatory (no default).** Receipts bind to an operation and `merge` is not
 `deploy`, so a silent default would evaluate a deployment under merge semantics. `operation` is the
 session-level default for **generic** mutating tools only; a tool with a specialised mutation class

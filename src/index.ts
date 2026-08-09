@@ -193,7 +193,7 @@ export type {
 } from './with-coderifts.js';
 
 // ID632 slice 1 — thin OpenAI tool-calling adapter over withCodeRifts (reference adapter).
-// Shape converter only; assurance objects pass through untouched. LangGraph/Anthropic later.
+// Shape converter only; assurance objects pass through untouched.
 export {
   withCodeRiftsOpenAI,
   openAIToolAdapter,
@@ -204,3 +204,15 @@ export type {
   OpenAIFunctionTool,
   WithCodeRiftsOpenAIResult,
 } from './adapters/openai.js';
+
+// ID632 slice 2 — thin Anthropic tool_use adapter (same pattern; only the tool shape differs).
+export {
+  withCodeRiftsAnthropic,
+  anthropicToolAdapter,
+  toAnthropicTools,
+  protectedToolToAnthropic,
+} from './adapters/anthropic.js';
+export type {
+  AnthropicTool,
+  WithCodeRiftsAnthropicResult,
+} from './adapters/anthropic.js';
