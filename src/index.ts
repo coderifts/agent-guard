@@ -228,3 +228,16 @@ export type {
   LangGraphToolDescriptor,
   WithCodeRiftsLangGraphResult,
 } from './adapters/langgraph.js';
+
+// ID632 slice 4 — thin Google Gemini function-calling adapter (functionDeclarations wrapper).
+export {
+  withCodeRiftsGemini,
+  geminiToolAdapter,
+  toGeminiTools,
+  protectedToolToFunctionDeclaration,
+} from './adapters/gemini.js';
+export type {
+  GeminiFunctionDeclaration,
+  GeminiTool,
+  WithCodeRiftsGeminiResult,
+} from './adapters/gemini.js';

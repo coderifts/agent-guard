@@ -110,6 +110,15 @@ const {
 
 See also `examples/openai-adapter.mjs` (not published in the npm tarball).
 
+**OpenAI-compatible models (no extra adapter).** DeepSeek, Kimi (Moonshot), and Qwen use the
+same ChatCompletions tool-calling format as OpenAI (`{ type: 'function', function: { name,
+description, parameters } }`). Use **`withCodeRiftsOpenAI`** and point your client `baseURL`
+(and API key) at their endpoint — zero new adapters, same guarded tools + unflattened assurance.
+
+**Grok (xAI).** Also OpenAI-compatible tool calling — use **`withCodeRiftsOpenAI`** with the xAI `baseURL`.
+
+**Perplexity (Sonar).** OpenAI-compatible chat completions, but tool calling is model-dependent: `sonar-pro` supports it (with a stricter JSON-object parameter schema), while plain `sonar` rejects tool definitions. Use **`withCodeRiftsOpenAI`** with tool-capable Perplexity models only.
+
 **Anthropic tool_use (ID632 slice 2).** Same thin pattern; Anthropic Messages `tools` shape
 (`{ name, description?, input_schema }`) instead of OpenAI function tools. Assurance still
 unflattened — composition may remain incomplete:
@@ -158,6 +167,27 @@ const {
 ```
 
 See also `examples/langgraph-adapter.mjs` (not published in the npm tarball).
+
+**Google Gemini (ID632 slice 4).** Same thin pattern; Gemini nests **all** tools under one
+`functionDeclarations` array (not one OpenAI-style `{ type: 'function' }` per tool). Assurance
+still unflattened:
+
+```typescript
+import { withCodeRiftsGemini } from '@coderifts/agent-guard';
+
+const {
+  tools,                 // Gemini: [{ functionDeclarations: [{ name, description?, parameters }, …] }]
+  protected_tools,       // guarded execute — dispatch functionCall here, never re-register rawTools
+  registry_report,
+  composition_assurance, // still may be incomplete (inescapable_runtime:false) — do not drop
+  receipt_thread,
+} = withCodeRiftsGemini({ tools: rawTools, client, operation: 'merge' });
+
+// model.generateContent({ contents, tools })
+// Host boundary: only `tools` / `protected_tools` enter the model loop — raw tools stay out.
+```
+
+See also `examples/gemini-adapter.mjs` (not published in the npm tarball).
 
 **Why `operation` is mandatory (no default).** Receipts bind to an operation and `merge` is not
 `deploy`, so a silent default would evaluate a deployment under merge semantics. `operation` is the
