@@ -37,6 +37,7 @@ function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env)
 async function runGuard(envelope, vr, config = {}) {
   let executed = false;
   const client = {
+    async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
     async preflightChangeSet() { return { decision_result: envelope, decision: envelope.decision, execution_action: envelope.execution_action }; },
     async verifyReceipt() { return vr; },
   };

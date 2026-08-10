@@ -53,6 +53,7 @@ function response(execution_action, decision, opts) {
 function mockClient({ preflight, verify } = {}) {
   let lastEnv = null;
   return {
+    async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
     async preflightChangeSet() {
       const resp = preflight ? preflight() : response('CONTINUE', 'ALLOW');
       lastEnv = resp && resp.decision_result;
@@ -202,7 +203,8 @@ describe('execution proof — blocked call', () => {
       async () => 'x',
       {
         client: {
-          async preflightChangeSet() { throw Object.assign(new Error('bad'), { status: 422 }); },
+          async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet() { throw Object.assign(new Error('bad'), { status: 422 }); },
           async verifyReceipt() { return { valid: false }; },
         },
       },

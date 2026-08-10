@@ -37,6 +37,7 @@ function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env)
 /** Mock client: preflight returns `resp` (envelope wrapped), verifyReceipt binds to that envelope. */
 function client(env, { response, verify } = {}) {
   return {
+    async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
     async preflightChangeSet() { return response || { decision: env.decision, execution_action: env.execution_action, decision_result: env }; },
     async verifyReceipt() { return verify || { valid: true, status: 'VERIFIED_CURRENT', payload: signedFor(env) }; },
   };
@@ -164,7 +165,8 @@ describe('CE-CC — chain coherence + §111 degraded', () => {
   });
 
   it('CE-CC-03 (intentional opt-in, documented): default failPolicy=closed fails closed on unavailable', async () => {
-    const netFail = { async preflightChangeSet() { throw Object.assign(new Error('fetch failed'), { name: 'TypeError' }); }, async verifyReceipt() { return { valid: false }; } };
+    const netFail = { async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet() { throw Object.assign(new Error('fetch failed'), { name: 'TypeError' }); }, async verifyReceipt() { return { valid: false }; } };
     let executed = false;
     const o = await guardToolCall(TRIGGER, async () => { executed = true; }, { client: netFail, retries: 0 });
     assert.equal(executed, false, 'closed (default) does not execute; failPolicy:open is the documented opt-in residual');

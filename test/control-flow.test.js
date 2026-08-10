@@ -33,6 +33,7 @@ function response(execution_action, decision, opts) {
 function mockClient({ preflight, verify } = {}) {
   let lastEnv = null; // the envelope the preflight returned — the receipt must bind to IT.
   return {
+    async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
     async preflightChangeSet() {
       const resp = preflight ? preflight() : response('CONTINUE', 'ALLOW');
       lastEnv = resp && resp.decision_result;
@@ -218,6 +219,7 @@ test('one NETWORK failure then success (retries:1) => enforced ALLOW', async () 
   let n = 0;
   const okEnv = envelope('CONTINUE', 'ALLOW');
   const client = {
+    async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
     async preflightChangeSet() { n++; if (n === 1) throw Object.assign(new Error('fetch failed'), { name: 'TypeError' }); return { decision: 'ALLOW', decision_result: okEnv }; },
     async verifyReceipt() { return boundVerify(okEnv); },
   };

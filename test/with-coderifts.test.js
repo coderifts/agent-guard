@@ -262,6 +262,7 @@ function response(execution_action, decision, opts) {
 function mockClient({ preflight } = {}) {
   let lastEnv = null;
   return {
+    async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
     async preflightChangeSet() {
       const resp = preflight ? preflight() : response('CONTINUE', 'ALLOW');
       lastEnv = resp && resp.decision_result;
@@ -591,7 +592,8 @@ function threadingClient(opts = {}) {
   return {
     captures,
     client: {
-      async preflightChangeSet(req) {
+      async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet(req) {
         captures.push({ previous_receipt: req && req.previous_receipt });
         const decision = decisions[i] || 'ALLOW';
         const execution_action = decision === 'ALLOW' ? 'CONTINUE' : 'STOP';
@@ -708,7 +710,8 @@ describe('withCodeRifts — S5 receipt carry-forward (composition cursor)', () =
     let n = 0;
     const captures = [];
     const client = {
-      async preflightChangeSet(req) {
+      async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet(req) {
         captures.push({ previous_receipt: req && req.previous_receipt });
         n += 1;
         lastEnv = envelope('CONTINUE', 'ALLOW', { token: `U${n}` });
@@ -760,7 +763,8 @@ describe('withCodeRifts — S5 receipt carry-forward (composition cursor)', () =
     const captures = [];
     let seq = 0;
     const client = {
-      async preflightChangeSet(req) {
+      async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet(req) {
         captures.push({ previous_receipt: req && req.previous_receipt });
         started += 1;
         if (started === 2) release();
@@ -815,7 +819,8 @@ describe('withCodeRifts — S5 receipt carry-forward (composition cursor)', () =
     let n = 0;
     const captures = [];
     const client = {
-      async preflightChangeSet(req) {
+      async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet(req) {
         captures.push({ previous_receipt: req && req.previous_receipt, phase });
         n += 1;
         if (phase === 'overlap') {

@@ -109,7 +109,11 @@ async function preflightWithRetry(config: GuardConfig, request: unknown): Promis
     const remaining = budget - (nowMs() - start);
     if (remaining <= 0) return { ok: false, cause: 'TIMEOUT', integrity: false };
     try {
-      const response = await withTimeout((config.client as { preflightChangeSet(r: unknown): Promise<unknown> }).preflightChangeSet(request), Math.min(timeoutMs, remaining));
+      // AUTHORIZE preflight: authorizeChangeSet is the SDK 2.0.0 wrapper that sets
+      // preflight_mode:'authorize' before calling preflightChangeSet. Widened via `as unknown as`
+      // (mirrors the verifyReceipt cast) because GuardConfig.client is typed as the SDK client and
+      // the method is reached structurally. Never call the raw mode-less preflightChangeSet here.
+      const response = await withTimeout((config.client as unknown as { authorizeChangeSet(r: unknown): Promise<unknown> }).authorizeChangeSet(request), Math.min(timeoutMs, remaining));
       return { ok: true, response };
     } catch (err) {
       last = classifyError(err, config);

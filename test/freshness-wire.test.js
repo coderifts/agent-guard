@@ -45,6 +45,7 @@ function response(execution_action, decision, opts) {
 function mockClient() {
   let lastEnv = null;
   return {
+    async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
     async preflightChangeSet() {
       const resp = response('CONTINUE', 'ALLOW');
       lastEnv = resp.decision_result;

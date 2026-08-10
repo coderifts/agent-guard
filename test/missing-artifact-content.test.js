@@ -35,13 +35,15 @@ function envelope(o = {}) {
 function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env) }; }
 function client(env) {
   return {
+    async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
     async preflightChangeSet() { return { decision: env.decision, execution_action: env.execution_action, decision_result: env }; },
     async verifyReceipt() { return { valid: true, status: 'VERIFIED_CURRENT', payload: signedFor(env) }; },
   };
 }
 // a client that must NEVER be reached on the MISSING path (fail-closed happens before any network).
 const UNREACHABLE_CLIENT = {
-  async preflightChangeSet() { throw new Error('preflight must NOT be called when content is missing'); },
+  async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet() { throw new Error('preflight must NOT be called when content is missing'); },
   async verifyReceipt() { throw new Error('verifyReceipt must NOT be called'); },
 };
 
@@ -133,7 +135,8 @@ describe('(c) a non-contract / readonly call passes through untouched (no MISSIN
 
 // ── (d) composes through guardToolRegistry's wrapWithGuard (still fail-closed, propagates) ──────────
 describe('(d) MISSING_ARTIFACT_CONTENT propagates cleanly through guardToolRegistry', () => {
-  const STUB_CLIENT = { async preflightChangeSet() { return {}; }, async verifyReceipt() { return {}; } };
+  const STUB_CLIENT = { async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet() { return {}; }, async verifyReceipt() { return {}; } };
 
   it('a registry-wrapped mutator invoked without artifact content fails closed with MISSING_ARTIFACT_CONTENT', async () => {
     let rawRan = false;
@@ -155,7 +158,8 @@ describe('(d) MISSING_ARTIFACT_CONTENT propagates cleanly through guardToolRegis
 
 // ── (e) audit L6: args.artifacts flows through the DEFAULT binder (no explicit binder needed) ────────
 describe('(e) audit L6: default binder forwards args.artifacts', () => {
-  const STUB_CLIENT = { async preflightChangeSet() { return {}; }, async verifyReceipt() { return {}; } };
+  const STUB_CLIENT = { async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet() { return {}; }, async verifyReceipt() { return {}; } };
 
   it('a registry-wrapped tool called with { artifacts } in its ARGS reaches preflight, not MISSING_ARTIFACT_CONTENT', async () => {
     const registry = guardToolRegistry(
@@ -192,7 +196,8 @@ describe('(f) S3 layer 1: defaultBinder lifts old_string/new_string and edits[]'
     return {
       seen,
       client: {
-        async preflightChangeSet(req) {
+        async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet(req) {
           seen.artifacts = req && req.artifacts;
           // Throw network so we never need a schema-valid envelope; reaching preflight is the proof.
           throw Object.assign(new Error('fetch failed'), { name: 'TypeError' });

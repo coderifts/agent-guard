@@ -68,6 +68,7 @@ function envelope(o = {}) {
 function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env) }; }
 function client(env) {
   return {
+    async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
     async preflightChangeSet() {
       return { decision: env.decision, execution_action: env.execution_action, decision_result: env };
     },

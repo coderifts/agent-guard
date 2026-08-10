@@ -127,7 +127,8 @@ describe('previousReceipt threading (no package-held cursor)', () => {
   function allowClient(capture) {
     let lastEnv = null;
     return {
-      async preflightChangeSet(req) {
+      async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+    async preflightChangeSet(req) {
         capture.req = req;
         lastEnv = {
           spec_version: 'decision-result.v1.1',
