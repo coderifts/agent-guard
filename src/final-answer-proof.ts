@@ -9,7 +9,8 @@
  *  - currently_authorized:null → "NOT EVALUATED (SKIPPED)" — never a soft pass
  *  - currently_authorized:false → "NOT AUTHORIZED" — never "protected/verified"
  *  - currently_authorized:true → "AUTHORIZED" only when receipt.verified; still surfaces limits
- *  - limits block always appears (operative non-claims)
+ *  - limits block always appears (operative non-claims) — there is no opt-out; format:'plain'
+ *    compacts the markup and still renders every limit
  *
  * Does not modify execution-proof.ts or the proof shape.
  */
@@ -25,12 +26,6 @@ export type RenderFinalAnswerProofOptions = {
    * plain = no #/* markup (still line-oriented, limits as bullet-like lines with "- ").
    */
   format?: FinalAnswerProofFormat;
-  /**
-   * When true (default), always include the limits / non-claims section.
-   * Setting false is allowed for ultra-compact hosts but is discouraged — the whole
-   * point of this block is honest non-overclaim.
-   */
-  includeLimits?: boolean;
   /**
    * Optional heading override. Default: "CodeRifts execution proof".
    */
@@ -151,7 +146,6 @@ export function renderFinalAnswerProof(
   }
 
   const format: FinalAnswerProofFormat = opts.format === 'plain' ? 'plain' : 'markdown';
-  const includeLimits = opts.includeLimits !== false;
   const title = opts.title != null && String(opts.title).trim()
     ? String(opts.title).trim()
     : 'CodeRifts execution proof';
@@ -224,18 +218,20 @@ export function renderFinalAnswerProof(
   lines.push(bullet(`execution_result_hash: ${formatResultHash(proof.execution_result_hash)}`));
   lines.push('');
 
-  if (includeLimits) {
-    lines.push(h2('Limits (non-claims — always true on this proof)'));
-    for (const L of limitLines(proof)) {
-      lines.push(bullet(L));
-    }
-    lines.push('');
-    lines.push(
-      md
-        ? '_This block is honest because it states its limits. It is not a stronger guarantee than the machine proof._'
-        : 'This block is honest because it states its limits. It is not a stronger guarantee than the machine proof.',
-    );
+  // Unconditional: the limits are part of the proof, not a presentation option. A block that
+  // dropped them would still call itself the same proof while no longer stating what it does not
+  // claim — the exact overclaim this render layer exists to prevent. Hosts that need a shorter
+  // block use format:'plain', which compacts the markup and KEEPS the limits.
+  lines.push(h2('Limits (non-claims — always true on this proof)'));
+  for (const L of limitLines(proof)) {
+    lines.push(bullet(L));
   }
+  lines.push('');
+  lines.push(
+    md
+      ? '_This block is honest because it states its limits. It is not a stronger guarantee than the machine proof._'
+      : 'This block is honest because it states its limits. It is not a stronger guarantee than the machine proof.',
+  );
 
   return lines.join('\n').replace(/\n+$/, '') + '\n';
 }

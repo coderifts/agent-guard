@@ -155,6 +155,59 @@ describe('renderFinalAnswerProof — field mapping & honesty', () => {
     assert.match(text, /does_not_claim_host_cannot_bypass=true/);
   });
 
+  // ── the limits block is not optional (ID645 / audit part 4) ────────────────────────────────────
+  // There used to be an includeLimits option whose `false` suppressed the whole block. Nothing ever
+  // passed it, and a proof that drops its non-claims while keeping the same title is precisely the
+  // overclaim this render layer exists to prevent. The option is gone; these pin that it cannot
+  // come back by accident — including via a stale JS caller still passing the removed key.
+  it('the limits block is UNCONDITIONAL — every option combination still renders it', () => {
+    const combos = [
+      undefined,
+      {},
+      { format: 'plain' },
+      { format: 'markdown' },
+      { title: 'Custom title' },
+      { format: 'plain', title: 'Custom title' },
+    ];
+    for (const opts of combos) {
+      const text = opts === undefined
+        ? renderFinalAnswerProof(proofVerified())
+        : renderFinalAnswerProof(proofVerified(), opts);
+      const label = JSON.stringify(opts);
+      assert.match(text, /Limits \(non-claims/, `limits heading missing for opts=${label}`);
+      assert.match(text, /does_not_claim_host_cannot_bypass=true/, `limit keys missing for opts=${label}`);
+      assert.match(
+        text, /honest because it states its limits/,
+        `honesty sentence missing for opts=${label}`,
+      );
+    }
+  });
+
+  it('a stale caller passing the REMOVED includeLimits:false is ignored, not obeyed', () => {
+    // TypeScript no longer offers the key, but a JS host on an old call site can still pass it.
+    // It must be inert: suppressing the limits at runtime would silently resurrect the defect.
+    const text = renderFinalAnswerProof(proofVerified(), { includeLimits: false });
+    assert.match(text, /Limits \(non-claims/);
+    assert.match(text, /honest because it states its limits/);
+    const plain = renderFinalAnswerProof(proofVerified(), { format: 'plain', includeLimits: false });
+    assert.match(plain, /Limits \(non-claims/);
+  });
+
+  it('plain format is the compaction path — it drops markup but KEEPS every limit line', () => {
+    const md = renderFinalAnswerProof(proofVerified(), { format: 'markdown' });
+    const plain = renderFinalAnswerProof(proofVerified(), { format: 'plain' });
+    const limitsOf = (t) => t
+      .split('\n')
+      .filter((l) => /^[-*] /.test(l) && /(NOT |does_not_|limits\.|Absent fields|host-asserted)/.test(l))
+      .map((l) => l.replace(/^[-*] /, '').trim());
+    assert.ok(limitsOf(plain).length > 0, 'plain must render limit lines');
+    assert.deepEqual(
+      limitsOf(plain), limitsOf(md),
+      'plain and markdown must state the SAME limits — plain compacts markup, not content',
+    );
+    assert.doesNotMatch(plain, /^## /m, 'plain still drops markdown headings');
+  });
+
   it('invalid / missing proof → unavailable status (no overclaim)', () => {
     const text = renderFinalAnswerProof(null);
     assert.match(text, /UNAVAILABLE/i);
