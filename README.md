@@ -38,7 +38,9 @@ const outcome = await guardToolCall(
     // server preflights. `id`/`type`/`before`/`after` are all required for each artifact.
     artifacts: [{ id: 'public-api', type: 'openapi', before: baseSpec, after: proposedSpec }],
   },
-  // The mutating work is created ONLY here, after the verdict — never eagerly (closes TOCTOU).
+  // The mutating work is created ONLY here, after the verdict — never eagerly. That closes the
+  // EAGER-EXECUTION ORDERING hazard (work is built after the verdict, not before). It does NOT
+  // close the measurement-to-commit race: see "TOCTOU is unclosed" above.
   async (envelope, redactedCall) => applyEdit(redactedCall),
   { client, operation: 'merge', environment: 'production' },
 );
@@ -633,7 +635,12 @@ Pass both on `withCodeRifts({ …, onEvent, monitoringSinkWired: true })`, or on
 ## Guarantees (tsc-verified)
 
 - **Fail-closed by default** — any ambiguity, integrity failure, or unknown state resolves to `STOP`.
-- **No TOCTOU** — the factory creates the mutating work *after* the verdict.
+- **Eager-execution ordering closed (TOCTOU proper is NOT closed)** — the factory creates the
+  mutating work *after* the verdict, so no mutation is built before authorization. The
+  measurement-to-commit race remains: content resolved at measurement time can change before the
+  host commits. Closing that needs a host-side conditional write (compare-and-swap on a version
+  token) — this package never writes, and reports `conditional_write` as a host assertion it
+  cannot verify.
 - **Retry-safe** — `executionAttempted` is the only safe-to-retry signal; a post-authorization throw
   is `executionAttempted:true` (the remote side effect may have landed).
 - **`enforced:true` only on a LIVE, receipt-verified `ALLOW`/`MONITOR`** — never on cached/LKG,

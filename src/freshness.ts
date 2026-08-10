@@ -1,5 +1,10 @@
 /**
- * Freshness-safe prior content — PURE comparison core (TOCTOU close for the fresh-snapshot conjunct).
+ * Freshness-safe prior content — PURE comparison core (the fresh-snapshot conjunct only).
+ *
+ * This narrows the measurement window; it does not close TOCTOU. Content identity is proven AT
+ * MEASUREMENT TIME — a host that then writes unconditionally still races. Closing that needs a
+ * host-side conditional write (compare-and-swap on a version token), which this package never
+ * performs; see conditional-write.ts.
  *
  * Settled decisions (do not relitigate):
  *   1. Freshness is CONTENT IDENTITY, not time. No TTL. Byte identity of `before` vs gate-time resolve.

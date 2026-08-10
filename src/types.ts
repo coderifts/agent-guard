@@ -2,7 +2,9 @@
  * @coderifts/agent-guard — public types (FROZEN security core, agent-guard-api v1.0, 2026-07-26).
  *
  * Transcribed VERBATIM from agent-guard-api.FROZEN-v1.0.md § Core API. The discriminated unions
- * encode the frozen invariants at the type level (tsc-verified): TOCTOU (ExecuteFactory signature),
+ * encode the frozen invariants at the type level (tsc-verified): eager-execution ordering — NOT
+ * TOCTOU proper — (ExecuteFactory signature: the mutation cannot be built before the verdict; the
+ * measurement-to-commit race still needs a host conditional write),
  * retry-footgun (executionAttempted split), enforced-bypass (ApprovedVerdict + receiptVerified on
  * every arm), integrity-fail-open (discriminated UnavailableVerdict), unverified-envelope execution
  * (branded ReceiptVerifiedEnvelope). Fail-closed by default.
