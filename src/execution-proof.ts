@@ -103,6 +103,13 @@ export type GuardExecutionProof = {
     change_fp_is_what_was_checked_not_what_executed: true;
     calls_outside_guarded_path_invisible: true;
     execution_result_hash_is_not_artifact_match_proof: true;
+    /**
+     * conditional_write:true is the HOST's assertion that it conditioned the write on a version
+     * token. The guard does NOT and CANNOT independently verify that a compare-and-swap actually
+     * occurred at commit time — the guard never writes. Absence is reported as 'not_reported',
+     * never as false. (ID781 option A: honesty label; real CAS attestation is separate work.)
+     */
+    conditional_write_is_host_asserted_not_cas_verified: true;
   };
 };
 
@@ -131,6 +138,7 @@ const LIMITS: GuardExecutionProof['limits'] = Object.freeze({
   change_fp_is_what_was_checked_not_what_executed: true,
   calls_outside_guarded_path_invisible: true,
   execution_result_hash_is_not_artifact_match_proof: true,
+  conditional_write_is_host_asserted_not_cas_verified: true,
 });
 
 /**

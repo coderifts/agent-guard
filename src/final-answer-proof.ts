@@ -125,6 +125,7 @@ function limitLines(proof: GuardExecutionProof): string[] {
     'change_fp is what was CHECKED at preflight — not what the factory applied.',
     'Calls outside the guarded path are invisible to this proof.',
     'execution_result_hash is NOT proof that applied artifacts match change_fp.',
+    'conditional_write:true is host-asserted (the host says it conditioned on a version token); it is NOT independently CAS-verified by the guard.',
     // Machine keys for greppability (still honest if someone only reads keys).
     `limits.does_not_claim_host_cannot_bypass=${L.does_not_claim_host_cannot_bypass === true}`,
     `limits.calls_outside_guarded_path_invisible=${L.calls_outside_guarded_path_invisible === true}`,
