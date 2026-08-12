@@ -584,11 +584,13 @@ export async function guardToolCall<T>(
   // Freshness + conditional-write are additional conjuncts — already applied above.
   const enforceable = receiptVerified && (kind === 'ALLOW' || sinkWired);
   if (enforceable) {
-    // ID842 step 1 — T2 execution-time fingerprint recheck (AFTER decide, IMMEDIATELY BEFORE
-    // executeFactory). Host-independent: recomputes crbundle.v1 over CURRENT artifacts the guard
-    // already holds; does not trust a host-supplied expected_fingerprint for the T2 measurement.
-    // Gated by requireExecutionStateMatch (default false — default flip is ID842 step 3).
-    if (config.requireExecutionStateMatch === true) {
+    // ID842 — T2 execution-time fingerprint recheck (AFTER decide, IMMEDIATELY BEFORE executeFactory).
+    // Host-independent: recomputes crbundle.v1 over CURRENT artifacts the guard already holds; does
+    // not trust a host-supplied expected_fingerprint for the T2 measurement.
+    // requireExecutionStateMatch: false/absent=off, true=enforce (block), 'warn'=emit-and-proceed.
+    // Default stays off; warn is opt-in telemetry (step 3a) before any default-flip.
+    const execStateMode = config.requireExecutionStateMatch;
+    if (execStateMode === true || execStateMode === 'warn') {
       const et = checkExecutionTimeFingerprint({
         artifacts: detection.artifacts,
         // Same context slots the guard sent on preflight (server folds these into crbundle.v1).
@@ -599,17 +601,30 @@ export async function guardToolCall<T>(
         envelope: envelope as unknown as Record<string, unknown>,
       });
       if (!et.match) {
-        breakerRecord(config);
-        return closedIntegrity(
-          config,
-          'EXECUTION_STATE_DRIFT',
-          failPolicy,
-          fctx,
-          cwctx,
-          redacted,
-          detection.artifacts,
-        );
+        if (execStateMode === true) {
+          // enforce path — behaviorally identical to step 1 (block; do not change).
+          breakerRecord(config);
+          return closedIntegrity(
+            config,
+            'EXECUTION_STATE_DRIFT',
+            failPolicy,
+            fctx,
+            cwctx,
+            redacted,
+            detection.artifacts,
+          );
+        }
+        // warn path — emit drift telemetry, then fall through to executeFactory (observeOnly spirit).
+        emit(config, {
+          type: 'execution_state_drift_observed',
+          at: iso(),
+          decisionId: envelope.decision_id,
+          current_fingerprint: et.current_fingerprint,
+          authorized_fingerprint: et.authorized_fingerprint,
+          reason: et.reason,
+        });
       }
+      // match in warn or enforce → proceed silently (no matched event — drift-only telemetry).
     }
     const approved: ApprovedVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified: true }

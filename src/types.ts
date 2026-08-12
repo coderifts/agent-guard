@@ -78,13 +78,18 @@ export interface GuardConfig {
    */
   requireConditionalWrite?: boolean;
   /**
-   * Policy (ID842): when true, immediately before executeFactory recompute the CURRENT artifacts'
-   * crbundle.v1 fingerprint (host-independent — measures given artifacts, does not trust a host-
-   * supplied expected_fingerprint for the T2 measurement) and hard-block with EXECUTION_STATE_DRIFT
-   * if it does not match the receipt-authorized fingerprint.
-   * Default false — mechanism exists and is tested; product default flip is ID842 step 3.
+   * Policy (ID842): T2 execution-time fingerprint recheck immediately before executeFactory.
+   * Host-independent — recomputes crbundle.v1 over CURRENT artifacts; does not trust a host-supplied
+   * expected_fingerprint for the T2 measurement.
+   *
+   * Tri-state (least-breaking: keeps boolean semantics; only `'warn'` is new):
+   *   - false / absent  → off (default) — no recheck
+   *   - true            → enforce — hard-block with EXECUTION_STATE_DRIFT on mismatch (step 1 behavior)
+   *   - 'warn'          → report-only — emit `execution_state_drift_observed` on mismatch, still execute
+   *
+   * Default remains off. warn and enforce are both opt-in; a default flip is a later versioned decision.
    */
-  requireExecutionStateMatch?: boolean;
+  requireExecutionStateMatch?: boolean | 'warn';
 }
 
 export interface ToolCallDescriptor {
@@ -218,4 +223,7 @@ export type GuardEvent =
           |'artifact_content_missing';   // detector triggered but no analyzable artifacts[] → local fail-closed
       at: string; correlationId?: string; decisionId?: string;
       action?: ExecutionAction; cause?: string; durationMs?: number;
-      signals?: string[]; detectorVersion?: string };
+      signals?: string[]; detectorVersion?: string }
+  /** ID842 step 3a — warn-mode only: T2 fingerprint drift observed; execution still proceeds. */
+  | { type: 'execution_state_drift_observed'; at: string; decisionId?: string;
+      current_fingerprint: string | null; authorized_fingerprint: string | null; reason: string };
