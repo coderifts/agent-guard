@@ -42,6 +42,19 @@ export type {
 // and local artifact_digest / input_fingerprint recomputation.
 export { evaluateEnvelope, computeArtifactDigest, computeBundleFingerprint } from './enforcement-gate.js';
 export type { GateResult } from './enforcement-gate.js';
+// ID842 step 1 — host-independent T2 execution-time fingerprint recheck (opt-in requireExecutionStateMatch).
+export {
+  checkExecutionTimeFingerprint,
+  authorizedFingerprintFromEnvelope,
+  computeCanonicalBundleFingerprint,
+  EXECUTION_TIME_FP_REASONS,
+} from './execution-time-fingerprint.js';
+export type {
+  CheckExecutionTimeFingerprintArgs,
+  ExecutionTimeFingerprintVerdict,
+  ExecutionTimeFpReason,
+  BundleFingerprintContext,
+} from './execution-time-fingerprint.js';
 // Guard-local readDecision: present-but-unrecognised execution_action does NOT fall through to
 // the decision map (SDK ladder did — that reinvented permission). Missing action still maps.
 export { readDecision } from './read-decision.js';

@@ -77,6 +77,14 @@ export interface GuardConfig {
    * Default false — API remains opt-in. This package never writes; it only reports and refuses.
    */
   requireConditionalWrite?: boolean;
+  /**
+   * Policy (ID842): when true, immediately before executeFactory recompute the CURRENT artifacts'
+   * crbundle.v1 fingerprint (host-independent — measures given artifacts, does not trust a host-
+   * supplied expected_fingerprint for the T2 measurement) and hard-block with EXECUTION_STATE_DRIFT
+   * if it does not match the receipt-authorized fingerprint.
+   * Default false — mechanism exists and is tested; product default flip is ID842 step 3.
+   */
+  requireExecutionStateMatch?: boolean;
 }
 
 export interface ToolCallDescriptor {
@@ -183,6 +191,7 @@ export type IntegrityCause =
   | 'FRESHNESS_REQUIRED'         // write-style (or requireFreshness) without ACTIVE measurement (NOT_CONFIGURED / DEGRADED)
   | 'FRESHNESS_FAILED'           // ACTIVE measurement ran; assessFreshness failClosed (TARGET_MUTATED / STALE / TAMPER / UNKNOWN)
   | 'CONDITIONAL_WRITE_REQUIRED' // write-style + requireConditionalWrite but host report is false or not_reported
+  | 'EXECUTION_STATE_DRIFT'      // ID842: T2 current artifacts crbundle.v1 fingerprint ≠ receipt-authorized fingerprint
 export type UnavailableCause = AvailabilityCause | IntegrityCause;
 
 // D-detector — fail-safe + versioned (the trust core; the Grok corpus of 68

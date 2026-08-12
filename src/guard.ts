@@ -19,6 +19,7 @@ import { builtinDetector } from './detector.js';
 import { bindReceiptToEnvelope } from './receipt-binding.js';
 import type { BindCause, VerifyReceiptResultLike } from './receipt-binding.js';
 import { evaluateEnvelope } from './enforcement-gate.js';
+import { checkExecutionTimeFingerprint } from './execution-time-fingerprint.js';
 import { buildExecutionProof } from './execution-proof.js';
 import {
   buildFreshnessBasis,
@@ -583,6 +584,33 @@ export async function guardToolCall<T>(
   // Freshness + conditional-write are additional conjuncts — already applied above.
   const enforceable = receiptVerified && (kind === 'ALLOW' || sinkWired);
   if (enforceable) {
+    // ID842 step 1 — T2 execution-time fingerprint recheck (AFTER decide, IMMEDIATELY BEFORE
+    // executeFactory). Host-independent: recomputes crbundle.v1 over CURRENT artifacts the guard
+    // already holds; does not trust a host-supplied expected_fingerprint for the T2 measurement.
+    // Gated by requireExecutionStateMatch (default false — default flip is ID842 step 3).
+    if (config.requireExecutionStateMatch === true) {
+      const et = checkExecutionTimeFingerprint({
+        artifacts: detection.artifacts,
+        // Same context slots the guard sent on preflight (server folds these into crbundle.v1).
+        context: {
+          operation: config.operation ?? 'tool_call',
+          environment: config.environment,
+        },
+        envelope: envelope as unknown as Record<string, unknown>,
+      });
+      if (!et.match) {
+        breakerRecord(config);
+        return closedIntegrity(
+          config,
+          'EXECUTION_STATE_DRIFT',
+          failPolicy,
+          fctx,
+          cwctx,
+          redacted,
+          detection.artifacts,
+        );
+      }
+    }
     const approved: ApprovedVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified: true }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified: true };
