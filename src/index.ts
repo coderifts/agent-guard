@@ -221,15 +221,21 @@ export type {
 
 // ID632 slice 1 — thin OpenAI tool-calling adapter over withCodeRifts (reference adapter).
 // Shape converter only; assurance objects pass through untouched.
+// ID827 phase 1 — bindOpenAIGuardOutcome (Option B proof binder; additive, guard@6.1).
 export {
   withCodeRiftsOpenAI,
   openAIToolAdapter,
   toOpenAITools,
   protectedToolToOpenAI,
+  bindOpenAIGuardOutcome,
+  defaultSerializeOpenAIToolResult,
 } from './adapters/openai.js';
 export type {
   OpenAIFunctionTool,
   WithCodeRiftsOpenAIResult,
+  OpenAIToolMessage,
+  ProofBoundOpenAIToolMessage,
+  BindOpenAIGuardOutcomeArgs,
 } from './adapters/openai.js';
 
 // ID632 slice 2 — thin Anthropic tool_use adapter (same pattern; only the tool shape differs).

@@ -30,6 +30,8 @@ import type {
   ReceiptThreadHandle,
 } from '../with-coderifts.js';
 import type { ProtectedTool, RegistryCoverageReport } from '../tool-registry.js';
+import type { GuardOutcome } from '../types.js';
+import { attachProofToAgentResponse } from '../final-answer-proof.js';
 
 /**
  * OpenAI chat.completions `tools[]` element (function tool).
@@ -143,4 +145,119 @@ export function openAIToolAdapter(result: WithCodeRiftsResult): WithCodeRiftsOpe
     out.repository = result.repository;
   }
   return out;
+}
+
+// ── ID827 phase 1 — proof-binding helper (Option B; additive guard@6.1) ─────────────────────────
+
+/**
+ * Minimal OpenAI chat tool-message (role tool). No openai SDK dependency.
+ * @see https://platform.openai.com/docs/guides/function-calling
+ */
+export type OpenAIToolMessage = {
+  role: 'tool';
+  tool_call_id: string;
+  content: string;
+};
+
+/**
+ * Brand for proof-bound OpenAI tool messages (compile-time detection of proof-forgotten paths).
+ * Type-level only — same pattern as ReceiptVerifiedEnvelope; not a runtime wire field.
+ */
+declare const __proofBoundBrand: unique symbol;
+export type ProofBoundOpenAIToolMessage = OpenAIToolMessage & {
+  readonly __proofBound: typeof __proofBoundBrand;
+};
+
+export type BindOpenAIGuardOutcomeArgs<T> = {
+  /** OpenAI tool_call_id this message answers. */
+  tool_call_id: string;
+  /** Override result serialization (default: JSON.stringify objects, String() primitives). */
+  serialize?: (result: T) => string;
+};
+
+/**
+ * Default result → content body serializer (pure).
+ * Objects/arrays → JSON.stringify; strings unchanged; other primitives → String().
+ */
+export function defaultSerializeOpenAIToolResult<T>(result: T): string {
+  if (typeof result === 'string') return result;
+  if (
+    typeof result === 'number'
+    || typeof result === 'boolean'
+    || typeof result === 'bigint'
+    || result === null
+    || result === undefined
+  ) {
+    return String(result);
+  }
+  try {
+    return JSON.stringify(result);
+  } catch {
+    return String(result);
+  }
+}
+
+/**
+ * Map a full GuardOutcome into an OpenAI tool message with the execution proof embedded.
+ *
+ * Option B (proof-binding helper): host still calls guardToolCall; this only binds
+ * outcome → framework tool-result. Pure and non-mutating. Always embeds outcome.proof
+ * (present on every arm) via attachProofToAgentResponse / renderFinalAnswerProof —
+ * does not reinvent proof formatting.
+ *
+ * Arms:
+ *  - executed (result): serialized result + rendered proof
+ *  - blocked before factory: gate-denied text (no fabricated result) + proof
+ *  - factory threw: error indication + proof
+ */
+export function bindOpenAIGuardOutcome<T>(
+  outcome: GuardOutcome<T>,
+  args: BindOpenAIGuardOutcomeArgs<T>,
+): ProofBoundOpenAIToolMessage {
+  const tool_call_id = args.tool_call_id;
+  const serialize = args.serialize ?? defaultSerializeOpenAIToolResult;
+
+  let body: string;
+  if (outcome.executed === true) {
+    // Executed arms (enforced or not): result is present.
+    body = serialize(outcome.result);
+  } else if (outcome.executionAttempted === false) {
+    // Blocked before factory — no result; never fabricate one.
+    const kind = outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
+      ? String((outcome.verdict as { kind: string }).kind)
+      : 'UNKNOWN';
+    body =
+      `CodeRifts gate did not permit execution (verdict: ${kind}). `
+      + 'No tool result was produced.';
+  } else {
+    // executionAttempted && !executed → factory threw; error is present.
+    const err = 'error' in outcome ? outcome.error : undefined;
+    const errText = formatGuardError(err);
+    const kind = outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
+      ? String((outcome.verdict as { kind: string }).kind)
+      : 'UNKNOWN';
+    body =
+      `Tool execution failed after gate decision (verdict: ${kind}): ${errText}`;
+  }
+
+  // Reuse public proof render path (string append) — same separator/render as final-answer attach.
+  const content = attachProofToAgentResponse(body, outcome.proof) as string;
+
+  // Type brand only (no extra wire keys — OpenAI tool messages stay {role, tool_call_id, content}).
+  const msg: OpenAIToolMessage = {
+    role: 'tool',
+    tool_call_id,
+    content,
+  };
+  return msg as ProofBoundOpenAIToolMessage;
+}
+
+function formatGuardError(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name || 'Error';
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
 }
