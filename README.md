@@ -22,7 +22,11 @@ stays free of git/fs. Production PR artifact derivation:
 
 **TOCTOU is unclosed.** Resolving content proves what was true *at measurement time*;
 a host that then writes unconditionally still races. Neither the example nor this
-package supplies a version token or conditional write.
+package supplies a version token or conditional write. An **opt-in** execution-state
+recheck can *detect* (or enforce against) drift between the authorized change set and
+the artifacts still held at execute time — see **`requireExecutionStateMatch`** below.
+That is a detection/enforcement aid for the residual race, **not** a full TOCTOU
+closure (hosts that write unconditionally still race; conditional write remains host-side).
 
 ```typescript
 import { guardToolCall } from '@coderifts/agent-guard';
@@ -48,6 +52,58 @@ const outcome = await guardToolCall(
 if (!outcome.executed) console.error('blocked:', outcome.verdict);
 // Retry ONLY when outcome.executionAttempted === false (the safe-to-retry signal).
 ```
+
+#### `requireExecutionStateMatch` — opt-in execution-state recheck (ID842)
+
+After a fully enforceable ALLOW/MONITOR decision and **immediately before** `executeFactory`,
+the guard can recompute the execution-time change-set fingerprint (crbundle.v1 over the
+**current** `artifacts[]` the guard already holds) and compare it to what the receipt
+authorized. Config field on `GuardConfig` (tri-state):
+
+```ts
+requireExecutionStateMatch?: boolean | 'warn';
+```
+
+| Mode | Value | Behavior |
+|---|---|---|
+| **OFF** (default) | `false` / absent | No recheck. Residual execution-state race as described under “TOCTOU is unclosed.” |
+| **Warn** (report-only) | `'warn'` | Rechecks. On **drift**, emits `execution_state_drift_observed` via **`onEvent`**, then **proceeds** (does not block). On match, silent (drift-only telemetry). Use this to gather production drift data without changing who executes. |
+| **Enforce** | `true` | Rechecks. On drift, **blocks** with integrity cause `EXECUTION_STATE_DRIFT` (factory never runs). Byte-identical to the original enforce path. |
+
+Recommended adoption path: **off → `'warn'` (observe) → `true` (enforce)** once your own
+telemetry shows drift is rare and real. A default flip to enforce is a later, versioned
+product decision — not this mode’s job.
+
+Warn-mode event (host-side only; the guard does **not** phone home), on `GuardConfig.onEvent`:
+
+```ts
+{
+  type: 'execution_state_drift_observed';
+  at: string;                         // ISO timestamp
+  decisionId?: string;
+  current_fingerprint: string | null;
+  authorized_fingerprint: string | null;
+  reason: string;
+}
+```
+
+```typescript
+const outcome = await guardToolCall(call, executeFactory, {
+  client,
+  operation: 'merge',
+  requireExecutionStateMatch: 'warn', // opt-in telemetry; still proceeds on drift
+  onEvent: (e) => {
+    if (e.type === 'execution_state_drift_observed') {
+      // host metrics / log — you own retention; nothing is sent to CodeRifts from here
+      console.warn('execution-state drift', e.decisionId, e.reason, e.current_fingerprint);
+    }
+  },
+});
+```
+
+Honesty: this aids **detection** (warn) or **hard stop** (enforce) for execution-state
+mismatch at the guard boundary. It does **not** close TOCTOU proper — measurement-to-commit
+and host-side unconditional writes remain; see Guarantees.
 
 > **Supply `artifacts[]` with content.** If the guard detects a contract change (e.g. from
 > `filesTouched`/`diff`) but you did **not** supply `artifacts[]` with `before`/`after`, it fails
@@ -682,7 +738,10 @@ Pass both on `withCodeRifts({ …, onEvent, monitoringSinkWired: true })`, or on
   measurement-to-commit race remains: content resolved at measurement time can change before the
   host commits. Closing that needs a host-side conditional write (compare-and-swap on a version
   token) — this package never writes, and reports `conditional_write` as a host assertion it
-  cannot verify.
+  cannot verify. Opt-in **`requireExecutionStateMatch`** (`false` / `'warn'` / `true`) can
+  recheck the execution-time fingerprint before the factory (warn = telemetry via
+  `execution_state_drift_observed`; true = block with `EXECUTION_STATE_DRIFT`) — a detection or
+  enforcement aid, **not** a full TOCTOU closure. See the subsection above.
 - **Retry-safe** — `executionAttempted` is the only safe-to-retry signal; a post-authorization throw
   is `executionAttempted:true` (the remote side effect may have landed).
 - **`enforced:true` only on a LIVE, receipt-verified `ALLOW`/`MONITOR`** — never on cached/LKG,
