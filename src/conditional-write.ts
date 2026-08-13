@@ -151,3 +151,63 @@ export function conditionalWriteResidual(input: {
   if (input.conditionalWrite === true) return null;
   return RESIDUAL_UNCONDITIONAL_WRITE;
 }
+
+// ── Host helper: executeIfUnchanged (CAS surface) ─────────────────────────────────────────────
+// Documented at top of file; implemented as pure orchestration. I/O lives in adapters
+// (e.g. cas-adapters/fs) that supply current_token + write. Core never invents tokens.
+
+/**
+ * Outcome of a conditional write attempt.
+ * - committed: write ran under the expected token
+ * - refused / stale_version_token: resource token moved; write did NOT run
+ */
+export type ExecuteIfUnchangedOutcome<T> =
+  | { status: 'committed'; result: T; version_token: VersionToken }
+  | {
+      status: 'refused';
+      reason: 'stale_version_token';
+      expected_token: VersionToken;
+      current_token: VersionToken | null;
+    };
+
+export type ExecuteIfUnchangedArgs<T> = {
+  /** Token the host measured before deciding to write (opaque string). */
+  expected_token: VersionToken;
+  /**
+   * Re-read the resource's token immediately before commit.
+   * Return null when the resource is gone / unreadable (treated as mismatch).
+   */
+  current_token: () => VersionToken | null | Promise<VersionToken | null>;
+  /** Mutation applied ONLY when current_token equals expected_token. */
+  write: () => T | Promise<T>;
+};
+
+/**
+ * Host contract helper: re-check version token, then write or refuse.
+ * Equality via tokensEqual only — never interprets token format.
+ * Never throws for stale tokens (returns refused); write/current_token errors propagate.
+ */
+export async function executeIfUnchanged<T>(
+  args: ExecuteIfUnchangedArgs<T>,
+): Promise<ExecuteIfUnchangedOutcome<T>> {
+  const expected = args.expected_token;
+  if (typeof expected !== 'string' || expected.length === 0) {
+    return {
+      status: 'refused',
+      reason: 'stale_version_token',
+      expected_token: typeof expected === 'string' ? expected : '',
+      current_token: null,
+    };
+  }
+  const current = await args.current_token();
+  if (!tokensEqual(expected, current)) {
+    return {
+      status: 'refused',
+      reason: 'stale_version_token',
+      expected_token: expected,
+      current_token: current == null ? null : current,
+    };
+  }
+  const result = await args.write();
+  return { status: 'committed', result, version_token: expected };
+}

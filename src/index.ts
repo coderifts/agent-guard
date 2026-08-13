@@ -140,12 +140,14 @@ export type {
   FreshnessDegradeReason,
 } from './freshness.js';
 
-// Conditional-write surface (reporting only — package never writes). Opt-in requireConditionalWrite.
+// Conditional-write surface (reporting + host helper executeIfUnchanged). Opt-in requireConditionalWrite.
+// The package still never invents business writes — adapters perform I/O under the helper.
 export {
   buildConditionalWriteBasis,
   tokensEqual,
   conditionalWriteResidual,
   RESIDUAL_UNCONDITIONAL_WRITE,
+  executeIfUnchanged,
 } from './conditional-write.js';
 export type {
   VersionToken,
@@ -153,7 +155,19 @@ export type {
   ConditionalWriteReport,
   ConditionalWriteBasis,
   ConditionalWriteCallContext,
+  ExecuteIfUnchangedOutcome,
+  ExecuteIfUnchangedArgs,
 } from './conditional-write.js';
+
+// Filesystem CAS adapter (mtime + content-hash token, atomic rename). First execution-state CAS enabler.
+export {
+  createFsVersionToken,
+  readVersionedFile,
+  writeFileIfUnchanged,
+  createFsPriorContentResolver,
+  FS_VERSION_TOKEN_PREFIX,
+  FS_ABSENT_TOKEN,
+} from './cas-adapters/fs.js';
 
 // artifactResolver — automatic base/head contract artifacts from a pure git snapshot (upstream of
 // preflight; produces artifacts, never decides). Companion to MISSING_ARTIFACT_CONTENT.
