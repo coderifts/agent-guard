@@ -276,6 +276,14 @@ export type WithCodeRiftsInput = {
    * Host residual when policy is on without host report: composition_unconditional_write_under_policy.
    */
   requireConditionalWrite?: boolean;
+  /**
+   * Policy (ID842): T2 execution-time fingerprint recheck. Forwarded UNCHANGED onto
+   * GuardConfig.requireExecutionStateMatch. Default absent = off (no recheck; same as today).
+   * Tri-state boolean | 'warn' — see GuardConfig / README requireExecutionStateMatch for warn/true
+   * semantics (warn emits execution_state_drift_observed via onEvent and proceeds; true blocks with
+   * EXECUTION_STATE_DRIFT). A default flip remains a separate versioned decision (step3b).
+   */
+  requireExecutionStateMatch?: GuardConfig['requireExecutionStateMatch'];
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -671,6 +679,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.requireConditionalWrite !== undefined) {
     guard.requireConditionalWrite = input.requireConditionalWrite;
+  }
+  if (input.requireExecutionStateMatch !== undefined) {
+    guard.requireExecutionStateMatch = input.requireExecutionStateMatch;
   }
   const config: GuardToolRegistryConfig = {
     guard,

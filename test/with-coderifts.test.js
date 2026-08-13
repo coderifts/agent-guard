@@ -236,8 +236,10 @@ describe('withCodeRifts (S2) — startup honesty and classification defaults', (
 // Live calls need a client with preflightChangeSet + verifyReceipt (STUB_CLIENT is construction-only).
 const {
   computeBodyHash,
+  computeCanonicalBundleFingerprint,
   foldTableSettledCalls,
   guardedFractionAmongRoutes,
+  EXECUTION_TIME_FP_REASONS,
 } = require('../dist/cjs/index.js');
 
 function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env) }; }
@@ -862,5 +864,98 @@ describe('withCodeRifts — S5 receipt carry-forward (composition cursor)', () =
     const afterCap = captures.filter((c) => c.phase === 'after')[0];
     assert.equal(afterCap.previous_receipt, 'T1');
     assert.equal(r.receipt_thread.lastToken(), 'T4');
+  });
+});
+
+// ── requireExecutionStateMatch passthrough (ID842 plumbing; default unchanged OFF) ───────────────
+// Composition only forwards the field; semantics live in the frozen guard. Fixture: receipt
+// authorizes artifacts A; call carries A′ (T2 drift). Operation matches withCodeRifts input.
+describe('withCodeRifts — requireExecutionStateMatch passthrough', () => {
+  const OP = 'merge';
+  const ARTIFACTS_A = [
+    { id: 'a', type: 'openapi', before: 'openapi: 3.0.0\ninfo: {title: A}', after: 'openapi: 3.0.1\ninfo: {title: A}' },
+  ];
+  const ARTIFACTS_A_PRIME = [
+    { id: 'a', type: 'openapi', before: 'openapi: 3.0.0\ninfo: {title: A}', after: 'openapi: 3.0.1\ninfo: {title: A-DRIFTED}' },
+  ];
+  const FP_A = computeCanonicalBundleFingerprint(ARTIFACTS_A, { operation: OP, environment: undefined });
+  const FP_A_PRIME = computeCanonicalBundleFingerprint(ARTIFACTS_A_PRIME, { operation: OP, environment: undefined });
+  assert.notEqual(FP_A, FP_A_PRIME, 'fixture A and A′ must differ');
+
+  function driftClient(authorizedFp) {
+    // Same shape as mockClient, but fingerprint/input_fingerprint = authorized crbundle.v1 (T1).
+    let lastEnv = null;
+    return {
+      async authorizeChangeSet(r) { return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' }); },
+      async preflightChangeSet() {
+        const env = envelope('CONTINUE', 'ALLOW', {
+          fingerprint: authorizedFp,
+        });
+        // envelope() sets input_fingerprint to a fixed 'b' hash by default — align both for authorize path.
+        env.input_fingerprint = authorizedFp;
+        env.operation = OP;
+        lastEnv = env;
+        return { decision: 'ALLOW', execution_action: 'CONTINUE', decision_result: env };
+      },
+      async verifyReceipt() {
+        return lastEnv ? boundVerify(lastEnv) : { valid: true, status: 'VERIFIED_CURRENT' };
+      },
+    };
+  }
+
+  async function runDrift(mode) {
+    let factoryRan = false;
+    const events = [];
+    const input = {
+      tools: [{
+        name: 'apply_openapi',
+        mutationClass: 'mutating',
+        execute: async () => {
+          factoryRan = true;
+          return 'SIDE_EFFECT';
+        },
+      }],
+      client: driftClient(FP_A),
+      operation: OP,
+      onEvent: (e) => events.push(e),
+    };
+    if (mode !== undefined) input.requireExecutionStateMatch = mode;
+    const r = withCodeRifts(input);
+    const outcome = await r.tools.find((t) => t.name === 'apply_openapi').execute({
+      artifacts: ARTIFACTS_A_PRIME,
+    });
+    const drifts = events.filter((e) => e && e.type === 'execution_state_drift_observed');
+    return { outcome, factoryRan, drifts, events };
+  }
+
+  it('a. absent requireExecutionStateMatch → drift still executes (default OFF; regression)', async () => {
+    const { outcome, factoryRan, drifts } = await runDrift(undefined);
+    assert.equal(factoryRan, true);
+    assert.equal(outcome.executed, true);
+    assert.equal(outcome.enforced, true);
+    assert.equal(drifts.length, 0, 'no recheck → no drift telemetry');
+  });
+
+  it("b. requireExecutionStateMatch: 'warn' → drift emits execution_state_drift_observed and proceeds", async () => {
+    const { outcome, factoryRan, drifts } = await runDrift('warn');
+    assert.equal(factoryRan, true, 'warn must not block the factory');
+    assert.equal(outcome.executed, true);
+    assert.equal(outcome.enforced, true);
+    assert.equal(drifts.length, 1);
+    assert.equal(drifts[0].type, 'execution_state_drift_observed');
+    assert.equal(drifts[0].reason, EXECUTION_TIME_FP_REASONS.FINGERPRINT_STALE_AT_EXECUTE);
+    assert.equal(drifts[0].current_fingerprint, FP_A_PRIME);
+    assert.equal(drifts[0].authorized_fingerprint, FP_A);
+  });
+
+  it('c. requireExecutionStateMatch: true → drift blocks with EXECUTION_STATE_DRIFT', async () => {
+    const { outcome, factoryRan, drifts } = await runDrift(true);
+    assert.equal(factoryRan, false, 'enforce must not run the factory');
+    assert.equal(outcome.executed, false);
+    assert.equal(outcome.executionAttempted, false);
+    assert.equal(outcome.enforced, false);
+    assert.equal(outcome.verdict.kind, 'UNAVAILABLE');
+    assert.equal(outcome.verdict.cause, 'EXECUTION_STATE_DRIFT');
+    assert.equal(drifts.length, 0, 'enforce path does not emit the warn-only event');
   });
 });

@@ -147,6 +147,13 @@ const { tools, registry_report, composition_assurance } = withCodeRifts({
 // the guard — the composition can only protect the table it returns.
 ```
 
+Optional guard-policy fields on the same input are forwarded **unchanged** onto `GuardConfig` when
+present (absent = today’s defaults — no behavior change): `onEvent`, `monitoringSinkWired`,
+`resolvePriorContent`, `requireFreshness`, `allowStaleContext`, `requireConditionalWrite`, and
+**`requireExecutionStateMatch`** (`boolean | 'warn'`, default off). The last is plumbing for the
+ID842 T2 recheck so one-call hosts can opt into warn/true; it is **not** TOCTOU closure and does
+not flip the package default (see **`requireExecutionStateMatch`** above).
+
 ### Final-answer proof block (ID645)
 
 When a call produces a machine `GuardExecutionProof` (`outcome.proof`), you can embed a
