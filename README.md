@@ -109,6 +109,44 @@ const answer = attachProofToAgentResponse('I applied the authorized edit.', outc
 
 See `examples/final-answer-proof.mjs` for verified vs skipped side by side.
 
+### Framework proof-binders (ID827, guard@6.1)
+
+After `guardToolCall` returns a `GuardOutcome`, the binders map that **whole outcome** into the
+framework’s **tool-result** shape so the execution proof travels back to the model in the tool
+message — not only in a human final answer.
+
+| Function | Id arg | Target field |
+|---|---|---|
+| `bindOpenAIGuardOutcome(outcome, { tool_call_id })` | `tool_call_id` | OpenAI tool message `content` (string) |
+| `bindAnthropicGuardOutcome(outcome, { tool_use_id })` | `tool_use_id` | Anthropic `tool_result` `content` (string) |
+| `bindGeminiGuardOutcome(outcome, { name })` | function `name` | Gemini `functionResponse.response` — a **structured object** `{ result, final_answer_proof, … }` (not a text field) |
+| `bindLangGraphGuardOutcome(outcome, { tool_call_id, name? })` | `tool_call_id` (+ optional `name`) | LangGraph/LangChain ToolMessage `content` (string) |
+
+**Behaviour (all four):** take the full `GuardOutcome` (ALLOW / BLOCK / APPROVAL / SKIPPED / error
+arms); always embed `outcome.proof` (present on every arm); on a blocked arm state that the gate
+did not permit execution with **no fabricated tool result**; on factory-error arms report the
+failure + proof. Pure and non-mutating. No framework SDK dependency — minimal local types only.
+Return types are type-level branded (`ProofBoundOpenAIToolMessage`, etc.) so the compiler can
+distinguish a proof-bound tool result from a raw one (proof-forgotten *detection*, not
+prevention). Proof formatting reuses `attachProofToAgentResponse` / `renderFinalAnswerProof`.
+
+OpenAI-compatible providers (Grok, Kimi, Qwen, DeepSeek, …) use **`bindOpenAIGuardOutcome`** for
+their tool-results — same ChatCompletions tool-message shape.
+
+```typescript
+import { guardToolCall, bindOpenAIGuardOutcome } from '@coderifts/agent-guard';
+
+const outcome = await guardToolCall(
+  { toolName: 'edit_file', arguments: args, filesTouched: [path] },
+  async (_envelope, redacted) => doEdit(redacted),
+  { client },
+);
+
+// Send this tool message back to the model (chat.completions messages[]).
+const toolMessage = bindOpenAIGuardOutcome(outcome, { tool_call_id: toolCall.id });
+// { role: 'tool', tool_call_id, content: '<result or gate message> + rendered proof' }
+```
+
 **OpenAI tool-calling (ID632 reference adapter).** Same input; OpenAI-shaped `tools` for
 `chat.completions`, plus the same unflattened assurance objects. Shape conversion only — does
 **not** claim product-level inescapability the core does not:
@@ -130,10 +168,14 @@ const {
 
 See also `examples/openai-adapter.mjs` (not published in the npm tarball).
 
-**OpenAI-compatible models (no extra adapter).** DeepSeek, Kimi (Moonshot), and Qwen use the
-same ChatCompletions tool-calling format as OpenAI (`{ type: 'function', function: { name,
+**OpenAI-compatible models (no extra adapter).** DeepSeek and Kimi (Moonshot) use the same
+ChatCompletions tool-calling format as OpenAI (`{ type: 'function', function: { name,
 description, parameters } }`). Use **`withCodeRiftsOpenAI`** and point your client `baseURL`
 (and API key) at their endpoint — zero new adapters, same guarded tools + unflattened assurance.
+Tool-results use **`bindOpenAIGuardOutcome`** the same way as OpenAI.
+
+**Qwen (Alibaba DashScope).** OpenAI-compatible via Model Studio compatible-mode — use
+**`withCodeRiftsOpenAI`**, point `baseURL` at the DashScope compatible endpoint. Zero new adapters.
 
 **Grok (xAI).** Also OpenAI-compatible tool calling — use **`withCodeRiftsOpenAI`** with the xAI `baseURL`.
 
