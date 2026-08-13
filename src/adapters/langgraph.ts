@@ -41,6 +41,8 @@ import type {
   ReceiptThreadHandle,
 } from '../with-coderifts.js';
 import type { ProtectedTool, RegistryCoverageReport } from '../tool-registry.js';
+import type { GuardOutcome } from '../types.js';
+import { attachProofToAgentResponse } from '../final-answer-proof.js';
 
 /**
  * Framework-agnostic LangChain/LangGraph tool descriptor (no package import).
@@ -172,4 +174,101 @@ export function langGraphToolAdapter(result: WithCodeRiftsResult): WithCodeRifts
     out.repository = result.repository;
   }
   return out;
+}
+
+// ── ID827 phase 2 — proof-binding helper (Option B; additive guard@6.1) ─────────────────────────
+
+/**
+ * Minimal LangChain ToolMessage-shaped plain object (no @langchain/* dependency).
+ * Host may wrap into ToolMessage: new ToolMessage({ content, tool_call_id, name? }).
+ * @see https://js.langchain.com/docs/concepts/messages
+ */
+export type LangGraphToolMessage = {
+  content: string;
+  tool_call_id: string;
+  name?: string;
+};
+
+declare const __proofBoundLangGraphBrand: unique symbol;
+export type ProofBoundLangGraphToolMessage = LangGraphToolMessage & {
+  readonly __proofBound: typeof __proofBoundLangGraphBrand;
+};
+
+export type BindLangGraphGuardOutcomeArgs<T> = {
+  /** LangChain/LangGraph tool_call_id this ToolMessage answers. */
+  tool_call_id: string;
+  /** Optional tool name (ToolMessage.name). */
+  name?: string;
+  serialize?: (result: T) => string;
+};
+
+export function defaultSerializeLangGraphToolResult<T>(result: T): string {
+  if (typeof result === 'string') return result;
+  if (
+    typeof result === 'number'
+    || typeof result === 'boolean'
+    || typeof result === 'bigint'
+    || result === null
+    || result === undefined
+  ) {
+    return String(result);
+  }
+  try {
+    return JSON.stringify(result);
+  } catch {
+    return String(result);
+  }
+}
+
+/**
+ * Map a full GuardOutcome into a LangGraph/LangChain ToolMessage shape with proof embedded.
+ * Same arm mapping as bindOpenAIGuardOutcome; id field is tool_call_id.
+ */
+export function bindLangGraphGuardOutcome<T>(
+  outcome: GuardOutcome<T>,
+  args: BindLangGraphGuardOutcomeArgs<T>,
+): ProofBoundLangGraphToolMessage {
+  const tool_call_id = args.tool_call_id;
+  const serialize = args.serialize ?? defaultSerializeLangGraphToolResult;
+
+  let body: string;
+  if (outcome.executed === true) {
+    body = serialize(outcome.result);
+  } else if (outcome.executionAttempted === false) {
+    const kind = verdictKind(outcome);
+    body =
+      `CodeRifts gate did not permit execution (verdict: ${kind}). `
+      + 'No tool result was produced.';
+  } else {
+    const err = 'error' in outcome ? outcome.error : undefined;
+    const kind = verdictKind(outcome);
+    body =
+      `Tool execution failed after gate decision (verdict: ${kind}): ${formatGuardError(err)}`;
+  }
+
+  const content = attachProofToAgentResponse(body, outcome.proof) as string;
+  const msg: LangGraphToolMessage = {
+    content,
+    tool_call_id,
+  };
+  if (args.name != null && args.name !== '') {
+    msg.name = args.name;
+  }
+  return msg as ProofBoundLangGraphToolMessage;
+}
+
+function verdictKind(outcome: GuardOutcome<unknown>): string {
+  return outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
+    ? String((outcome.verdict as { kind: string }).kind)
+    : 'UNKNOWN';
+}
+
+function formatGuardError(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name || 'Error';
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
 }

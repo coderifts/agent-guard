@@ -30,6 +30,8 @@ import type {
   ReceiptThreadHandle,
 } from '../with-coderifts.js';
 import type { ProtectedTool, RegistryCoverageReport } from '../tool-registry.js';
+import type { GuardOutcome } from '../types.js';
+import { attachProofToAgentResponse } from '../final-answer-proof.js';
 
 /**
  * Anthropic Messages API `tools[]` element (tool_use definition).
@@ -140,4 +142,96 @@ export function anthropicToolAdapter(result: WithCodeRiftsResult): WithCodeRifts
     out.repository = result.repository;
   }
   return out;
+}
+
+// ── ID827 phase 2 — proof-binding helper (Option B; additive guard@6.1) ─────────────────────────
+
+/**
+ * Minimal Anthropic tool_result content block. No @anthropic-ai/sdk dependency.
+ * @see https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview
+ */
+export type AnthropicToolResult = {
+  type: 'tool_result';
+  tool_use_id: string;
+  content: string;
+};
+
+declare const __proofBoundAnthropicBrand: unique symbol;
+export type ProofBoundAnthropicToolResult = AnthropicToolResult & {
+  readonly __proofBound: typeof __proofBoundAnthropicBrand;
+};
+
+export type BindAnthropicGuardOutcomeArgs<T> = {
+  /** Anthropic tool_use block id this tool_result answers. */
+  tool_use_id: string;
+  serialize?: (result: T) => string;
+};
+
+export function defaultSerializeAnthropicToolResult<T>(result: T): string {
+  if (typeof result === 'string') return result;
+  if (
+    typeof result === 'number'
+    || typeof result === 'boolean'
+    || typeof result === 'bigint'
+    || result === null
+    || result === undefined
+  ) {
+    return String(result);
+  }
+  try {
+    return JSON.stringify(result);
+  } catch {
+    return String(result);
+  }
+}
+
+/**
+ * Map a full GuardOutcome into an Anthropic tool_result block with proof embedded.
+ * Same arm mapping as bindOpenAIGuardOutcome; id field is tool_use_id.
+ */
+export function bindAnthropicGuardOutcome<T>(
+  outcome: GuardOutcome<T>,
+  args: BindAnthropicGuardOutcomeArgs<T>,
+): ProofBoundAnthropicToolResult {
+  const tool_use_id = args.tool_use_id;
+  const serialize = args.serialize ?? defaultSerializeAnthropicToolResult;
+
+  let body: string;
+  if (outcome.executed === true) {
+    body = serialize(outcome.result);
+  } else if (outcome.executionAttempted === false) {
+    const kind = verdictKind(outcome);
+    body =
+      `CodeRifts gate did not permit execution (verdict: ${kind}). `
+      + 'No tool result was produced.';
+  } else {
+    const err = 'error' in outcome ? outcome.error : undefined;
+    const kind = verdictKind(outcome);
+    body =
+      `Tool execution failed after gate decision (verdict: ${kind}): ${formatGuardError(err)}`;
+  }
+
+  const content = attachProofToAgentResponse(body, outcome.proof) as string;
+  const block: AnthropicToolResult = {
+    type: 'tool_result',
+    tool_use_id,
+    content,
+  };
+  return block as ProofBoundAnthropicToolResult;
+}
+
+function verdictKind(outcome: GuardOutcome<unknown>): string {
+  return outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
+    ? String((outcome.verdict as { kind: string }).kind)
+    : 'UNKNOWN';
+}
+
+function formatGuardError(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name || 'Error';
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
 }

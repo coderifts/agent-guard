@@ -239,38 +239,56 @@ export type {
 } from './adapters/openai.js';
 
 // ID632 slice 2 — thin Anthropic tool_use adapter (same pattern; only the tool shape differs).
+// ID827 phase 2 — bindAnthropicGuardOutcome (Option B proof binder; additive, guard@6.1).
 export {
   withCodeRiftsAnthropic,
   anthropicToolAdapter,
   toAnthropicTools,
   protectedToolToAnthropic,
+  bindAnthropicGuardOutcome,
+  defaultSerializeAnthropicToolResult,
 } from './adapters/anthropic.js';
 export type {
   AnthropicTool,
   WithCodeRiftsAnthropicResult,
+  AnthropicToolResult,
+  ProofBoundAnthropicToolResult,
+  BindAnthropicGuardOutcomeArgs,
 } from './adapters/anthropic.js';
 
 // ID632 slice 3 — thin LangChain/LangGraph tool adapter (plain descriptors; no framework dep).
+// ID827 phase 2 — bindLangGraphGuardOutcome (Option B proof binder; additive, guard@6.1).
 export {
   withCodeRiftsLangGraph,
   langGraphToolAdapter,
   toLangGraphTools,
   protectedToolToLangGraph,
+  bindLangGraphGuardOutcome,
+  defaultSerializeLangGraphToolResult,
 } from './adapters/langgraph.js';
 export type {
   LangGraphToolDescriptor,
   WithCodeRiftsLangGraphResult,
+  LangGraphToolMessage,
+  ProofBoundLangGraphToolMessage,
+  BindLangGraphGuardOutcomeArgs,
 } from './adapters/langgraph.js';
 
 // ID632 slice 4 — thin Google Gemini function-calling adapter (functionDeclarations wrapper).
+// ID827 phase 2 — bindGeminiGuardOutcome (Option B proof binder; object response; additive, guard@6.1).
 export {
   withCodeRiftsGemini,
   geminiToolAdapter,
   toGeminiTools,
   protectedToolToFunctionDeclaration,
+  bindGeminiGuardOutcome,
+  defaultSerializeGeminiToolResult,
 } from './adapters/gemini.js';
 export type {
   GeminiFunctionDeclaration,
   GeminiTool,
   WithCodeRiftsGeminiResult,
+  GeminiFunctionResponse,
+  ProofBoundGeminiFunctionResponse,
+  BindGeminiGuardOutcomeArgs,
 } from './adapters/gemini.js';

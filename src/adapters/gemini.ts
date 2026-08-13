@@ -36,6 +36,8 @@ import type {
   ReceiptThreadHandle,
 } from '../with-coderifts.js';
 import type { ProtectedTool, RegistryCoverageReport } from '../tool-registry.js';
+import type { GuardOutcome, GuardExecutionProof } from '../types.js';
+import { attachProofToAgentResponse } from '../final-answer-proof.js';
 
 /**
  * One Gemini function declaration (inside functionDeclarations[]).
@@ -168,4 +170,124 @@ export function geminiToolAdapter(result: WithCodeRiftsResult): WithCodeRiftsGem
     out.repository = result.repository;
   }
   return out;
+}
+
+// ── ID827 phase 2 — proof-binding helper (Option B; additive guard@6.1) ─────────────────────────
+
+/**
+ * Minimal Gemini functionResponse part. No @google/generative-ai dependency.
+ * `response` is a structured object (not a text string).
+ * @see https://ai.google.dev/gemini-api/docs/function-calling
+ */
+export type GeminiFunctionResponse = {
+  functionResponse: {
+    name: string;
+    response: Record<string, unknown>;
+  };
+};
+
+declare const __proofBoundGeminiBrand: unique symbol;
+export type ProofBoundGeminiFunctionResponse = GeminiFunctionResponse & {
+  readonly __proofBound: typeof __proofBoundGeminiBrand;
+};
+
+export type BindGeminiGuardOutcomeArgs<T> = {
+  /** Gemini function name this functionResponse answers. */
+  name: string;
+  /**
+   * Optional result projector into the response.result field.
+   * Default keeps JSON-friendly values as-is (objects/arrays/primitives);
+   * non-JSON values fall back to String().
+   */
+  serialize?: (result: T) => unknown;
+};
+
+/**
+ * Default Gemini result payload value (structured, not forced through JSON.stringify).
+ */
+export function defaultSerializeGeminiToolResult<T>(result: T): unknown {
+  if (
+    result === null
+    || result === undefined
+    || typeof result === 'string'
+    || typeof result === 'number'
+    || typeof result === 'boolean'
+  ) {
+    return result;
+  }
+  if (typeof result === 'bigint') return String(result);
+  if (typeof result === 'object') {
+    try {
+      // Ensure JSON-serializable by round-trip when possible; on failure keep shallow.
+      JSON.stringify(result);
+      return result;
+    } catch {
+      return String(result);
+    }
+  }
+  return String(result);
+}
+
+/**
+ * Map a full GuardOutcome into a Gemini functionResponse part with proof embedded.
+ *
+ * GEMINI SPECIAL: response is an OBJECT (not a text field):
+ *  - executed: { result, final_answer_proof, final_answer_proof_text } via attachProofToAgentResponse
+ *  - blocked/error: { gate_message, final_answer_proof, … } — no fabricated `result` key
+ */
+export function bindGeminiGuardOutcome<T>(
+  outcome: GuardOutcome<T>,
+  args: BindGeminiGuardOutcomeArgs<T>,
+): ProofBoundGeminiFunctionResponse {
+  const name = args.name;
+  const serialize = args.serialize ?? defaultSerializeGeminiToolResult;
+
+  let base: Record<string, unknown>;
+  if (outcome.executed === true) {
+    base = { result: serialize(outcome.result) };
+  } else if (outcome.executionAttempted === false) {
+    const kind = verdictKind(outcome);
+    base = {
+      gate_message:
+        `CodeRifts gate did not permit execution (verdict: ${kind}). `
+        + 'No tool result was produced.',
+    };
+  } else {
+    const err = 'error' in outcome ? outcome.error : undefined;
+    const kind = verdictKind(outcome);
+    base = {
+      gate_message:
+        `Tool execution failed after gate decision (verdict: ${kind}): ${formatGuardError(err)}`,
+    };
+  }
+
+  // Reuse attachProofToAgentResponse object path → adds final_answer_proof + final_answer_proof_text.
+  const bound = attachProofToAgentResponse(base, outcome.proof) as Record<string, unknown> & {
+    final_answer_proof: GuardExecutionProof;
+    final_answer_proof_text: string;
+  };
+
+  const part: GeminiFunctionResponse = {
+    functionResponse: {
+      name,
+      response: bound,
+    },
+  };
+  return part as ProofBoundGeminiFunctionResponse;
+}
+
+function verdictKind(outcome: GuardOutcome<unknown>): string {
+  return outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
+    ? String((outcome.verdict as { kind: string }).kind)
+    : 'UNKNOWN';
+}
+
+function formatGuardError(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name || 'Error';
+  if (typeof err === 'string') return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
 }
