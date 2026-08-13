@@ -18,6 +18,7 @@ import { promises as fsp } from 'node:fs';
 import * as path from 'node:path';
 import {
   executeIfUnchanged,
+  StaleVersionTokenAbort,
   tokensEqual,
   type ExecuteIfUnchangedOutcome,
   type VersionToken,
@@ -33,6 +34,21 @@ export const FS_VERSION_TOKEN_PREFIX = 'fs:v1:';
  * Hosts that measured absence should pass this as expected_token for first write.
  */
 export const FS_ABSENT_TOKEN: VersionToken = 'fs:v1:absent';
+
+function sha256hex(buf: Buffer): string {
+  return createHash('sha256').update(buf).digest('hex');
+}
+
+/** Extract content-hash segment from an fs:v1 token (null if absent/malformed). */
+export function fsTokenContentHash(token: VersionToken | null | undefined): string | null {
+  if (typeof token !== 'string' || !token.startsWith(FS_VERSION_TOKEN_PREFIX)) return null;
+  if (token === FS_ABSENT_TOKEN) return null;
+  const rest = token.slice(FS_VERSION_TOKEN_PREFIX.length);
+  const colon = rest.indexOf(':');
+  if (colon < 0) return null;
+  const hash = rest.slice(colon + 1);
+  return /^[a-f0-9]{64}$/.test(hash) ? hash : null;
+}
 
 /**
  * Build a VersionToken from path: mtime (ms) + sha256 of file bytes.
@@ -55,7 +71,7 @@ export async function createFsVersionToken(filePath: string): Promise<VersionTok
     throw new Error(`createFsVersionToken: not a regular file: ${filePath}`);
   }
   const buf = await fsp.readFile(filePath);
-  const hash = createHash('sha256').update(buf).digest('hex');
+  const hash = sha256hex(buf);
   const mtimeMs = Math.trunc(st.mtimeMs);
   return `${FS_VERSION_TOKEN_PREFIX}${mtimeMs}:${hash}`;
 }
@@ -83,18 +99,42 @@ export type WriteFileIfUnchangedArgs = {
 
 /**
  * Conditional write: re-stat+re-hash; if token matches expected → temp file + atomic rename.
- * If token moved → refused (stale_version_token); original file left intact; no partial leave-behind.
+ *
+ * MEASURED windows (pre-fix, 2fcd74e-era):
+ *   1. executeIfUnchanged: current_token() then await write() — no re-check in between.
+ *   2. write(): writeFile(tmp) then rename(tmp,target) with NO re-stat of target before rename
+ *      (fs.ts former lines 106–108) — concurrent mutation of target is clobbered by rename.
+ *
+ * Closures:
+ *   - Pre-rename: re-createFsVersionToken(target); on mismatch abort rename, unlink tmp,
+ *     throw StaleVersionTokenAbort → refused/stale_version_token (write did not land).
+ *   - Post-rename: detect_stale_during_commit — content-hash of path must match sha256(body);
+ *     mismatch → committed_stale_detected (write landed; someone overwrote after rename).
+ *
  * Wired through executeIfUnchanged — not a parallel path.
  */
 export async function writeFileIfUnchanged(
   args: WriteFileIfUnchangedArgs,
-): Promise<ExecuteIfUnchangedOutcome<{ path: string; bytes: number }>> {
+): Promise<ExecuteIfUnchangedOutcome<{ path: string; bytes: number; written_content_hash: string }>> {
   const target = path.resolve(args.path);
   const body = typeof args.content === 'string' ? Buffer.from(args.content, 'utf8') : args.content;
+  const writtenHash = sha256hex(body);
 
   return executeIfUnchanged({
     expected_token: args.expected_token,
     current_token: () => createFsVersionToken(target),
+    detect_stale_during_commit: true,
+    // Post-commit: token content-hash must equal sha256 of what we wrote (mtime may vary).
+    expected_after_commit: async (result) => {
+      // Synthesize a comparable token: re-read path; equality is content-hash based via tokensEqual
+      // only if full token matches — mtime always changes on write, so we return the LIVE post
+      // token only when its hash matches writtenHash; else return a sentinel that cannot match.
+      const post = await createFsVersionToken(target);
+      const postHash = fsTokenContentHash(post);
+      if (postHash === result.written_content_hash) return post;
+      // Force mismatch → committed_stale_detected (detection, not rollback).
+      return `${FS_VERSION_TOKEN_PREFIX}0:stale_during_commit_mismatch`;
+    },
     write: async () => {
       const dir = path.dirname(target);
       await fsp.mkdir(dir, { recursive: true });
@@ -104,9 +144,20 @@ export async function writeFileIfUnchanged(
       );
       try {
         await fsp.writeFile(tmp, body);
+        // Close pre-rename window: if target moved since the executeIfUnchanged check, do not clobber.
+        const still = await createFsVersionToken(target);
+        if (!tokensEqual(args.expected_token, still)) {
+          try {
+            await fsp.unlink(tmp);
+          } catch {
+            /* ignore */
+          }
+          throw new StaleVersionTokenAbort(still);
+        }
         // Atomic replace on same filesystem (POSIX rename; Windows overwrite where supported).
         await fsp.rename(tmp, target);
       } catch (err) {
+        if (err instanceof StaleVersionTokenAbort) throw err;
         // Best-effort cleanup of temp — never leave partial target from failed rename.
         try {
           await fsp.unlink(tmp);
@@ -115,7 +166,7 @@ export async function writeFileIfUnchanged(
         }
         throw err;
       }
-      return { path: target, bytes: body.length };
+      return { path: target, bytes: body.length, written_content_hash: writtenHash };
     },
   });
 }

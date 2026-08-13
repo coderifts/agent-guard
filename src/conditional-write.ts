@@ -158,8 +158,11 @@ export function conditionalWriteResidual(input: {
 
 /**
  * Outcome of a conditional write attempt.
- * - committed: write ran under the expected token
- * - refused / stale_version_token: resource token moved; write did NOT run
+ * - committed: write ran under the expected token; post-check (if any) agreed
+ * - refused / stale_version_token: resource token moved BEFORE write; write did NOT run
+ * - committed_stale_detected / stale_during_commit: write DID run, but a post-commit
+ *   re-check found the resource no longer matches the write's expected post-state
+ *   (detection only — not a rollback)
  */
 export type ExecuteIfUnchangedOutcome<T> =
   | { status: 'committed'; result: T; version_token: VersionToken }
@@ -168,7 +171,28 @@ export type ExecuteIfUnchangedOutcome<T> =
       reason: 'stale_version_token';
       expected_token: VersionToken;
       current_token: VersionToken | null;
+    }
+  | {
+      status: 'committed_stale_detected';
+      reason: 'stale_during_commit';
+      result: T;
+      expected_token: VersionToken;
+      post_commit_token: VersionToken | null;
     };
+
+/**
+ * Thrown from write() when the adapter aborts BEFORE applying the mutation
+ * (e.g. pre-rename re-check). executeIfUnchanged maps this to status:'refused'.
+ * Not a public host API — adapters use it to stay on the single helper path.
+ */
+export class StaleVersionTokenAbort extends Error {
+  readonly current_token: VersionToken | null;
+  constructor(current_token: VersionToken | null) {
+    super('stale_version_token');
+    this.name = 'StaleVersionTokenAbort';
+    this.current_token = current_token;
+  }
+}
 
 export type ExecuteIfUnchangedArgs<T> = {
   /** Token the host measured before deciding to write (opaque string). */
@@ -180,12 +204,30 @@ export type ExecuteIfUnchangedArgs<T> = {
   current_token: () => VersionToken | null | Promise<VersionToken | null>;
   /** Mutation applied ONLY when current_token equals expected_token. */
   write: () => T | Promise<T>;
+  /**
+   * Opt-in post-commit detection (default false — byte-identical old paths).
+   * When true AND expected_after_commit is provided: after write(), re-read
+   * current_token and compare to expected_after_commit(result). Mismatch →
+   * committed_stale_detected (write already happened; honest report only).
+   *
+   * NOTE: do NOT compare post-commit to expected_token for content-changing
+   * writes — the token is supposed to change. Supply the token of the written state.
+   */
+  detect_stale_during_commit?: boolean;
+  /**
+   * Token that should hold after a successful write (the written state's token).
+   * Required when detect_stale_during_commit is true; ignored otherwise.
+   */
+  expected_after_commit?: (
+    result: T,
+  ) => VersionToken | null | Promise<VersionToken | null>;
 };
 
 /**
  * Host contract helper: re-check version token, then write or refuse.
  * Equality via tokensEqual only — never interprets token format.
- * Never throws for stale tokens (returns refused); write/current_token errors propagate.
+ * Never throws for stale tokens (returns refused / committed_stale_detected);
+ * write/current_token errors (other than StaleVersionTokenAbort) propagate.
  */
 export async function executeIfUnchanged<T>(
   args: ExecuteIfUnchangedArgs<T>,
@@ -208,6 +250,36 @@ export async function executeIfUnchanged<T>(
       current_token: current == null ? null : current,
     };
   }
-  const result = await args.write();
+
+  let result: T;
+  try {
+    result = await args.write();
+  } catch (err) {
+    if (err instanceof StaleVersionTokenAbort) {
+      return {
+        status: 'refused',
+        reason: 'stale_version_token',
+        expected_token: expected,
+        current_token: err.current_token,
+      };
+    }
+    throw err;
+  }
+
+  // Post-commit detection (best-effort honesty, not prevention).
+  if (args.detect_stale_during_commit === true && typeof args.expected_after_commit === 'function') {
+    const want = await args.expected_after_commit(result);
+    const post = await args.current_token();
+    if (!tokensEqual(want, post)) {
+      return {
+        status: 'committed_stale_detected',
+        reason: 'stale_during_commit',
+        result,
+        expected_token: expected,
+        post_commit_token: post == null ? null : post,
+      };
+    }
+  }
+
   return { status: 'committed', result, version_token: expected };
 }

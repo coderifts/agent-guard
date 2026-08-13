@@ -148,6 +148,7 @@ export {
   conditionalWriteResidual,
   RESIDUAL_UNCONDITIONAL_WRITE,
   executeIfUnchanged,
+  StaleVersionTokenAbort,
 } from './conditional-write.js';
 export type {
   VersionToken,
@@ -165,10 +166,10 @@ export {
   readVersionedFile,
   writeFileIfUnchanged,
   createFsPriorContentResolver,
+  fsTokenContentHash,
   FS_VERSION_TOKEN_PREFIX,
   FS_ABSENT_TOKEN,
 } from './cas-adapters/fs.js';
-
 // artifactResolver — automatic base/head contract artifacts from a pure git snapshot (upstream of
 // preflight; produces artifacts, never decides). Companion to MISSING_ARTIFACT_CONTENT.
 export { resolve as resolveArtifacts, classifyByName, blobMapKey } from './artifact-resolver.js';
