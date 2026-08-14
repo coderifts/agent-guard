@@ -171,6 +171,48 @@ export {
   FS_ABSENT_TOKEN,
 } from './cas-adapters/fs.js';
 
+// HTTP/API CAS adapter — ETag/If-Match discipline; host-injected I/O only (no fetch).
+export {
+  createApiVersionToken,
+  writeApiIfUnchanged,
+  apiTokenRaw,
+  API_VERSION_TOKEN_PREFIX,
+  API_ABSENT_TOKEN,
+} from './cas-adapters/api.js';
+export type {
+  WriteApiIfUnchangedArgs,
+  ApiHostWriteReport,
+  ApiWriteResult,
+} from './cas-adapters/api.js';
+
+// DB optimistic-lock CAS adapter — version column discipline; host-injected I/O only (no SQL drivers).
+export {
+  createDbVersionToken,
+  writeDbIfUnchanged,
+  dbTokenRaw,
+  DB_VERSION_TOKEN_PREFIX,
+  DB_ABSENT_TOKEN,
+} from './cas-adapters/db.js';
+export type {
+  WriteDbIfUnchangedArgs,
+  DbHostWriteReport,
+  DbWriteResult,
+} from './cas-adapters/db.js';
+
+// Registry compareAndSwap CAS adapter — host-injected I/O only (no registry SDKs).
+export {
+  createRegistryVersionToken,
+  writeRegistryIfUnchanged,
+  registryTokenRaw,
+  REGISTRY_VERSION_TOKEN_PREFIX,
+  REGISTRY_ABSENT_TOKEN,
+} from './cas-adapters/registry.js';
+export type {
+  WriteRegistryIfUnchangedArgs,
+  RegistryHostCasReport,
+  RegistryWriteResult,
+} from './cas-adapters/registry.js';
+
 // CAS attestation binder — separate cas-attestation.v1 record linking GuardExecutionProof +
 // ExecuteIfUnchangedOutcome. Does not mutate the proof shape (ID781 option A follow-on).
 export {
