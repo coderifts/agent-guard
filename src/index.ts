@@ -364,3 +364,23 @@ export type {
   ProofBoundGeminiFunctionResponse,
   BindGeminiGuardOutcomeArgs,
 } from './adapters/gemini.js';
+
+// Option A safe dispatcher — protected table + one framework tool call → ProofBound* only.
+// Closes manual-binder gap; no parallel guard path (uses ProtectedTool.execute → guardToolCall).
+export {
+  executeProtectedTool,
+  executeOpenAIToolCall,
+  executeAnthropicToolCall,
+  executeGeminiToolCall,
+  executeLangGraphToolCall,
+  isGuardOutcome,
+  surfaceEnvelopeFields,
+} from './execute-tool-call.js';
+export type {
+  ProtectedToolTableInput,
+  SurfacedEnvelopeFields,
+  ExecuteOpenAIToolCallArgs,
+  ExecuteAnthropicToolCallArgs,
+  ExecuteGeminiToolCallArgs,
+  ExecuteLangGraphToolCallArgs,
+} from './execute-tool-call.js';
