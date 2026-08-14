@@ -224,6 +224,54 @@ describe('deployGate — change_set_not_rebound residual (claim not flipped)', (
     assert.equal(g.reason, 'allow_current_deploy');
     assert.equal(g.inescapable_deploy, true, 'claim not flipped — residual only');
     assert.equal(g.residual, 'change_set_not_rebound', 'honesty: receipt not re-bound to current change set');
+    assert.deepEqual(g.residuals, ['change_set_not_rebound']);
     assert.notEqual(g.reason, 'fingerprint_mismatch', 'must not confusable with hard mismatch failure');
+  });
+});
+
+// ── residuals[] array (additive; singular residual priority preserved) ───────────────────────────
+describe('deployGate — residuals[] reports all co-occurring honesty residuals', () => {
+  it('clean ENFORCING + fingerprint re-bind → residuals=[] and residual undefined', () => {
+    const input = JSON.parse(JSON.stringify(row('DG-001').input));
+    const g = deployGate(input);
+    assert.equal(g.deploy_allowed, true);
+    assert.equal(g.inescapable_deploy, true);
+    assert.equal(g.residual, undefined);
+    assert.deepEqual(g.residuals, []);
+  });
+
+  it('single residual (bypass_open) → residuals=[same], singular byte-identical', () => {
+    const input = JSON.parse(JSON.stringify(row('DG-014').input));
+    // DG-014 has no verdict_fingerprint — supply a matching re-bind pair so only the
+    // enforcement residual applies (change_set_not_rebound requires expected_fingerprint absent).
+    const fp =
+      input.receipt.verdict_fingerprint ??
+      'sha256:1111111111111111111111111111111111111111111111111111111111111111';
+    input.receipt.verdict_fingerprint = fp;
+    input.requiredContext.expected_fingerprint = fp;
+    const g = deployGate(input);
+    assert.equal(g.residual, 'bypass_open');
+    assert.deepEqual(g.residuals, ['bypass_open']);
+  });
+
+  it('co-occurrence: bypass_open + no expected_fingerprint → both; singular = bypass first', () => {
+    const input = JSON.parse(JSON.stringify(row('DG-014').input));
+    delete input.requiredContext.expected_fingerprint;
+    const g = deployGate(input);
+    assert.equal(g.deploy_allowed, true);
+    assert.equal(g.residual, 'bypass_open', 'singular keeps measured priority (enforcement before change_set)');
+    assert.deepEqual(
+      g.residuals,
+      ['bypass_open', 'change_set_not_rebound'],
+      'both co-occurring residuals reported (previously change_set was dropped)',
+    );
+  });
+
+  it('co-occurrence: enforcement_not_configured + no fingerprint → both residuals', () => {
+    const input = JSON.parse(JSON.stringify(row('DG-013').input)); // ADVISORY
+    delete input.requiredContext.expected_fingerprint;
+    const g = deployGate(input);
+    assert.equal(g.residual, 'enforcement_not_configured');
+    assert.deepEqual(g.residuals, ['enforcement_not_configured', 'change_set_not_rebound']);
   });
 });

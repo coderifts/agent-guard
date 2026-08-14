@@ -273,6 +273,69 @@ describe('gateDecision — change_set_not_rebound residual (claim not flipped)',
     assert.equal(g.reason, 'allow_current_head');
     assert.equal(g.inescapable_merge, true, 'claim not flipped — residual only');
     assert.equal(g.residual, 'change_set_not_rebound', 'honesty: receipt not re-bound to current change set');
+    assert.deepEqual(g.residuals, ['change_set_not_rebound'], 'singular residual mirrored in residuals[]');
     assert.notEqual(g.reason, 'fingerprint_mismatch', 'must not confusable with hard mismatch failure');
+  });
+});
+
+// ── residuals[] array (additive; singular residual priority preserved) ───────────────────────────
+describe('gateDecision — residuals[] reports all co-occurring honesty residuals', () => {
+  it('clean ENFORCING + app-bound + fingerprint re-bind → residuals=[] and residual undefined', () => {
+    const input = JSON.parse(JSON.stringify(row('MG-001').input));
+    input.requiredContext.protection.required_check_app_bound = true;
+    const g = gateDecision(input);
+    assert.equal(g.merge_allowed, true);
+    assert.equal(g.inescapable_merge, true);
+    assert.equal(g.residual, undefined);
+    assert.deepEqual(g.residuals, []);
+  });
+
+  it('single residual (ADVISORY) → residuals=[same], singular byte-identical', () => {
+    const input = JSON.parse(JSON.stringify(row('MG-013').input));
+    // MG-013 has no verdict_fingerprint — supply a matching re-bind pair so only the
+    // protection residual applies (change_set_not_rebound requires expected_fingerprint absent).
+    const fp =
+      input.receipt.verdict_fingerprint ??
+      'sha256:1111111111111111111111111111111111111111111111111111111111111111';
+    input.receipt.verdict_fingerprint = fp;
+    input.requiredContext.expected_fingerprint = fp;
+    const g = gateDecision(input);
+    assert.equal(g.residual, 'protection_advisory_only');
+    assert.deepEqual(g.residuals, ['protection_advisory_only']);
+  });
+
+  it('co-occurrence: ADVISORY + no expected_fingerprint → both residuals; singular = protection first', () => {
+    const input = JSON.parse(JSON.stringify(row('MG-013').input));
+    delete input.requiredContext.expected_fingerprint;
+    const g = gateDecision(input);
+    assert.equal(g.merge_allowed, true);
+    assert.equal(g.residual, 'protection_advisory_only', 'singular keeps measured priority (protection before change_set)');
+    assert.deepEqual(
+      g.residuals,
+      ['protection_advisory_only', 'change_set_not_rebound'],
+      'both co-occurring residuals reported (previously change_set was dropped)',
+    );
+  });
+
+  it('co-occurrence: ENFORCING inescapable + app_binding_unknown + no fingerprint → both; singular = app first', () => {
+    const input = JSON.parse(JSON.stringify(row('MG-001').input));
+    // remove app-bound confirmation (unknown) and drop expected_fingerprint
+    delete input.requiredContext.protection.required_check_app_bound;
+    delete input.requiredContext.expected_fingerprint;
+    const g = gateDecision(input);
+    assert.equal(g.inescapable_merge, true);
+    assert.equal(g.residual, 'required_check_app_binding_unknown');
+    assert.deepEqual(g.residuals, [
+      'required_check_app_binding_unknown',
+      'change_set_not_rebound',
+    ]);
+  });
+
+  it('failure path carries residuals:[] (no honesty residual channel on deny)', () => {
+    const input = JSON.parse(JSON.stringify(row('MG-004').input));
+    const g = gateDecision(input);
+    assert.equal(g.merge_allowed, false);
+    assert.deepEqual(g.residuals, []);
+    assert.equal(g.residual, undefined);
   });
 });

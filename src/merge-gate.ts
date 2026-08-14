@@ -118,8 +118,16 @@ export type GateDecision = {
    * Named honesty residual on an otherwise-green check (§4.2). Usually present when
    * inescapable_merge is false; may also name an app-binding gap while inescapable_merge
    * remains true (published callers cannot supply that fact yet — residual only, no flip).
+   *
+   * Compat: always the FIRST residual in evaluation order (same priority as pre-array
+   * single-slot assembly). Prefer `residuals` when co-occurrence matters.
    */
   residual?: GateReason;
+  /**
+   * ALL applicable honesty residuals in evaluation order (no duplicates).
+   * Empty array when none. Additive — singular `residual` remains for published callers.
+   */
+  residuals: GateReason[];
   detail: { prHeadSha: string; bound_head_sha: string | null; decision: string | null };
 };
 
@@ -180,7 +188,9 @@ export function gateDecision(input: GateDecisionInput): GateDecision {
     decision: receipt ? String(receipt.decision) : null,
   };
   const fail = (state: GateStatusState, reason: GateReason): GateDecision => ({
-    merge_allowed: false, state, reason, enforcement_state, inescapable_merge: false, detail,
+    merge_allowed: false, state, reason, enforcement_state, inescapable_merge: false,
+    residuals: [],
+    detail,
   });
 
   // 1) incomplete head → pending/failure (fail-closed on missing evaluation input).
@@ -230,29 +240,34 @@ export function gateDecision(input: GateDecisionInput): GateDecision {
   //     axis is residual-only (below).
   const inescapable_merge = enforcement_state === 'ENFORCING' && protection.admin_bypass_possible === false;
 
-  let residual: GateReason | undefined;
+  // Collect ALL applicable honesty residuals in evaluation order (no overwrite, no duplicates).
+  // Priority for singular `residual` = residuals[0] (first / highest priority) — preserves the
+  // pre-array single-slot priority: protection-axis → app-binding → change_set_not_rebound.
+  const residuals: GateReason[] = [];
   if (!inescapable_merge) {
-    if (enforcement_state === 'ENFORCING') residual = 'admin_bypass_open';          // required, but admins can override
-    else if (enforcement_state === 'ADVISORY') residual = 'protection_advisory_only'; // posted but not required
-    else residual = 'protection_not_configured';                                     // ABSENT or UNKNOWN — cannot attest
+    if (enforcement_state === 'ENFORCING') residuals.push('admin_bypass_open');          // required, but admins can override
+    else if (enforcement_state === 'ADVISORY') residuals.push('protection_advisory_only'); // posted but not required
+    else residuals.push('protection_not_configured');                                     // ABSENT or UNKNOWN — cannot attest
   } else {
     // Claim is still true (existing contract). Residual names app-binding honesty only when
     // the host has not confirmed a non-spoofable required check.
     if (protection.required_check_app_bound === true) {
       // confirmed app-bound — no residual
     } else if (protection.required_check_app_bound === false) {
-      residual = 'required_check_app_not_bound';
+      residuals.push('required_check_app_not_bound');
     } else {
-      residual = 'required_check_app_binding_unknown'; // field absent: unknown ≠ not bound
+      residuals.push('required_check_app_binding_unknown'); // field absent: unknown ≠ not bound
     }
   }
 
-  // Optional change-set re-bind skipped: record the gap, do not flip the claim (same residual-only
-  // shape as required_check_app_*). Only fills when no residual is already named. Distinct from
-  // fingerprint_mismatch (hard fail when a re-bind was requested and disagreed).
-  if (rc.expected_fingerprint == null && residual === undefined) {
-    residual = 'change_set_not_rebound';
+  // Optional change-set re-bind skipped: record the gap, do not flip the claim.
+  // Co-occurs with protection/app residuals (previously dropped when singular residual was set).
+  // Distinct from fingerprint_mismatch (hard fail when a re-bind was requested and disagreed).
+  if (rc.expected_fingerprint == null) {
+    residuals.push('change_set_not_rebound');
   }
+
+  const residual = residuals.length > 0 ? residuals[0] : undefined;
 
   return {
     merge_allowed: true,
@@ -260,6 +275,7 @@ export function gateDecision(input: GateDecisionInput): GateDecision {
     reason: 'allow_current_head',
     enforcement_state,
     inescapable_merge,
+    residuals,
     ...(residual ? { residual } : {}),
     detail,
   };

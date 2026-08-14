@@ -116,8 +116,17 @@ export type DeployGateDecision = {
   reason: DeployGateReason;
   enforcement_state: EnforcementState;
   inescapable_deploy: boolean;
-  /** Named residual when the check is green but NOT inescapable (honesty channel, §3.2). */
+  /**
+   * Named residual when the check is green but NOT inescapable (honesty channel, §3.2).
+   * Compat: FIRST residual in evaluation order (same priority as pre-array single-slot).
+   * Prefer `residuals` when co-occurrence matters.
+   */
   residual?: DeployGateReason;
+  /**
+   * ALL applicable honesty residuals in evaluation order (no duplicates).
+   * Empty array when none. Additive — singular `residual` remains for published callers.
+   */
+  residuals: DeployGateReason[];
   detail: {
     environment: string;
     artifact_id: string;
@@ -189,7 +198,9 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
     operation: receipt && receipt.operation != null ? String(receipt.operation) : null,
   };
   const deny = (state: GateStatusState, reason: DeployGateReason): DeployGateDecision => ({
-    deploy_allowed: false, state, reason, enforcement_state, inescapable_deploy: false, detail,
+    deploy_allowed: false, state, reason, enforcement_state, inescapable_deploy: false,
+    residuals: [],
+    detail,
   });
 
   // 0) incomplete target → pending/failure (fail-closed on missing evaluation input).
@@ -249,19 +260,21 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
   //     the step AND no bypass is possible. Never true otherwise.
   const inescapable_deploy = enforcement_state === 'ENFORCING' && enf.bypass_possible === false;
 
-  let residual: DeployGateReason | undefined;
+  // Collect ALL applicable honesty residuals in evaluation order (no overwrite).
+  // Singular residual = residuals[0] (enforcement-axis before change_set_not_rebound).
+  const residuals: DeployGateReason[] = [];
   if (!inescapable_deploy) {
-    if (enforcement_state === 'ENFORCING') residual = 'bypass_open';        // enforced, but a bypass exists
-    else residual = 'enforcement_not_configured';                          // ADVISORY / ABSENT / UNKNOWN
+    if (enforcement_state === 'ENFORCING') residuals.push('bypass_open');        // enforced, but a bypass exists
+    else residuals.push('enforcement_not_configured');                          // ADVISORY / ABSENT / UNKNOWN
   }
 
-  // Optional change-set re-bind skipped: record the gap, do not flip the claim (same residual-only
-  // shape as merge-gate change_set_not_rebound / required_check_app_*). Only fills when no residual
-  // is already named. Distinct from fingerprint_mismatch (hard fail when a re-bind was requested
-  // and disagreed).
-  if (rc.expected_fingerprint == null && residual === undefined) {
-    residual = 'change_set_not_rebound';
+  // Optional change-set re-bind skipped: co-occurs with enforcement residuals
+  // (previously dropped when singular residual was already set). Distinct from fingerprint_mismatch.
+  if (rc.expected_fingerprint == null) {
+    residuals.push('change_set_not_rebound');
   }
+
+  const residual = residuals.length > 0 ? residuals[0] : undefined;
 
   return {
     deploy_allowed: true,
@@ -269,6 +282,7 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
     reason: 'allow_current_deploy',
     enforcement_state,
     inescapable_deploy,
+    residuals,
     ...(residual ? { residual } : {}),
     detail,
   };
