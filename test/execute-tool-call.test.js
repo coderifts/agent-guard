@@ -315,59 +315,423 @@ describe('executeOpenAIToolCall — audit-D matrix', () => {
   });
 });
 
-// ── Other frameworks (shape smoke + BLOCK) ───────────────────────────────────
-describe('executeAnthropic / Gemini / LangGraph faces', () => {
-  it('Anthropic ALLOW success is tool_result branded shape', async () => {
-    const table = makeTable();
+// ── Shared scenario builders (same harness as OpenAI matrix; face asserts differ) ─
+function tableAllowSuccess(execute = async () => ({ applied: true })) {
+  return makeTable({
+    tools: [{ name: 'apply_openapi', mutationClass: 'mutating', execute }],
+  });
+}
+
+function tableAllowThrow() {
+  return makeTable({
+    tools: [{
+      name: 'apply_openapi',
+      mutationClass: 'mutating',
+      execute: async () => {
+        throw new Error('boom-side-effect');
+      },
+    }],
+  });
+}
+
+function tableBlock(factoryFlag) {
+  const env = envelope('STOP', 'BLOCK', {
+    decision_id: 'dec_block_1',
+    required_action: 'Fix breaking change before re-requesting authorize',
+    next_actions: [{ type: 'REEVALUATE', required: true }],
+    breaking_changes: 2,
+  });
+  return makeTable({
+    client: mockClient({
+      preflight: () => ({
+        decision: 'BLOCK',
+        execution_action: 'STOP',
+        decision_result: env,
+      }),
+    }),
+    tools: [{
+      name: 'apply_openapi',
+      mutationClass: 'mutating',
+      execute: async () => {
+        if (factoryFlag) factoryFlag.ran = true;
+        return { applied: true };
+      },
+    }],
+  });
+}
+
+function tableDrift(factoryFlag) {
+  const OP = 'tool_call';
+  const A = [{ id: 'a', type: 'openapi', before: 'x', after: 'A' }];
+  const A_PRIME = [{ id: 'a', type: 'openapi', before: 'x', after: 'A-DRIFTED' }];
+  const fpA = computeCanonicalBundleFingerprint(A, { operation: OP });
+  const env = envelope('CONTINUE', 'ALLOW', { fingerprint: fpA, operation: OP });
+  env.input_fingerprint = fpA;
+  return {
+    A_PRIME,
+    table: makeTable({
+      requireExecutionStateMatch: true,
+      client: mockClient({
+        preflight: () => ({
+          decision: 'ALLOW',
+          execution_action: 'CONTINUE',
+          decision_result: env,
+        }),
+      }),
+      tools: [{
+        name: 'apply_openapi',
+        mutationClass: 'mutating',
+        execute: async () => {
+          if (factoryFlag) factoryFlag.ran = true;
+          return { applied: true };
+        },
+      }],
+    }),
+  };
+}
+
+function tableUnknown(factoryFlag) {
+  return makeTable({
+    tools: [{
+      name: 'apply_openapi',
+      mutationClass: 'mutating',
+      execute: async () => {
+        if (factoryFlag) factoryFlag.ran = true;
+        return { applied: true };
+      },
+    }],
+  });
+}
+
+// ── Anthropic face — full audit-D matrix (was smoke only) ────────────────────
+describe('executeAnthropicToolCall — audit-D matrix', () => {
+  it('(i) ALLOW + success → proof-bound tool_result shape', async () => {
     const r = await executeAnthropicToolCall({
-      tools: table,
+      tools: tableAllowSuccess(),
       tool_use_id: 'tu_1',
       name: 'apply_openapi',
       arguments: contractArgs(),
     });
     assert.equal(r.type, 'tool_result');
     assert.equal(r.tool_use_id, 'tu_1');
+    assert.equal(typeof r.content, 'string');
     assert.match(r.content, /applied/);
+    assert.match(r.content, /execution proof|CodeRifts/i);
+    assert.deepEqual(Object.keys(r).sort(), ['content', 'tool_use_id', 'type']);
   });
 
-  it('Gemini BLOCK has gate_message, no result key, envelope when present', async () => {
-    const env = envelope('STOP', 'BLOCK', { decision_id: 'dec_g_block' });
-    const table = makeTable({
-      client: mockClient({
-        preflight: () => ({
-          decision: 'BLOCK',
-          execution_action: 'STOP',
-          decision_result: env,
-        }),
-      }),
+  it('(ii) ALLOW + execution error → proof-bound error, no fake result', async () => {
+    const r = await executeAnthropicToolCall({
+      tools: tableAllowThrow(),
+      tool_use_id: 'tu_err',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
     });
-    const r = await executeGeminiToolCall({
+    assert.equal(r.type, 'tool_result');
+    assert.match(r.content, /failed|boom-side-effect/i);
+    assert.doesNotMatch(r.content, /"applied":\s*true/);
+    assert.match(r.content, /CodeRifts|execution proof/i);
+  });
+
+  it('(iii) BLOCK → no execution, proof-bound refusal, envelope surfaced', async () => {
+    const flag = { ran: false };
+    const r = await executeAnthropicToolCall({
+      tools: tableBlock(flag),
+      tool_use_id: 'tu_block',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.equal(flag.ran, false);
+    assert.match(r.content, /did not permit execution/);
+    assert.match(r.content, /dec_block_1/);
+    assert.match(r.content, /decision envelope/i);
+    assert.doesNotMatch(r.content, /"applied":\s*true/);
+  });
+
+  it('(iv) requireExecutionStateMatch:true + drift → EXECUTION_STATE_DRIFT proof-bound', async () => {
+    const flag = { ran: false };
+    const { table, A_PRIME } = tableDrift(flag);
+    const r = await executeAnthropicToolCall({
       tools: table,
+      tool_use_id: 'tu_drift',
+      name: 'apply_openapi',
+      arguments: contractArgs(A_PRIME),
+    });
+    assert.equal(flag.ran, false);
+    assert.match(r.content, /did not permit execution|UNAVAILABLE/i);
+    assert.match(r.content, /EXECUTION_STATE_DRIFT|CodeRifts/i);
+  });
+
+  it('(v) dispatcher always embeds proof (measured soft-unavailable is for raw bind only)', async () => {
+    const r = await executeAnthropicToolCall({
+      tools: tableAllowSuccess(),
+      tool_use_id: 'tu_p',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.match(r.content, /proof_spec|execution proof|CodeRifts/i);
+    assert.ok(r.content.includes(EXECUTION_PROOF_SPEC) || /ENFORCED|AUTHORIZED|proof/i.test(r.content));
+  });
+
+  it('(vi) host-tampered tool_result without proof is detectable vs ProofBound return', async () => {
+    const bound = await executeAnthropicToolCall({
+      tools: tableAllowSuccess(),
+      tool_use_id: 'tu_brand',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    const tampered = {
+      type: 'tool_result',
+      tool_use_id: 'tu_brand',
+      content: '{"applied":true}',
+    };
+    assert.equal(bound.type, tampered.type);
+    assert.notEqual(bound.content, tampered.content);
+    assert.match(bound.content, /CodeRifts|execution proof|proof/i);
+    assert.doesNotMatch(tampered.content, /execution proof/i);
+    assert.ok(bound.content.length > tampered.content.length);
+  });
+
+  it('(vii) unknown tool name → typed refusal, factory unreachable', async () => {
+    const flag = { ran: false };
+    const r = await executeAnthropicToolCall({
+      tools: tableUnknown(flag),
+      tool_use_id: 'tu_missing',
+      name: 'not_in_table',
+      arguments: {},
+    });
+    assert.equal(flag.ran, false);
+    assert.match(r.content, /did not permit execution|UNAVAILABLE/i);
+    assert.doesNotMatch(r.content, /"applied":\s*true/);
+    assert.equal(r.tool_use_id, 'tu_missing');
+    assert.equal(r.type, 'tool_result');
+  });
+});
+
+// ── Gemini face — full audit-D matrix (object response; was BLOCK smoke only) ─
+describe('executeGeminiToolCall — audit-D matrix', () => {
+  it('(i) ALLOW + success → functionResponse object with result + proof fields', async () => {
+    const r = await executeGeminiToolCall({
+      tools: tableAllowSuccess(),
       name: 'apply_openapi',
       arguments: contractArgs(),
     });
     assert.equal(r.functionResponse.name, 'apply_openapi');
     const resp = r.functionResponse.response;
-    assert.ok(resp.gate_message);
-    assert.equal('result' in resp, false, 'must not fabricate result on BLOCK');
-    assert.ok(resp.decision_envelope);
-    assert.equal(resp.decision_envelope.decision_id, 'dec_g_block');
+    assert.ok(resp && typeof resp === 'object', 'Gemini response is an OBJECT (not stringified)');
+    assert.ok('result' in resp);
+    assert.deepEqual(resp.result, { applied: true });
+    // attachProofToAgentResponse object path
+    assert.ok(resp.final_answer_proof || resp.final_answer_proof_text);
+    assert.deepEqual(Object.keys(r).sort(), ['functionResponse']);
+    assert.deepEqual(Object.keys(r.functionResponse).sort(), ['name', 'response']);
   });
 
-  it('LangGraph ALLOW success has tool_call_id + name', async () => {
-    const table = makeTable();
-    const r = await executeLangGraphToolCall({
+  it('(ii) ALLOW + execution error → gate_message, no fabricated result key', async () => {
+    const r = await executeGeminiToolCall({
+      tools: tableAllowThrow(),
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    const resp = r.functionResponse.response;
+    assert.ok(resp.gate_message);
+    assert.match(String(resp.gate_message), /failed|boom-side-effect/i);
+    assert.equal('result' in resp, false, 'must not fabricate result on error');
+    assert.ok(resp.final_answer_proof || resp.final_answer_proof_text);
+  });
+
+  it('(iii) BLOCK → no execution, gate_message, no result, envelope surfaced', async () => {
+    const flag = { ran: false };
+    const r = await executeGeminiToolCall({
+      tools: tableBlock(flag),
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.equal(flag.ran, false);
+    const resp = r.functionResponse.response;
+    assert.ok(resp.gate_message);
+    assert.match(String(resp.gate_message), /did not permit execution/);
+    assert.equal('result' in resp, false);
+    assert.ok(resp.decision_envelope);
+    assert.equal(resp.decision_envelope.decision_id, 'dec_block_1');
+    assert.ok(resp.final_answer_proof || resp.final_answer_proof_text);
+  });
+
+  it('(iv) requireExecutionStateMatch:true + drift → EXECUTION_STATE_DRIFT proof-bound', async () => {
+    const flag = { ran: false };
+    const { table, A_PRIME } = tableDrift(flag);
+    const r = await executeGeminiToolCall({
       tools: table,
+      name: 'apply_openapi',
+      arguments: contractArgs(A_PRIME),
+    });
+    assert.equal(flag.ran, false);
+    const resp = r.functionResponse.response;
+    assert.equal('result' in resp, false);
+    assert.ok(resp.gate_message);
+    assert.match(String(resp.gate_message), /did not permit execution|UNAVAILABLE/i);
+    // proof text or gate mentions drift cause
+    const blob = JSON.stringify(resp);
+    assert.match(blob, /EXECUTION_STATE_DRIFT|CodeRifts|execution proof|UNAVAILABLE/i);
+  });
+
+  it('(v) dispatcher always embeds proof on Gemini object path', async () => {
+    const r = await executeGeminiToolCall({
+      tools: tableAllowSuccess(),
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    const resp = r.functionResponse.response;
+    assert.ok(
+      resp.final_answer_proof
+      || (typeof resp.final_answer_proof_text === 'string' && resp.final_answer_proof_text.length > 0),
+    );
+    if (resp.final_answer_proof) {
+      assert.equal(resp.final_answer_proof.proof_spec, EXECUTION_PROOF_SPEC);
+    }
+  });
+
+  it('(vi) host-tampered functionResponse without proof is detectable', async () => {
+    const bound = await executeGeminiToolCall({
+      tools: tableAllowSuccess(),
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    const tampered = {
+      functionResponse: {
+        name: 'apply_openapi',
+        response: { result: { applied: true } }, // no final_answer_proof*
+      },
+    };
+    assert.equal(bound.functionResponse.name, tampered.functionResponse.name);
+    assert.ok(bound.functionResponse.response.final_answer_proof
+      || bound.functionResponse.response.final_answer_proof_text);
+    assert.equal('final_answer_proof' in tampered.functionResponse.response, false);
+    assert.equal('final_answer_proof_text' in tampered.functionResponse.response, false);
+  });
+
+  it('(vii) unknown tool name → typed refusal, no result key, factory unreachable', async () => {
+    const flag = { ran: false };
+    const r = await executeGeminiToolCall({
+      tools: tableUnknown(flag),
+      name: 'not_in_table',
+      arguments: {},
+    });
+    assert.equal(flag.ran, false);
+    assert.equal(r.functionResponse.name, 'not_in_table');
+    const resp = r.functionResponse.response;
+    assert.ok(resp.gate_message);
+    assert.equal('result' in resp, false);
+    assert.match(String(resp.gate_message), /did not permit execution|UNAVAILABLE/i);
+  });
+});
+
+// ── LangGraph face — full audit-D matrix (was ALLOW smoke only) ──────────────
+describe('executeLangGraphToolCall — audit-D matrix', () => {
+  it('(i) ALLOW + success → proof-bound ToolMessage shape', async () => {
+    const r = await executeLangGraphToolCall({
+      tools: tableAllowSuccess(),
       tool_call_id: 'lg_1',
       name: 'apply_openapi',
       arguments: contractArgs(),
     });
     assert.equal(r.tool_call_id, 'lg_1');
     assert.equal(r.name, 'apply_openapi');
+    assert.equal(typeof r.content, 'string');
     assert.match(r.content, /applied/);
+    assert.match(r.content, /execution proof|CodeRifts/i);
+    assert.deepEqual(Object.keys(r).sort(), ['content', 'name', 'tool_call_id']);
   });
 
-  it('withCodeRifts result accepted as tools table (protected_tools path)', async () => {
+  it('(ii) ALLOW + execution error → proof-bound error, no fake result', async () => {
+    const r = await executeLangGraphToolCall({
+      tools: tableAllowThrow(),
+      tool_call_id: 'lg_err',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.match(r.content, /failed|boom-side-effect/i);
+    assert.doesNotMatch(r.content, /"applied":\s*true/);
+    assert.match(r.content, /CodeRifts|execution proof/i);
+  });
+
+  it('(iii) BLOCK → no execution, proof-bound refusal, envelope surfaced', async () => {
+    const flag = { ran: false };
+    const r = await executeLangGraphToolCall({
+      tools: tableBlock(flag),
+      tool_call_id: 'lg_block',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.equal(flag.ran, false);
+    assert.match(r.content, /did not permit execution/);
+    assert.match(r.content, /dec_block_1/);
+    assert.match(r.content, /decision envelope/i);
+    assert.doesNotMatch(r.content, /"applied":\s*true/);
+  });
+
+  it('(iv) requireExecutionStateMatch:true + drift → EXECUTION_STATE_DRIFT proof-bound', async () => {
+    const flag = { ran: false };
+    const { table, A_PRIME } = tableDrift(flag);
+    const r = await executeLangGraphToolCall({
+      tools: table,
+      tool_call_id: 'lg_drift',
+      name: 'apply_openapi',
+      arguments: contractArgs(A_PRIME),
+    });
+    assert.equal(flag.ran, false);
+    assert.match(r.content, /did not permit execution|UNAVAILABLE/i);
+    assert.match(r.content, /EXECUTION_STATE_DRIFT|CodeRifts/i);
+  });
+
+  it('(v) dispatcher always embeds proof', async () => {
+    const r = await executeLangGraphToolCall({
+      tools: tableAllowSuccess(),
+      tool_call_id: 'lg_p',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.match(r.content, /proof_spec|execution proof|CodeRifts/i);
+    assert.ok(r.content.includes(EXECUTION_PROOF_SPEC) || /ENFORCED|AUTHORIZED|proof/i.test(r.content));
+  });
+
+  it('(vi) host-tampered ToolMessage without proof is detectable', async () => {
+    const bound = await executeLangGraphToolCall({
+      tools: tableAllowSuccess(),
+      tool_call_id: 'lg_brand',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    const tampered = {
+      content: '{"applied":true}',
+      tool_call_id: 'lg_brand',
+      name: 'apply_openapi',
+    };
+    assert.equal(bound.tool_call_id, tampered.tool_call_id);
+    assert.notEqual(bound.content, tampered.content);
+    assert.match(bound.content, /CodeRifts|execution proof|proof/i);
+    assert.doesNotMatch(tampered.content, /execution proof/i);
+    assert.ok(bound.content.length > tampered.content.length);
+  });
+
+  it('(vii) unknown tool name → typed refusal, factory unreachable', async () => {
+    const flag = { ran: false };
+    const r = await executeLangGraphToolCall({
+      tools: tableUnknown(flag),
+      tool_call_id: 'lg_missing',
+      name: 'not_in_table',
+      arguments: {},
+    });
+    assert.equal(flag.ran, false);
+    assert.match(r.content, /did not permit execution|UNAVAILABLE/i);
+    assert.doesNotMatch(r.content, /"applied":\s*true/);
+    assert.equal(r.tool_call_id, 'lg_missing');
+    assert.equal(r.name, 'not_in_table');
+  });
+});
+
+describe('executeOpenAIToolCall — withCodeRifts table path (regression)', () => {
+  it('withCodeRifts result accepted as tools table', async () => {
     const core = withCodeRifts({
       tools: [
         {
