@@ -170,6 +170,21 @@ export {
   FS_VERSION_TOKEN_PREFIX,
   FS_ABSENT_TOKEN,
 } from './cas-adapters/fs.js';
+
+// CAS attestation binder — separate cas-attestation.v1 record linking GuardExecutionProof +
+// ExecuteIfUnchangedOutcome. Does not mutate the proof shape (ID781 option A follow-on).
+export {
+  buildCasAttestation,
+  isGuardExecutionProof,
+  isExecuteIfUnchangedOutcome,
+  CAS_ATTESTATION_SPEC,
+} from './cas-attestation.js';
+export type {
+  CasAttestation,
+  CasAttestationCas,
+  CasAttestationLimits,
+} from './cas-attestation.js';
+
 // artifactResolver — automatic base/head contract artifacts from a pure git snapshot (upstream of
 // preflight; produces artifacts, never decides). Companion to MISSING_ARTIFACT_CONTENT.
 export { resolve as resolveArtifacts, classifyByName, blobMapKey } from './artifact-resolver.js';
