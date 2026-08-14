@@ -19,7 +19,11 @@ import { builtinDetector } from './detector.js';
 import { bindReceiptToEnvelope } from './receipt-binding.js';
 import type { BindCause, VerifyReceiptResultLike } from './receipt-binding.js';
 import { evaluateEnvelope } from './enforcement-gate.js';
-import { checkExecutionTimeFingerprint } from './execution-time-fingerprint.js';
+import {
+  checkExecutionTimeFingerprint,
+  isUnmeasurableExecutionStateReason,
+  EXECUTION_STATE_UNMEASURABLE_NOTE,
+} from './execution-time-fingerprint.js';
 import { buildExecutionProof } from './execution-proof.js';
 import {
   buildFreshnessBasis,
@@ -603,6 +607,9 @@ export async function guardToolCall<T>(
       if (!et.match) {
         if (execStateMode === true) {
           // enforce path — behaviorally identical to step 1 (block; do not change).
+          // @7 candidate (not this pass): split the refusal cause so missing_authorized_fingerprint /
+          // missing_artifacts do not collapse into EXECUTION_STATE_DRIFT (consumers may match that
+          // cause string). Changing the cause value is a breaking surface — leave true-mode as-is.
           breakerRecord(config);
           return closedIntegrity(
             config,
@@ -614,15 +621,30 @@ export async function guardToolCall<T>(
             detection.artifacts,
           );
         }
-        // warn path — emit drift telemetry, then fall through to executeFactory (observeOnly spirit).
-        emit(config, {
-          type: 'execution_state_drift_observed',
-          at: iso(),
-          decisionId: envelope.decision_id,
-          current_fingerprint: et.current_fingerprint,
-          authorized_fingerprint: et.authorized_fingerprint,
-          reason: et.reason,
-        });
+        // warn path — split signals (step3a noise-fix for a future default-to-warn):
+        //   real drift (fingerprint_stale_at_execute) → execution_state_drift_observed (loud, shape frozen)
+        //   unmeasurable (missing_artifacts | missing_authorized_fingerprint) → execution_state_unmeasurable
+        // Then fall through to executeFactory either way.
+        if (isUnmeasurableExecutionStateReason(et.reason)) {
+          emit(config, {
+            type: 'execution_state_unmeasurable',
+            at: iso(),
+            decisionId: envelope.decision_id,
+            current_fingerprint: et.current_fingerprint,
+            authorized_fingerprint: et.authorized_fingerprint,
+            reason: et.reason,
+            note: EXECUTION_STATE_UNMEASURABLE_NOTE,
+          });
+        } else {
+          emit(config, {
+            type: 'execution_state_drift_observed',
+            at: iso(),
+            decisionId: envelope.decision_id,
+            current_fingerprint: et.current_fingerprint,
+            authorized_fingerprint: et.authorized_fingerprint,
+            reason: et.reason,
+          });
+        }
       }
       // match in warn or enforce → proceed silently (no matched event — drift-only telemetry).
     }

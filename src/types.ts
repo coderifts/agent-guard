@@ -85,9 +85,12 @@ export interface GuardConfig {
    * Tri-state (least-breaking: keeps boolean semantics; only `'warn'` is new):
    *   - false / absent  → off (default) — no recheck
    *   - true            → enforce — hard-block with EXECUTION_STATE_DRIFT on mismatch (step 1 behavior)
-   *   - 'warn'          → report-only — emit `execution_state_drift_observed` on mismatch, still execute
+   *   - 'warn'          → report-only — on real drift emit `execution_state_drift_observed` (loud);
+   *                       on unmeasurable state emit `execution_state_unmeasurable` (quiet);
+   *                       still execute either way. Match → no event.
    *
-   * Default remains off. warn and enforce are both opt-in; a default flip is a later versioned decision.
+   * Default remains off. warn and enforce are both opt-in; a default flip (step3b, guard@7) will
+   * ride on the **loud** signal only — quiet unmeasurable is not drift evidence.
    */
   requireExecutionStateMatch?: boolean | 'warn';
 }
@@ -224,6 +227,14 @@ export type GuardEvent =
       at: string; correlationId?: string; decisionId?: string;
       action?: ExecutionAction; cause?: string; durationMs?: number;
       signals?: string[]; detectorVersion?: string }
-  /** ID842 step 3a — warn-mode only: T2 fingerprint drift observed; execution still proceeds. */
+  /** ID842 step 3a — warn-mode only: real T2 fingerprint drift observed; execution still proceeds. */
   | { type: 'execution_state_drift_observed'; at: string; decisionId?: string;
-      current_fingerprint: string | null; authorized_fingerprint: string | null; reason: string };
+      current_fingerprint: string | null; authorized_fingerprint: string | null; reason: string }
+  /**
+   * ID842 warn-mode only: T2 recheck could not measure (nothing to compare). Quiet — not evidence of
+   * drift and not evidence of safety. Distinct from `execution_state_drift_observed` so hosts can
+   * filter noise before a future default-to-warn flip.
+   */
+  | { type: 'execution_state_unmeasurable'; at: string; decisionId?: string;
+      current_fingerprint: string | null; authorized_fingerprint: string | null; reason: string;
+      note: string };

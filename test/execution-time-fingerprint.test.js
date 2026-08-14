@@ -19,6 +19,8 @@ const {
   computeCanonicalBundleFingerprint,
   authorizedFingerprintFromEnvelope,
   EXECUTION_TIME_FP_REASONS,
+  isUnmeasurableExecutionStateReason,
+  EXECUTION_STATE_UNMEASURABLE_NOTE,
 } = require('../dist/cjs/index.js');
 
 const ARTIFACTS_A = [
@@ -114,6 +116,10 @@ function driftEvents(events) {
   return events.filter((e) => e && e.type === 'execution_state_drift_observed');
 }
 
+function unmeasurableEvents(events) {
+  return events.filter((e) => e && e.type === 'execution_state_unmeasurable');
+}
+
 // ── Pure primitive ──────────────────────────────────────────────────────────────
 describe('checkExecutionTimeFingerprint pure primitive', () => {
   it('(c) pure: same inputs → same verdict; no network', () => {
@@ -149,6 +155,28 @@ describe('checkExecutionTimeFingerprint pure primitive', () => {
     assert.equal(v.reason, EXECUTION_TIME_FP_REASONS.FINGERPRINT_STALE_AT_EXECUTE);
     assert.equal(v.current_fingerprint, FP_A_PRIME);
     assert.equal(v.authorized_fingerprint, FP_A);
+    assert.equal(isUnmeasurableExecutionStateReason(v.reason), false, 'stale is real drift (loud)');
+  });
+
+  it('empty artifacts → missing_artifacts (unmeasurable)', () => {
+    const v = checkExecutionTimeFingerprint({
+      artifacts: [],
+      authorizedFingerprint: FP_A,
+    });
+    assert.equal(v.match, false);
+    assert.equal(v.reason, EXECUTION_TIME_FP_REASONS.MISSING_ARTIFACTS);
+    assert.equal(isUnmeasurableExecutionStateReason(v.reason), true);
+  });
+
+  it('no authorized fingerprint → missing_authorized_fingerprint (unmeasurable)', () => {
+    const v = checkExecutionTimeFingerprint({
+      artifacts: ARTIFACTS_A,
+      context: CTX,
+      envelope: {},
+    });
+    assert.equal(v.match, false);
+    assert.equal(v.reason, EXECUTION_TIME_FP_REASONS.MISSING_AUTHORIZED_FINGERPRINT);
+    assert.equal(isUnmeasurableExecutionStateReason(v.reason), true);
   });
 
   it('authorizedFingerprintFromEnvelope prefers fingerprint', () => {
@@ -215,8 +243,8 @@ describe('execution-time fingerprint guard wire (TOCTOU)', () => {
     assert.equal(outcome.executed, true);
   });
 
-  // ── ID842 step 3a — warn mode (emit-and-proceed) ──────────────────────────
-  it("warn + drift → executes (executed:true) and emits execution_state_drift_observed", async () => {
+  // ── ID842 step 3a — warn mode (emit-and-proceed); loud vs quiet split ─────
+  it("warn + real drift → loud execution_state_drift_observed (shape byte-identical)", async () => {
     const { outcome, executed, events } = await run(ARTIFACTS_A_PRIME, FP_A, {
       requireExecutionStateMatch: 'warn',
     });
@@ -225,49 +253,187 @@ describe('execution-time fingerprint guard wire (TOCTOU)', () => {
     assert.equal(outcome.enforced, true, 'warn still runs the enforced path; it only softens the T2 gate');
     assert.equal(outcome.verdict.kind, 'ALLOW');
     const drifts = driftEvents(events);
-    assert.equal(drifts.length, 1, 'exactly one drift event');
-    assert.equal(drifts[0].type, 'execution_state_drift_observed');
-    assert.equal(drifts[0].current_fingerprint, FP_A_PRIME);
-    assert.equal(drifts[0].authorized_fingerprint, FP_A);
-    assert.equal(drifts[0].reason, EXECUTION_TIME_FP_REASONS.FINGERPRINT_STALE_AT_EXECUTE);
+    assert.equal(drifts.length, 1, 'exactly one loud drift event');
+    assert.equal(unmeasurableEvents(events).length, 0, 'real drift must not also emit quiet');
+    // Shape regression-lock (byte-identical keys/values for real-drift cases)
+    assert.deepEqual(
+      {
+        type: drifts[0].type,
+        decisionId: drifts[0].decisionId,
+        current_fingerprint: drifts[0].current_fingerprint,
+        authorized_fingerprint: drifts[0].authorized_fingerprint,
+        reason: drifts[0].reason,
+      },
+      {
+        type: 'execution_state_drift_observed',
+        decisionId: 'dec_etfp_1',
+        current_fingerprint: FP_A_PRIME,
+        authorized_fingerprint: FP_A,
+        reason: EXECUTION_TIME_FP_REASONS.FINGERPRINT_STALE_AT_EXECUTE,
+      },
+    );
     assert.equal(typeof drifts[0].at, 'string');
-    assert.equal(drifts[0].decisionId, 'dec_etfp_1');
+    assert.equal('note' in drifts[0], false, 'loud event must not gain a note field');
   });
 
-  it('warn + match → executes, no drift event', async () => {
+  it('warn + missing artifacts → quiet ONLY, no loud, execution proceeds', async () => {
+    // hasAnalyzableContent runs before preflight; vanish artifacts during preflight so T2 sees [].
+    const real = [
+      { id: 'a', type: 'openapi', before: 'openapi: 3.0.0\ninfo: {title: A}', after: 'openapi: 3.0.1\ninfo: {title: A}' },
+    ];
+    let vanished = false;
+    const vanishing = new Proxy(real, {
+      get(t, p, r) {
+        if (vanished && p === 'length') return 0;
+        return Reflect.get(t, p, r);
+      },
+    });
+    const events = [];
+    let executed = false;
+    const env = envelope(FP_A);
+    const outcome = await guardToolCall(
+      { toolName: 'apply_openapi', arguments: {}, artifacts: vanishing },
+      async () => {
+        executed = true;
+        return 'SIDE_EFFECT';
+      },
+      {
+        client: {
+          async authorizeChangeSet(r) {
+            return this.preflightChangeSet({ ...r, preflight_mode: 'authorize' });
+          },
+          async preflightChangeSet() {
+            vanished = true; // after hasAnalyzableContent; before T2 recheck
+            return { decision: env.decision, execution_action: env.execution_action, decision_result: env };
+          },
+          async verifyReceipt() {
+            return { valid: true, status: 'VERIFIED_CURRENT', payload: signedFor(env) };
+          },
+        },
+        operation: OP,
+        environment: ENV,
+        requireExecutionStateMatch: 'warn',
+        onEvent: (e) => events.push(e),
+      },
+    );
+    assert.equal(executed, true, 'unmeasurable must not block');
+    assert.equal(outcome.executed, true);
+    assert.equal(driftEvents(events).length, 0, 'must not emit loud drift for unmeasurable');
+    const quiet = unmeasurableEvents(events);
+    assert.equal(quiet.length, 1);
+    assert.equal(quiet[0].type, 'execution_state_unmeasurable');
+    assert.equal(quiet[0].reason, EXECUTION_TIME_FP_REASONS.MISSING_ARTIFACTS);
+    assert.equal(quiet[0].note, EXECUTION_STATE_UNMEASURABLE_NOTE);
+    assert.equal(quiet[0].current_fingerprint, null);
+    assert.equal(quiet[0].authorized_fingerprint, FP_A);
+    assert.equal(quiet[0].decisionId, 'dec_etfp_1');
+  });
+
+  it('warn + missing authorized fingerprint → quiet ONLY, no loud, execution proceeds', async () => {
+    const events = [];
+    let executed = false;
+    // Receipt bind needs fingerprint present; strip after preflight_result so T2 sees no authorized fp.
+    const env = envelope(FP_A);
+    const outcome = await guardToolCall(
+      { toolName: 'apply_openapi', arguments: {}, artifacts: ARTIFACTS_A },
+      async () => {
+        executed = true;
+        return 'SIDE_EFFECT';
+      },
+      {
+        client: client(env),
+        operation: OP,
+        environment: ENV,
+        requireExecutionStateMatch: 'warn',
+        onEvent: (e) => {
+          events.push(e);
+          if (e.type === 'preflight_result') {
+            delete env.fingerprint;
+            delete env.input_fingerprint;
+            delete env.verdict_fingerprint;
+          }
+        },
+      },
+    );
+    assert.equal(executed, true);
+    assert.equal(outcome.executed, true);
+    assert.equal(driftEvents(events).length, 0, 'must not emit loud drift');
+    const quiet = unmeasurableEvents(events);
+    assert.equal(quiet.length, 1);
+    assert.equal(quiet[0].type, 'execution_state_unmeasurable');
+    assert.equal(quiet[0].reason, EXECUTION_TIME_FP_REASONS.MISSING_AUTHORIZED_FINGERPRINT);
+    assert.equal(quiet[0].note, EXECUTION_STATE_UNMEASURABLE_NOTE);
+    assert.equal(quiet[0].current_fingerprint, null);
+    assert.equal(quiet[0].authorized_fingerprint, null);
+  });
+
+  it('warn + match → executes, no loud and no quiet event', async () => {
     const { outcome, executed, events } = await run(ARTIFACTS_A, FP_A, {
       requireExecutionStateMatch: 'warn',
     });
     assert.equal(executed, true);
     assert.equal(outcome.executed, true);
     assert.equal(outcome.enforced, true);
-    assert.equal(driftEvents(events).length, 0, 'match must not emit drift telemetry');
+    assert.equal(driftEvents(events).length, 0, 'match must not emit loud drift');
+    assert.equal(unmeasurableEvents(events).length, 0, 'match must not emit quiet');
   });
 
-  it('enforce (true) + drift → still BLOCKED (regression: warn did not weaken enforce)', async () => {
+  it('enforce (true) + drift → still BLOCKED (regression: warn split did not weaken enforce)', async () => {
     const { outcome, executed, events } = await run(ARTIFACTS_A_PRIME, FP_A, {
       requireExecutionStateMatch: true,
     });
     assert.equal(executed, false);
     assert.equal(outcome.executed, false);
     assert.equal(outcome.verdict.cause, 'EXECUTION_STATE_DRIFT');
-    assert.equal(
-      driftEvents(events).length,
-      0,
-      'enforce path blocks via closedIntegrity; does not emit the warn-only event',
-    );
+    assert.equal(driftEvents(events).length, 0, 'enforce path does not emit warn events');
+    assert.equal(unmeasurableEvents(events).length, 0);
   });
 
-  it('off/default + drift → executes, NO drift event (unchanged)', async () => {
+  it('enforce (true) + missing authorized fingerprint → still EXECUTION_STATE_DRIFT (cause unchanged)', async () => {
+    // Regression-lock: true-mode still collapses unmeasurable into EXECUTION_STATE_DRIFT (@7 may split).
+    const events = [];
+    let executed = false;
+    const env = envelope(FP_A);
+    const outcome = await guardToolCall(
+      { toolName: 'apply_openapi', arguments: {}, artifacts: ARTIFACTS_A },
+      async () => {
+        executed = true;
+        return 'SIDE_EFFECT';
+      },
+      {
+        client: client(env),
+        operation: OP,
+        environment: ENV,
+        requireExecutionStateMatch: true,
+        onEvent: (e) => {
+          events.push(e);
+          if (e.type === 'preflight_result') {
+            delete env.fingerprint;
+            delete env.input_fingerprint;
+            delete env.verdict_fingerprint;
+          }
+        },
+      },
+    );
+    assert.equal(executed, false);
+    assert.equal(outcome.executed, false);
+    assert.equal(outcome.verdict.cause, 'EXECUTION_STATE_DRIFT');
+    assert.equal(driftEvents(events).length, 0);
+    assert.equal(unmeasurableEvents(events).length, 0);
+  });
+
+  it('off/default + drift → executes, NO loud/quiet events (byte-identical off)', async () => {
     const { outcome, executed, events } = await run(ARTIFACTS_A_PRIME, FP_A, {
       // requireExecutionStateMatch omitted
     });
     assert.equal(executed, true);
     assert.equal(outcome.executed, true);
     assert.equal(driftEvents(events).length, 0);
+    assert.equal(unmeasurableEvents(events).length, 0);
 
     const r2 = await run(ARTIFACTS_A_PRIME, FP_A, { requireExecutionStateMatch: false });
     assert.equal(r2.executed, true);
     assert.equal(driftEvents(r2.events).length, 0);
+    assert.equal(unmeasurableEvents(r2.events).length, 0);
   });
 });

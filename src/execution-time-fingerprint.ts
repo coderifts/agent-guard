@@ -89,6 +89,22 @@ export const EXECUTION_TIME_FP_REASONS = Object.freeze({
 export type ExecutionTimeFpReason =
   (typeof EXECUTION_TIME_FP_REASONS)[keyof typeof EXECUTION_TIME_FP_REASONS];
 
+/**
+ * Warn-mode classification: unmeasurable ≠ drift.
+ * - fingerprint_stale_at_execute → real drift (loud: execution_state_drift_observed)
+ * - missing_artifacts / missing_authorized_fingerprint → nothing to measure (quiet: execution_state_unmeasurable)
+ */
+export function isUnmeasurableExecutionStateReason(reason: string): boolean {
+  return (
+    reason === EXECUTION_TIME_FP_REASONS.MISSING_ARTIFACTS
+    || reason === EXECUTION_TIME_FP_REASONS.MISSING_AUTHORIZED_FINGERPRINT
+  );
+}
+
+/** Fixed note on the quiet warn event — not evidence of drift, not evidence of safety. */
+export const EXECUTION_STATE_UNMEASURABLE_NOTE =
+  'nothing to measure — not evidence of drift, not evidence of safety';
+
 export type ExecutionTimeFingerprintVerdict = {
   match: boolean;
   reason: ExecutionTimeFpReason;

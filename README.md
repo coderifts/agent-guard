@@ -67,23 +67,40 @@ requireExecutionStateMatch?: boolean | 'warn';
 | Mode | Value | Behavior |
 |---|---|---|
 | **OFF** (default) | `false` / absent | No recheck. Residual execution-state race as described under “TOCTOU is unclosed.” |
-| **Warn** (report-only) | `'warn'` | Rechecks. On **drift**, emits `execution_state_drift_observed` via **`onEvent`**, then **proceeds** (does not block). On match, silent (drift-only telemetry). Use this to gather production drift data without changing who executes. |
-| **Enforce** | `true` | Rechecks. On drift, **blocks** with integrity cause `EXECUTION_STATE_DRIFT` (factory never runs). Byte-identical to the original enforce path. |
+| **Warn** (report-only) | `'warn'` | Rechecks. On **real drift**, emits loud `execution_state_drift_observed` via **`onEvent`**, then **proceeds**. On **unmeasurable** state (nothing to compare), emits quiet `execution_state_unmeasurable` (not drift, not safety), then **proceeds**. On match, silent. |
+| **Enforce** | `true` | Rechecks. On mismatch, **blocks** with integrity cause `EXECUTION_STATE_DRIFT` (factory never runs). Byte-identical to the original enforce path. |
 
-Recommended adoption path: **off → `'warn'` (observe) → `true` (enforce)** once your own
-telemetry shows drift is rare and real. A default flip to enforce is a later, versioned
-product decision — not this mode’s job.
+**Two warn signals (noise-fix for a future default flip):**
 
-Warn-mode event (host-side only; the guard does **not** phone home), on `GuardConfig.onEvent`:
+| Event | When | Meaning |
+|---|---|---|
+| `execution_state_drift_observed` (loud) | `reason === fingerprint_stale_at_execute` | Authorized fp ≠ current artifacts hash — real T1→T2 content drift. |
+| `execution_state_unmeasurable` (quiet) | `missing_artifacts` or `missing_authorized_fingerprint` | Nothing to measure — **not** evidence of drift and **not** evidence of safety. |
+
+A future default flip to warn (step3b, guard@7) will ride on the **loud** signal only; quiet unmeasurable must not page as drift. Recommended adoption: **off → `'warn'` (observe loud only) → `true` (enforce)**.
+
+Warn-mode events (host-side only; the guard does **not** phone home), on `GuardConfig.onEvent`:
 
 ```ts
+// Loud — real drift (shape frozen; regression-locked)
 {
   type: 'execution_state_drift_observed';
   at: string;                         // ISO timestamp
   decisionId?: string;
   current_fingerprint: string | null;
   authorized_fingerprint: string | null;
-  reason: string;
+  reason: string;                     // fingerprint_stale_at_execute
+}
+
+// Quiet — unmeasurable (additive)
+{
+  type: 'execution_state_unmeasurable';
+  at: string;
+  decisionId?: string;
+  current_fingerprint: string | null;
+  authorized_fingerprint: string | null;
+  reason: string;                     // missing_artifacts | missing_authorized_fingerprint
+  note: 'nothing to measure — not evidence of drift, not evidence of safety';
 }
 ```
 
@@ -94,9 +111,10 @@ const outcome = await guardToolCall(call, executeFactory, {
   requireExecutionStateMatch: 'warn', // opt-in telemetry; still proceeds on drift
   onEvent: (e) => {
     if (e.type === 'execution_state_drift_observed') {
-      // host metrics / log — you own retention; nothing is sent to CodeRifts from here
+      // host metrics / log — real drift only; nothing is sent to CodeRifts from here
       console.warn('execution-state drift', e.decisionId, e.reason, e.current_fingerprint);
     }
+    // optional: e.type === 'execution_state_unmeasurable' → debug-only, do not page
   },
 });
 ```
@@ -746,8 +764,9 @@ Pass both on `withCodeRifts({ …, onEvent, monitoringSinkWired: true })`, or on
   host commits. Closing that needs a host-side conditional write (compare-and-swap on a version
   token) — this package never writes, and reports `conditional_write` as a host assertion it
   cannot verify. Opt-in **`requireExecutionStateMatch`** (`false` / `'warn'` / `true`) can
-  recheck the execution-time fingerprint before the factory (warn = telemetry via
-  `execution_state_drift_observed`; true = block with `EXECUTION_STATE_DRIFT`) — a detection or
+  recheck the execution-time fingerprint before the factory (warn = loud
+  `execution_state_drift_observed` on real drift / quiet `execution_state_unmeasurable` when
+  nothing to measure; true = block with `EXECUTION_STATE_DRIFT`) — a detection or
   enforcement aid, **not** a full TOCTOU closure. See the subsection above.
 - **Retry-safe** — `executionAttempted` is the only safe-to-retry signal; a post-authorization throw
   is `executionAttempted:true` (the remote side effect may have landed).

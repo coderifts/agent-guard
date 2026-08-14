@@ -47,6 +47,8 @@ export {
   checkExecutionTimeFingerprint,
   authorizedFingerprintFromEnvelope,
   computeCanonicalBundleFingerprint,
+  isUnmeasurableExecutionStateReason,
+  EXECUTION_STATE_UNMEASURABLE_NOTE,
   EXECUTION_TIME_FP_REASONS,
 } from './execution-time-fingerprint.js';
 export type {
