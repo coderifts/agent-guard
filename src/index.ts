@@ -227,6 +227,21 @@ export type {
   CasAttestationLimits,
 } from './cas-attestation.js';
 
+// Remediation-loop attestation — BLOCK remediation_transaction + ALLOW proof (+ optional CAS).
+// Pure binder; no app-side server-echo remediation_of (future stronger form — see JSDoc).
+export {
+  buildRemediationLoopAttestation,
+  readRemediationTransaction,
+  readPriorBlockRemediation,
+  isCasAttestation,
+  REMEDIATION_LOOP_ATTESTATION_SPEC,
+} from './remediation-loop-attestation.js';
+export type {
+  RemediationLoopAttestation,
+  RemediationLoopAttestationLimits,
+  RemediationTransactionView,
+} from './remediation-loop-attestation.js';
+
 // artifactResolver — automatic base/head contract artifacts from a pure git snapshot (upstream of
 // preflight; produces artifacts, never decides). Companion to MISSING_ARTIFACT_CONTENT.
 export { resolve as resolveArtifacts, classifyByName, blobMapKey } from './artifact-resolver.js';
