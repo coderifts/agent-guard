@@ -53,7 +53,12 @@ if (!outcome.executed) console.error('blocked:', outcome.verdict);
 // Retry ONLY when outcome.executionAttempted === false (the safe-to-retry signal).
 ```
 
-#### `requireExecutionStateMatch` — opt-in execution-state recheck (ID842)
+#### `requireExecutionStateMatch` — first-class opt-in warn telemetry (safe pre-flip observation)
+
+> **891 / install-time recommendation:** this is the **safe pre-flip observation mode**.
+> It is **built, split, and ready** — but **default remains OFF** by design. Enable
+> `requireExecutionStateMatch: 'warn'` yourself when you want host-side telemetry
+> without blocking tool calls. CodeRifts does **not** auto-flip this default.
 
 After a fully enforceable ALLOW/MONITOR decision and **immediately before** `executeFactory`,
 the guard can recompute the execution-time change-set fingerprint (crbundle.v1 over the
@@ -61,23 +66,23 @@ the guard can recompute the execution-time change-set fingerprint (crbundle.v1 o
 authorized. Config field on `GuardConfig` (tri-state):
 
 ```ts
-requireExecutionStateMatch?: boolean | 'warn';
+requireExecutionStateMatch?: boolean | 'warn';  // default: absent / false (OFF)
 ```
 
 | Mode | Value | Behavior |
 |---|---|---|
 | **OFF** (default) | `false` / absent | No recheck. Residual execution-state race as described under “TOCTOU is unclosed.” |
-| **Warn** (report-only) | `'warn'` | Rechecks. On **real drift**, emits loud `execution_state_drift_observed` via **`onEvent`**, then **proceeds**. On **unmeasurable** state (nothing to compare), emits quiet `execution_state_unmeasurable` (not drift, not safety), then **proceeds**. On match, silent. |
+| **Warn** (report-only · **recommended first step**) | `'warn'` | Rechecks. On **real drift**, emits loud `execution_state_drift_observed` via **`onEvent`**, then **proceeds** (does not block). On **unmeasurable** state (nothing to compare), emits quiet `execution_state_unmeasurable` (not drift, not safety), then **proceeds**. On match, silent. |
 | **Enforce** | `true` | Rechecks. On mismatch, **blocks** with integrity cause `EXECUTION_STATE_DRIFT` (factory never runs). Byte-identical to the original enforce path. |
 
-**Two warn signals (noise-fix for a future default flip):**
+**Two warn signals (noise-split — already shipped; use before any default flip):**
 
 | Event | When | Meaning |
 |---|---|---|
 | `execution_state_drift_observed` (loud) | `reason === fingerprint_stale_at_execute` | Authorized fp ≠ current artifacts hash — real T1→T2 content drift. |
 | `execution_state_unmeasurable` (quiet) | `missing_artifacts` or `missing_authorized_fingerprint` | Nothing to measure — **not** evidence of drift and **not** evidence of safety. |
 
-A future default flip to warn (step3b, guard@7) will ride on the **loud** signal only; quiet unmeasurable must not page as drift. Recommended adoption: **off → `'warn'` (observe loud only) → `true` (enforce)**.
+A future default flip to warn (step3b, guard@7) will ride on the **loud** signal only; quiet unmeasurable must not page as drift. **Recommended adoption ladder (human climbs; nothing auto-enables):** **off → `'warn'` (observe loud only, still proceeds) → `true` (enforce / hard stop)**.
 
 Warn-mode events (host-side only; the guard does **not** phone home), on `GuardConfig.onEvent`:
 
