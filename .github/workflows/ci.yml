@@ -8,8 +8,38 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    # ID842 crbundle.v1 parity vendored-sync reads the sibling app fixture and must
+    # NOT skip when the checkout is missing (ID825). Point the test at the workspace clone.
+    env:
+      CODERIFTS_APP_DIR: ${{ github.workspace }}/coderifts-app
     steps:
       - uses: actions/checkout@v4
+
+      # coderifts/app is PRIVATE. GITHUB_TOKEN cannot read it from this public repo.
+      # APP_REPO_READ_TOKEN: PAT (or fine-grained token) with contents:read on coderifts/app.
+      # Fail loud if the secret/checkout is missing — same spirit as the app CI website checkout.
+      # Sparse: the parity test only needs test/fixtures/crbundle-v1-parity.frozen.json.
+      - name: Checkout app (crbundle.v1 parity fixture)
+        uses: actions/checkout@v4
+        with:
+          repository: coderifts/app
+          path: coderifts-app
+          token: ${{ secrets.APP_REPO_READ_TOKEN }}
+          persist-credentials: false
+          sparse-checkout: |
+            test/fixtures/crbundle-v1-parity.frozen.json
+          sparse-checkout-cone-mode: false
+
+      - name: Require app parity fixture
+        run: |
+          set -euo pipefail
+          f="${CODERIFTS_APP_DIR}/test/fixtures/crbundle-v1-parity.frozen.json"
+          if [ ! -f "$f" ]; then
+            echo "::error::coderifts/app checkout is missing ${f} (crbundle.v1 parity vendored-sync)."
+            echo "::error::Add APP_REPO_READ_TOKEN (contents:read on coderifts/app) to this repo's Actions secrets."
+            exit 1
+          fi
+          echo "parity fixture: ${f}"
 
       - uses: actions/setup-node@v4
         with:
