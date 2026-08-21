@@ -8,10 +8,9 @@
  * receipt fields (decision / lifecycle authz / binding) — the deterministic verdict stays the
  * server's (M5). Same inputs → same output (M8).
  *
- * Scope honesty is the whole point (§4): `inescapable_merge` is true ONLY in the fully-enforcing,
- * non-bypassable case. For absent / advisory / unknown protection, or when an admin can bypass the
- * required check, the check may still be `success` for visibility but `inescapable_merge` is FALSE
- * with the residual named. It never claims more than the platform actually enforces.
+ * Scope honesty is the whole point (§4): `inescapable_merge` is true ONLY when proof is complete
+ * (ENFORCING ∧ ¬admin_bypass ∧ App-bound required check ∧ fingerprint rebound). Missing any
+ * conjunct → FALSE (fail-closed). The check may still be `success` for visibility.
  *
  * Public source (ships in the npm package): it references only receipt/protection fields and generic
  * merge-gate concepts — no scoring logic, weights, thresholds, pattern names, endpoints, or secrets.
@@ -43,9 +42,10 @@ export type GateReason =
   /** Host reported the required check is not bound to a GitHub App (name-only / spoofable). */
   | 'required_check_app_not_bound'
   /**
-   * Host did not supply expected_fingerprint — the optional change-set re-bind was skipped.
-   * Residual only (does not flip merge_allowed / inescapable_merge). Distinct from
-   * fingerprint_mismatch, which is the hard failure when a re-bind WAS requested and disagreed.
+   * Host did not supply expected_fingerprint — the change-set re-bind was skipped.
+   * Residual names the gap; inescapable_merge is false (fail-closed — cannot assert
+   * inescapable without a rebound fingerprint). Distinct from fingerprint_mismatch
+   * (hard failure when a re-bind WAS requested and disagreed). merge_allowed may stay true.
    */
   | 'change_set_not_rebound';
 
@@ -233,37 +233,30 @@ export function gateDecision(input: GateDecisionInput): GateDecision {
   }
 
   // 9) success for the CHECK — green for visibility regardless of protection strength.
-  // 10) inescapable_merge claim (STRICT, §1.4 step 10 / M6): only when the platform actually enforces
-  //     the required check AND no admin can bypass it. Never true otherwise.
-  //     App binding is NOT a third conjunct here: flipping the claim when the optional field is
-  //     absent would break every published caller who cannot yet supply it. Honesty for that
-  //     axis is residual-only (below).
-  const inescapable_merge = enforcement_state === 'ENFORCING' && protection.admin_bypass_possible === false;
+  // 10) inescapable_merge (fail-closed): true ONLY when proof is complete —
+  //     ENFORCING ∧ ¬admin_bypass ∧ App-bound required check ∧ fingerprint rebound.
+  //     Missing proof → false (cannot assert), never residual-true.
+  const protectionOk = enforcement_state === 'ENFORCING' && protection.admin_bypass_possible === false;
+  const appBound = protection.required_check_app_bound === true;
+  const rebound = rc.expected_fingerprint != null && String(rc.expected_fingerprint).length > 0;
+  const inescapable_merge = protectionOk && appBound && rebound;
 
-  // Collect ALL applicable honesty residuals in evaluation order (no overwrite, no duplicates).
-  // Priority for singular `residual` = residuals[0] (first / highest priority) — preserves the
-  // pre-array single-slot priority: protection-axis → app-binding → change_set_not_rebound.
+  // Residuals key off the FACT that failed, not off the collapsed flag
+  // (else a fingerprint/app-binding gap would be mis-named admin_bypass_open).
   const residuals: GateReason[] = [];
-  if (!inescapable_merge) {
-    if (enforcement_state === 'ENFORCING') residuals.push('admin_bypass_open');          // required, but admins can override
-    else if (enforcement_state === 'ADVISORY') residuals.push('protection_advisory_only'); // posted but not required
-    else residuals.push('protection_not_configured');                                     // ABSENT or UNKNOWN — cannot attest
+  if (!protectionOk) {
+    if (enforcement_state === 'ENFORCING') residuals.push('admin_bypass_open');
+    else if (enforcement_state === 'ADVISORY') residuals.push('protection_advisory_only');
+    else residuals.push('protection_not_configured');
+  } else if (protection.required_check_app_bound === true) {
+    // confirmed app-bound — no app residual
+  } else if (protection.required_check_app_bound === false) {
+    residuals.push('required_check_app_not_bound');
   } else {
-    // Claim is still true (existing contract). Residual names app-binding honesty only when
-    // the host has not confirmed a non-spoofable required check.
-    if (protection.required_check_app_bound === true) {
-      // confirmed app-bound — no residual
-    } else if (protection.required_check_app_bound === false) {
-      residuals.push('required_check_app_not_bound');
-    } else {
-      residuals.push('required_check_app_binding_unknown'); // field absent: unknown ≠ not bound
-    }
+    residuals.push('required_check_app_binding_unknown');
   }
 
-  // Optional change-set re-bind skipped: record the gap, do not flip the claim.
-  // Co-occurs with protection/app residuals (previously dropped when singular residual was set).
-  // Distinct from fingerprint_mismatch (hard fail when a re-bind was requested and disagreed).
-  if (rc.expected_fingerprint == null) {
+  if (!rebound) {
     residuals.push('change_set_not_rebound');
   }
 

@@ -493,13 +493,13 @@
         "state": "success",
         "reason": "allow_current_deploy",
         "enforcement_state": "ENFORCING",
-        "inescapable_deploy": true
+        "inescapable_deploy": false
       },
-      "derivation": "normEnv lowercase; still only success+ENFORCING+!bypass → claim true"
+      "derivation": "normEnv lowercase succeeds (deploy_allowed); no expected_fingerprint → inescapable_deploy false (fail-closed, cannot assert)"
     }
   ],
   "validation_checklist": [
-    "DG-001 and DG-016 only rows with inescapable_deploy true (both ENFORCING full bind)",
+    "DG-001 only row with inescapable_deploy true (ENFORCING ∧ ¬bypass ∧ fingerprint rebound)",
     "DG-002 merge → operation_mismatch",
     "DG-003 staging→prod env_mismatch",
     "DG-004 stale_artifact",

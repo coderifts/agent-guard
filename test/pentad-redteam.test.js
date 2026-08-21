@@ -20,11 +20,10 @@
  * CLEARED this round (ID618):
  *   - RT-P-16 (RTM-016/016b): coverageReport honors applicability_attested (absence ≠ attestation).
  *
- * STILL DEFERRED after re-measure (ID618) — do not force green:
- *   - RT-P-20 (RTM-020): matrix expects hard fail fingerprint_mismatch when require_fingerprint
- *     without expected_fingerprint. a790f4e intentionally made change-set re-bind residual-only
- *     (success + change_set_not_rebound when no residual already named; RTM-020 currently surfaces
- *     required_check_app_binding_unknown first and stays merge_allowed:true). Matrix case ≠ product.
+ * CLEARED this round (P0 #2 fail-closed inescapable_*):
+ *   - RT-P-20 (RTM-020): live. Product is residual-only success (a790f4e; require_fingerprint is
+ *     not a RequiredContext field) AND inescapable_merge false (cannot assert without rebound).
+ *     Original matrix hard-fail (fingerprint_mismatch) was never shipped — kept as original_expected.
  *
  * CONFIRMED_SAFE rows assert the already-shipped defenses (T7, stale head, env staging≠prod, full
  * SHA/artifact equality, missing→UNKNOWN) still hold against the CURRENT (now-fixed) code.
@@ -41,8 +40,8 @@ const MATRIX = JSON.parse(fs.readFileSync(path.join(__dirname, 'pentad-redteam-m
 const FIXTURES = MATRIX.fixtures;
 const PRIMITIVES = { gateDecision, deployGate, coverageReport };
 
-// RT-P-16 cleared (ID618). RT-P-20 remains deferred: re-measure failed vs matrix (see file header).
-const DEFERRED = new Set(['RT-P-20']);
+// RT-P-16 cleared (ID618). RT-P-20 live: residual-only success + fail-closed inescapable_merge.
+const DEFERRED = new Set();
 
 function assertGate(out, e, id) {
   if (e.merge_allowed !== undefined) assert.equal(out.merge_allowed, e.merge_allowed, `${id} merge_allowed`);

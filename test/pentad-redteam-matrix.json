@@ -164,10 +164,10 @@
         "state": "success",
         "reason": "allow_current_head",
         "enforcement_state": "ENFORCING",
-        "inescapable_merge": true
+        "inescapable_merge": false
       },
-      "notes": "After unified normOp, 'merge'/'Merge' both OK only if norm maps to merge; still reject 'deploy'",
-      "relabel_note": "SUPERSEDED by RT-P-01 normOp fix: casing is notation, not an attack. Under normOp, operation \"Merge\" normalizes to \"merge\" and is now ACCEPTED as a valid merge (success/allow_current_head). A real other op (e.g. \"deploy\") still fails. Expectation relabeled accordingly.",
+      "notes": "After unified normOp, 'merge'/'Merge' both OK only if norm maps to merge; still reject 'deploy'. Casing success does not complete inescapable proof (no expected_fingerprint, no App-bound check).",
+      "relabel_note": "SUPERSEDED by RT-P-01 normOp fix: casing is notation, not an attack. Under normOp, operation \"Merge\" normalizes to \"merge\" and is now ACCEPTED as a valid merge (success/allow_current_head). A real other op (e.g. \"deploy\") still fails. Expectation relabeled accordingly. inescapable_merge false: fail-closed (P0 #2) — fixture never supplied fingerprint rebound or App-bound required check.",
       "original_expected": {
         "merge_allowed": false,
         "state": "failure",
@@ -473,8 +473,8 @@
         "deploy_allowed": true,
         "state": "success",
         "reason": "allow_current_deploy",
-        "inescapable_deploy": true,
-        "notes": "Proves ENFORCING does not refuse merely because require_bound_environment is false: with BOTH bound_environment and bound_artifact_id correct, ALLOW. Behaviour: ENFORCING forces require_bound_environment AND require_bound_artifact true regardless of which soft switch the caller disabled — only a missing (or mismatched) binding denies, not the presence of the switch."
+        "inescapable_deploy": false,
+        "notes": "Proves ENFORCING does not refuse merely because require_bound_environment is false: with BOTH bound_environment and bound_artifact_id correct, ALLOW. Behaviour: ENFORCING forces require_bound_environment AND require_bound_artifact true regardless of which soft switch the caller disabled — only a missing (or mismatched) binding denies, not the presence of the switch. inescapable_deploy false: fail-closed (P0 #2) — no expected_fingerprint, cannot assert inescapable."
       }
     },
     {
@@ -672,7 +672,7 @@
       "finding": "RT-P-20",
       "kind": "LEAK_FIX",
       "primitive": "gateDecision",
-      "title": "ENFORCING merge requires expected_fingerprint when require_fingerprint true",
+      "title": "Missing expected_fingerprint cannot claim inescapable_merge (residual-only success)",
       "input": {
         "prHeadSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "receipt": {
@@ -692,13 +692,20 @@
           }
         }
       },
-      "current_spec_unsafe_behavior": "expected_fingerprint optional → success without re-bind",
+      "current_spec_unsafe_behavior": "expected_fingerprint optional → inescapable_merge true without re-bind",
       "expected_after_fix": {
+        "merge_allowed": true,
+        "state": "success",
+        "reason": "allow_current_head",
+        "inescapable_merge": false,
+        "notes": "a790f4e residual-only: require_fingerprint is not a product field, merge_allowed stays true. P0 #2 fail-closed: inescapable_merge false (cannot assert). Residuals name required_check_app_binding_unknown then change_set_not_rebound."
+      },
+      "original_expected": {
         "merge_allowed": false,
         "state": "failure",
         "reason": "fingerprint_mismatch",
         "inescapable_merge": false,
-        "notes": "Or reason inputs_incomplete if expected_fingerprint absent while require_fingerprint"
+        "notes": "Proposed hard-fail when require_fingerprint without expected_fingerprint — never shipped (a790f4e)."
       }
     }
   ]

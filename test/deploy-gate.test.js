@@ -41,14 +41,15 @@ describe('deployGate — 16-fixture matrix', () => {
 
 // ── named checklist (task PART 4) ─────────────────────────────────────────────────────────────────
 describe('deployGate — named checklist', () => {
-  it('DG-001 + DG-016: the ONLY inescapable_deploy:true (DG-016 = env case-normalize) — nothing else', () => {
+  it('DG-001: the ONLY inescapable_deploy:true — ENFORCING ∧ ¬bypass ∧ fingerprint rebound', () => {
     assert.equal(deployGate(row('DG-001').input).inescapable_deploy, true);
-    assert.equal(deployGate(row('DG-016').input).inescapable_deploy, true);
     const trueRows = ROWS.filter((r) => deployGate(r.input).inescapable_deploy).map((r) => r.id);
-    assert.deepEqual(trueRows, ['DG-001', 'DG-016'], 'exactly these two claim inescapable_deploy');
-    // DG-016 succeeds via case-normalized env (Production vs production)
+    assert.deepEqual(trueRows, ['DG-001'], 'exactly one inescapable_deploy:true across the matrix');
+    // DG-016 still succeeds via case-normalized env, but cannot claim inescapable without re-bind
     assert.equal(row('DG-016').input.deployTarget.environment, 'Production');
     assert.equal(row('DG-016').input.receipt.bound_environment, 'production');
+    assert.equal(deployGate(row('DG-016').input).deploy_allowed, true);
+    assert.equal(deployGate(row('DG-016').input).inescapable_deploy, false);
   });
 
   it('DG-002: a MERGE receipt cannot deploy → operation_mismatch (T7 core, never re-decides)', () => {
@@ -111,12 +112,14 @@ describe('deployGate — named checklist', () => {
 
 // ── scope-honesty invariants (D8/D10) ────────────────────────────────────────────────────────────
 describe('deployGate — scope honesty (D8/D10)', () => {
-  it('D8: inescapable_deploy:true ⇒ ENFORCING ∧ !bypass ∧ success ∧ allow_current_deploy (every row)', () => {
+  it('D8: inescapable_deploy:true ⇒ ENFORCING ∧ !bypass ∧ fingerprint rebound ∧ success (every row)', () => {
     for (const r of ROWS) {
       const g = deployGate(r.input);
       if (g.inescapable_deploy === true) {
         assert.equal(g.enforcement_state, 'ENFORCING', `${r.id} D8 enforcement`);
         assert.equal(r.input.requiredContext.enforcement.bypass_possible, false, `${r.id} D8 no bypass`);
+        const fp = r.input.requiredContext && r.input.requiredContext.expected_fingerprint;
+        assert.ok(fp != null && String(fp).length > 0, `${r.id} D8 fingerprint rebound`);
         assert.equal(g.state, 'success', `${r.id} D8 success`);
         assert.equal(g.reason, 'allow_current_deploy', `${r.id} D8 reason`);
       }
@@ -179,10 +182,10 @@ describe('deployGate — determinism + purity', () => {
   });
 });
 
-// ── change_set_not_rebound residual (optional re-bind; claim not flipped) ─────────────────────────
-// Same honesty shape as merge-gate: optional expected_fingerprint; mismatch still hard-fails;
-// absence greens with residual change_set_not_rebound and does not flip inescapable_deploy.
-describe('deployGate — change_set_not_rebound residual (claim not flipped)', () => {
+// ── change_set_not_rebound residual (fail-closed inescapable_deploy) ───────────────────────────
+// Optional expected_fingerprint: mismatch still hard-fails; absence greens deploy_allowed
+// with residual change_set_not_rebound and inescapable_deploy false.
+describe('deployGate — change_set_not_rebound residual (inescapable fail-closed)', () => {
   function cleanEnforcingInput() {
     return JSON.parse(JSON.stringify(row('DG-001').input));
   }
@@ -215,14 +218,14 @@ describe('deployGate — change_set_not_rebound residual (claim not flipped)', (
     assert.equal(g.residual, undefined, 'hard failure path — not a residual');
   });
 
-  it('expected_fingerprint absent → residual change_set_not_rebound; decision and claim unchanged', () => {
+  it('expected_fingerprint absent → residual change_set_not_rebound; deploy_allowed true, inescapable_deploy false', () => {
     const input = cleanEnforcingInput();
     delete input.requiredContext.expected_fingerprint;
     const g = deployGate(input);
-    assert.equal(g.state, 'success', 'decision unchanged: still green');
+    assert.equal(g.state, 'success', 'visibility: still green');
     assert.equal(g.deploy_allowed, true, 'deploy_allowed unchanged');
     assert.equal(g.reason, 'allow_current_deploy');
-    assert.equal(g.inescapable_deploy, true, 'claim not flipped — residual only');
+    assert.equal(g.inescapable_deploy, false, 'fail-closed: cannot claim inescapable_deploy without re-bind');
     assert.equal(g.residual, 'change_set_not_rebound', 'honesty: receipt not re-bound to current change set');
     assert.deepEqual(g.residuals, ['change_set_not_rebound']);
     assert.notEqual(g.reason, 'fingerprint_mismatch', 'must not confusable with hard mismatch failure');

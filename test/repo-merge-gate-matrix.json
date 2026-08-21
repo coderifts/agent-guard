@@ -38,7 +38,8 @@
           "protection": {
             "enforcement": "ENFORCING",
             "admin_bypass_possible": false,
-            "required_context_name": "CodeRifts / contract-gate"
+            "required_context_name": "CodeRifts / contract-gate",
+            "required_check_app_bound": true
           }
         }
       },

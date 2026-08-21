@@ -108,12 +108,16 @@ describe('gateDecision — named checklist', () => {
 
 // ── scope-honesty invariants (M6/M7) ────────────────────────────────────────────────────────────────
 describe('gateDecision — scope honesty (M6/M7)', () => {
-  it('M6: inescapable_merge:true ⇒ ENFORCING ∧ !admin_bypass ∧ state===success (every row)', () => {
+  it('M6: inescapable_merge:true ⇒ ENFORCING ∧ !admin_bypass ∧ App-bound ∧ fingerprint rebound ∧ success', () => {
     for (const r of ROWS) {
       const g = gateDecision(r.input);
       if (g.inescapable_merge === true) {
+        const rc = r.input.requiredContext;
         assert.equal(g.enforcement_state, 'ENFORCING', `${r.id} M6 enforcement`);
-        assert.equal(r.input.requiredContext.protection.admin_bypass_possible, false, `${r.id} M6 no bypass`);
+        assert.equal(rc.protection.admin_bypass_possible, false, `${r.id} M6 no bypass`);
+        assert.equal(rc.protection.required_check_app_bound, true, `${r.id} M6 App-bound required check`);
+        const fp = rc.expected_fingerprint;
+        assert.ok(fp != null && String(fp).length > 0, `${r.id} M6 fingerprint rebound`);
         assert.equal(g.state, 'success', `${r.id} M6 success`);
         assert.equal(g.reason, 'allow_current_head', `${r.id} M7 reason`);
       }
@@ -169,11 +173,11 @@ describe('gateDecision — determinism + purity', () => {
   });
 });
 
-// ── required_check_app_bound residual (honesty only — does not flip inescapable_merge) ───────────
+// ── required_check_app_bound (fail-closed inescapable_merge) ───────────────────────────────────
 // Measured on GitHub: required checks without app_id are name-spoofable; with app_id they are not.
 // The gate cannot observe GitHub itself — the host supplies required_check_app_bound. Absence means
-// unknown (not "not bound"). Residual names the gap; inescapable_merge stays true for existing callers.
-describe('gateDecision — required_check_app_bound residual (claim not flipped)', () => {
+// unknown (cannot assert). Residual names the gap; inescapable_merge is false until App-bound.
+describe('gateDecision — required_check_app_bound residual (inescapable fail-closed)', () => {
   /** MG-001-shaped success input; protection overrides applied by the caller. */
   function enforcingNoBypassInput(protectionExtra) {
     const base = JSON.parse(JSON.stringify(row('MG-001').input));
@@ -189,16 +193,19 @@ describe('gateDecision — required_check_app_bound residual (claim not flipped)
     assert.equal(g.residual, undefined, 'confirmed app-bound + change-set re-bind: no honesty residual');
   });
 
-  it('field ABSENT + ENFORCING + no admin bypass → inescapable_merge still TRUE and residual required_check_app_binding_unknown (both halves — deliberate non-flip)', () => {
-    // Do not pass required_check_app_bound — field absent (unknown ≠ not bound).
-    const g = gateDecision(enforcingNoBypassInput({}));
-    assert.equal(g.inescapable_merge, true, 'claim must NOT flip for callers who cannot supply the field');
+  it('field ABSENT + ENFORCING + no admin bypass → inescapable_merge FALSE (cannot assert) + residual required_check_app_binding_unknown', () => {
+    const input = enforcingNoBypassInput({});
+    delete input.requiredContext.protection.required_check_app_bound;
+    const g = gateDecision(input);
+    assert.equal(g.inescapable_merge, false, 'unknown app-binding cannot claim inescapable');
+    assert.equal(g.merge_allowed, true, 'visibility check stays success');
     assert.equal(g.residual, 'required_check_app_binding_unknown', 'honesty residual: binding not observed');
   });
 
-  it('field false + ENFORCING + no admin bypass → inescapable_merge still true, residual required_check_app_not_bound', () => {
+  it('field false + ENFORCING + no admin bypass → inescapable_merge FALSE + residual required_check_app_not_bound', () => {
     const g = gateDecision(enforcingNoBypassInput({ required_check_app_bound: false }));
-    assert.equal(g.inescapable_merge, true, 'claim not flipped — residual only');
+    assert.equal(g.inescapable_merge, false, 'name-only required check is spoofable');
+    assert.equal(g.merge_allowed, true);
     assert.equal(g.residual, 'required_check_app_not_bound', 'host knows check is name-only / spoofable');
   });
 
@@ -224,11 +231,11 @@ describe('gateDecision — required_check_app_bound residual (claim not flipped)
   });
 });
 
-// ── change_set_not_rebound residual (optional re-bind; claim not flipped) ─────────────────────────
-// expected_fingerprint is optional. When supplied it fails hard on mismatch. When omitted the gate
-// still greens on head match and names residual change_set_not_rebound — does not flip
-// inescapable_merge (same residual-only honesty shape as required_check_app_*).
-describe('gateDecision — change_set_not_rebound residual (claim not flipped)', () => {
+// ── change_set_not_rebound residual (fail-closed inescapable_merge) ─────────────────────────────
+// expected_fingerprint is optional for merge_allowed. When supplied it fails hard on mismatch.
+// When omitted the gate still greens on head match, names residual change_set_not_rebound, and
+// inescapable_merge is false (cannot assert without a rebound fingerprint).
+describe('gateDecision — change_set_not_rebound residual (inescapable fail-closed)', () => {
   /** Fully green ENFORCING input: app-bound confirmed so residual is free for the change-set axis. */
   function cleanEnforcingInput() {
     const base = JSON.parse(JSON.stringify(row('MG-001').input));
@@ -264,14 +271,14 @@ describe('gateDecision — change_set_not_rebound residual (claim not flipped)',
     assert.equal(g.residual, undefined, 'hard failure path — not a residual');
   });
 
-  it('expected_fingerprint absent → residual change_set_not_rebound; decision and claim unchanged', () => {
+  it('expected_fingerprint absent → residual change_set_not_rebound; merge_allowed true, inescapable_merge false', () => {
     const input = cleanEnforcingInput();
     delete input.requiredContext.expected_fingerprint;
     const g = gateDecision(input);
-    assert.equal(g.state, 'success', 'decision unchanged: still green');
+    assert.equal(g.state, 'success', 'visibility: still green');
     assert.equal(g.merge_allowed, true, 'merge_allowed unchanged');
     assert.equal(g.reason, 'allow_current_head');
-    assert.equal(g.inescapable_merge, true, 'claim not flipped — residual only');
+    assert.equal(g.inescapable_merge, false, 'fail-closed: cannot claim inescapable without re-bind');
     assert.equal(g.residual, 'change_set_not_rebound', 'honesty: receipt not re-bound to current change set');
     assert.deepEqual(g.residuals, ['change_set_not_rebound'], 'singular residual mirrored in residuals[]');
     assert.notEqual(g.reason, 'fingerprint_mismatch', 'must not confusable with hard mismatch failure');
@@ -317,13 +324,13 @@ describe('gateDecision — residuals[] reports all co-occurring honesty residual
     );
   });
 
-  it('co-occurrence: ENFORCING inescapable + app_binding_unknown + no fingerprint → both; singular = app first', () => {
+  it('co-occurrence: ENFORCING + app_binding_unknown + no fingerprint → both residuals; inescapable false', () => {
     const input = JSON.parse(JSON.stringify(row('MG-001').input));
-    // remove app-bound confirmation (unknown) and drop expected_fingerprint
     delete input.requiredContext.protection.required_check_app_bound;
     delete input.requiredContext.expected_fingerprint;
     const g = gateDecision(input);
-    assert.equal(g.inescapable_merge, true);
+    assert.equal(g.inescapable_merge, false, 'incomplete proof cannot claim inescapable');
+    assert.equal(g.merge_allowed, true);
     assert.equal(g.residual, 'required_check_app_binding_unknown');
     assert.deepEqual(g.residuals, [
       'required_check_app_binding_unknown',

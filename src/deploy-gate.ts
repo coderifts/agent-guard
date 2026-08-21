@@ -41,9 +41,10 @@ export type DeployGateReason =
   | 'enforcement_not_configured'
   | 'bypass_open'
   /**
-   * Host did not supply expected_fingerprint — the optional change-set re-bind was skipped.
-   * Residual only (does not flip deploy_allowed / inescapable_deploy). Distinct from
-   * fingerprint_mismatch, which is the hard failure when a re-bind WAS requested and disagreed.
+   * Host did not supply expected_fingerprint — the change-set re-bind was skipped.
+   * Residual names the gap; inescapable_deploy is false (fail-closed). Distinct from
+   * fingerprint_mismatch (hard failure when a re-bind WAS requested and disagreed).
+   * deploy_allowed may stay true.
    */
   | 'change_set_not_rebound';
 
@@ -256,21 +257,20 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
   }
 
   // 9) success for the CHECK / pipeline step — green for visibility regardless of enforcement strength.
-  // 10) inescapable_deploy claim (STRICT, §1.4 step 10 / D8): only when the pipeline actually enforces
-  //     the step AND no bypass is possible. Never true otherwise.
-  const inescapable_deploy = enforcement_state === 'ENFORCING' && enf.bypass_possible === false;
+  // 10) inescapable_deploy (fail-closed): true ONLY when ENFORCING ∧ ¬bypass ∧ fingerprint rebound.
+  //     Unbound change set → false (cannot assert), never residual-true.
+  const enforcementOk = enforcement_state === 'ENFORCING' && enf.bypass_possible === false;
+  const rebound = rc.expected_fingerprint != null && String(rc.expected_fingerprint).length > 0;
+  const inescapable_deploy = enforcementOk && rebound;
 
-  // Collect ALL applicable honesty residuals in evaluation order (no overwrite).
-  // Singular residual = residuals[0] (enforcement-axis before change_set_not_rebound).
+  // Residuals key off the FACT that failed (not the collapsed flag).
   const residuals: DeployGateReason[] = [];
-  if (!inescapable_deploy) {
-    if (enforcement_state === 'ENFORCING') residuals.push('bypass_open');        // enforced, but a bypass exists
-    else residuals.push('enforcement_not_configured');                          // ADVISORY / ABSENT / UNKNOWN
+  if (!enforcementOk) {
+    if (enforcement_state === 'ENFORCING') residuals.push('bypass_open');
+    else residuals.push('enforcement_not_configured');
   }
 
-  // Optional change-set re-bind skipped: co-occurs with enforcement residuals
-  // (previously dropped when singular residual was already set). Distinct from fingerprint_mismatch.
-  if (rc.expected_fingerprint == null) {
+  if (!rebound) {
     residuals.push('change_set_not_rebound');
   }
 
