@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { guardToolCall, computeBodyHash } = require('../dist/cjs/index.js');
+const { guardToolCall, computeBodyHash, computeCanonicalBundleFingerprint } = require('../dist/cjs/index.js');
 
 // P0 receipt-binding: a mock verifyReceipt must now return a receipt BOUND to the envelope — the
 // signed fp/bh matching the locally-recomputed body hash. `signedFor` mirrors what the server signs.
@@ -10,7 +10,9 @@ function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env)
 function boundVerify(env) { return { valid: true, status: 'VERIFIED_CURRENT', payload: signedFor(env) }; }
 
 // ── fixtures ────────────────────────────────────────────────────────────────────
-const TRIGGER = { toolName: 'Edit', arguments: {}, artifacts: [{ id: 'a', type: 'openapi', before: 'x', after: 'y' }] };
+const TRIGGER_ARTIFACTS = [{ id: 'a', type: 'openapi', before: 'x', after: 'y' }];
+const TRIGGER = { toolName: 'Edit', arguments: {}, artifacts: TRIGGER_ARTIFACTS };
+const TRIGGER_FP = computeCanonicalBundleFingerprint(TRIGGER_ARTIFACTS, { operation: 'tool_call' });
 const SKIP = { toolName: 'Read', arguments: { path: 'README.md' } };
 const RESULT = { ok: true };
 const okFactory = async () => RESULT;
@@ -22,8 +24,8 @@ function envelope(execution_action, decision, opts = {}) {
     decision_id: 'dec_1', correlation_id: 'c', evaluated_at: new Date().toISOString(),
     expires_at: opts.expires_at || new Date(Date.now() + 900000).toISOString(),
     // P0: envelope carries a fingerprint so the receipt binding has something to bind.
-    fingerprint: opts.fingerprint || ('sha256:' + 'a'.repeat(64)),
-    input_fingerprint: 'sha256:' + 'b'.repeat(64),
+    fingerprint: opts.fingerprint || TRIGGER_FP,
+    input_fingerprint: opts.input_fingerprint || opts.fingerprint || TRIGGER_FP,
     receipt: opts.noReceipt ? undefined : { token: 'tok', format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' },
   };
 }

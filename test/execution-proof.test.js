@@ -16,6 +16,7 @@ const { createHash } = require('node:crypto');
 const {
   guardToolCall,
   computeBodyHash,
+  computeCanonicalBundleFingerprint,
   buildExecutionProof,
   hashExecutionResult,
   assertEnforcedReceiptInvariant,
@@ -25,11 +26,13 @@ const {
 function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env) }; }
 function boundVerify(env) { return { valid: true, status: 'VERIFIED_CURRENT', payload: signedFor(env) }; }
 
+const TRIGGER_ARTIFACTS = [{ id: 'a', type: 'openapi', before: 'x', after: 'y' }];
 const TRIGGER = {
   toolName: 'Edit',
   arguments: {},
-  artifacts: [{ id: 'a', type: 'openapi', before: 'x', after: 'y' }],
+  artifacts: TRIGGER_ARTIFACTS,
 };
+const TRIGGER_FP = computeCanonicalBundleFingerprint(TRIGGER_ARTIFACTS, { operation: 'tool_call' });
 const SKIP = { toolName: 'Read', arguments: { path: 'README.md' } };
 
 function envelope(execution_action, decision, opts = {}) {
@@ -41,8 +44,8 @@ function envelope(execution_action, decision, opts = {}) {
     correlation_id: 'c',
     evaluated_at: new Date().toISOString(),
     expires_at: opts.expires_at || new Date(Date.now() + 900000).toISOString(),
-    fingerprint: opts.fingerprint || ('sha256:' + 'a'.repeat(64)),
-    input_fingerprint: 'sha256:' + 'b'.repeat(64),
+    fingerprint: opts.fingerprint || TRIGGER_FP,
+    input_fingerprint: opts.fingerprint || TRIGGER_FP,
     operation: opts.operation || 'tool_call',
     receipt: opts.noReceipt ? undefined : { token: 'tok', format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' },
   };
@@ -78,7 +81,7 @@ function assertLimits(proof) {
 describe('execution proof — allowed, executed, enforced', () => {
   it('assembles observed fields from guard state (preflight, receipt, scope, enforced)', async () => {
     const expires = new Date(Date.now() + 600000).toISOString();
-    const fp = 'sha256:' + 'c'.repeat(64);
+    const fp = TRIGGER_FP;
     const o = await guardToolCall(
       TRIGGER,
       async () => 'byte-stable-return',

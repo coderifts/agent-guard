@@ -251,8 +251,8 @@ function envelope(execution_action, decision, opts = {}) {
     decision_id: 'dec_obs_1', correlation_id: 'c',
     evaluated_at: new Date().toISOString(),
     expires_at: opts.expires_at || new Date(Date.now() + 900000).toISOString(),
-    fingerprint: opts.fingerprint || ('sha256:' + 'a'.repeat(64)),
-    input_fingerprint: 'sha256:' + 'b'.repeat(64),
+    fingerprint: opts.fingerprint || CONTRACT_FP,
+    input_fingerprint: opts.fingerprint || CONTRACT_FP,
     safe_for_agent: decision === 'ALLOW' || decision === 'WARN',
     analysis_complete: true,
     receipt: opts.noReceipt ? undefined : { token: 'tok', format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' },
@@ -280,6 +280,7 @@ function mockClient({ preflight } = {}) {
 const CONTRACT_ARGS = {
   artifacts: [{ id: 'a', type: 'openapi', before: 'openapi: 3.0.0\npaths: {}\n', after: 'openapi: 3.0.0\npaths: {/x: {get: {}}}\n' }],
 };
+const CONTRACT_FP = computeCanonicalBundleFingerprint(CONTRACT_ARGS.artifacts, { operation: 'merge' });
 
 describe('withCodeRifts — composition observation (onEvent + onSettledCall)', () => {
   it('a. onEvent reaches guardToolCall: a guarded call produces at least one event', async () => {
@@ -603,7 +604,8 @@ function threadingClient(opts = {}) {
         i += 1;
         const env = envelope(execution_action, decision);
         // Unique fingerprint per call so body-hash bind stays independent of token.
-        env.fingerprint = 'sha256:' + String(i).padStart(64, '0');
+        env.fingerprint = CONTRACT_FP;
+        env.input_fingerprint = CONTRACT_FP;
         env.receipt = {
           token, format_version: 'crchain.v1', key_id: 'k', issued_at: 'x',
         };
@@ -774,7 +776,8 @@ describe('withCodeRifts — S5 receipt carry-forward (composition cursor)', () =
         seq += 1;
         const token = seq === 1 ? 'OVERLAP_A' : (seq === 2 ? 'OVERLAP_B' : `AFTER_${seq}`);
         const env = envelope('CONTINUE', 'ALLOW');
-        env.fingerprint = 'sha256:' + String(seq).padStart(64, '0');
+        env.fingerprint = CONTRACT_FP;
+        env.input_fingerprint = CONTRACT_FP;
         env.receipt = { token, format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' };
         envsByToken.set(token, env);
         return { decision: 'ALLOW', execution_action: 'CONTINUE', decision_result: env };
@@ -832,7 +835,8 @@ describe('withCodeRifts — S5 receipt carry-forward (composition cursor)', () =
         }
         const token = `T${n}`;
         const env = envelope('CONTINUE', 'ALLOW');
-        env.fingerprint = 'sha256:' + String(n).padStart(64, '0');
+        env.fingerprint = CONTRACT_FP;
+        env.input_fingerprint = CONTRACT_FP;
         env.receipt = { token, format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' };
         envsByToken.set(token, env);
         return { decision: 'ALLOW', execution_action: 'CONTINUE', decision_result: env };
@@ -867,7 +871,7 @@ describe('withCodeRifts — S5 receipt carry-forward (composition cursor)', () =
   });
 });
 
-// ── requireExecutionStateMatch passthrough (ID842 plumbing; default unchanged OFF) ───────────────
+// ── requireExecutionStateMatch passthrough (guard@8 default ON) ───────────────
 // Composition only forwards the field; semantics live in the frozen guard. Fixture: receipt
 // authorizes artifacts A; call carries A′ (T2 drift). Operation matches withCodeRifts input.
 describe('withCodeRifts — requireExecutionStateMatch passthrough', () => {
@@ -928,19 +932,20 @@ describe('withCodeRifts — requireExecutionStateMatch passthrough', () => {
     return { outcome, factoryRan, drifts, events };
   }
 
-  it('a. absent requireExecutionStateMatch → drift still executes (default OFF; regression)', async () => {
+  it('a. absent requireExecutionStateMatch → drift BLOCKS (default true)', async () => {
     const { outcome, factoryRan, drifts } = await runDrift(undefined);
-    assert.equal(factoryRan, true);
-    assert.equal(outcome.executed, true);
-    assert.equal(outcome.enforced, true);
-    assert.equal(drifts.length, 0, 'no recheck → no drift telemetry');
+    assert.equal(factoryRan, false);
+    assert.equal(outcome.executed, false);
+    assert.equal(outcome.enforced, false);
+    assert.equal(outcome.verdict.cause, 'EXECUTION_STATE_DRIFT');
+    assert.equal(drifts.length, 0, 'enforce path does not emit warn telemetry');
   });
 
-  it("b. requireExecutionStateMatch: 'warn' → drift emits execution_state_drift_observed and proceeds", async () => {
+  it("b. requireExecutionStateMatch: 'warn' → drift emits execution_state_drift_observed and proceeds unenforced", async () => {
     const { outcome, factoryRan, drifts } = await runDrift('warn');
     assert.equal(factoryRan, true, 'warn must not block the factory');
     assert.equal(outcome.executed, true);
-    assert.equal(outcome.enforced, true);
+    assert.equal(outcome.enforced, false);
     assert.equal(drifts.length, 1);
     assert.equal(drifts[0].type, 'execution_state_drift_observed');
     assert.equal(drifts[0].reason, EXECUTION_TIME_FP_REASONS.FINGERPRINT_STALE_AT_EXECUTE);

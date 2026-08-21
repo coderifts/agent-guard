@@ -82,15 +82,14 @@ export interface GuardConfig {
    * Host-independent — recomputes crbundle.v1 over CURRENT artifacts; does not trust a host-supplied
    * expected_fingerprint for the T2 measurement.
    *
-   * Tri-state (least-breaking: keeps boolean semantics; only `'warn'` is new):
-   *   - false / absent  → off (default) — no recheck
-   *   - true            → enforce — hard-block with EXECUTION_STATE_DRIFT on mismatch (step 1 behavior)
-   *   - 'warn'          → report-only — on real drift emit `execution_state_drift_observed` (loud);
-   *                       on unmeasurable state emit `execution_state_unmeasurable` (quiet);
-   *                       still execute either way. Match → no event.
+   * Tri-state (guard@8: default fail-closed; `'warn'` / `false` are explicit opt-down):
+   *   - true / absent   → enforce (default) — mismatch → EXECUTION_STATE_DRIFT (STOP);
+   *                       missing authorized fp / missing artifacts → EXECUTION_STATE_UNMEASURABLE (STOP)
+   *   - 'warn'          → emit then run unenforced (enforced:false on mismatch)
+   *   - false           → off — no T2 recheck
    *
-   * Default remains off. warn and enforce are both opt-in; a default flip (step3b, guard@7) will
-   * ride on the **loud** signal only — quiet unmeasurable is not drift evidence.
+   * Recheck refuses on *observed* execution-state drift. It does not make execute
+   * atomic with the measurement (no observed_token_at_commit CAS).
    */
   requireExecutionStateMatch?: boolean | 'warn';
 }
@@ -200,6 +199,7 @@ export type IntegrityCause =
   | 'FRESHNESS_FAILED'           // ACTIVE measurement ran; assessFreshness failClosed (TARGET_MUTATED / STALE / TAMPER / UNKNOWN)
   | 'CONDITIONAL_WRITE_REQUIRED' // write-style + requireConditionalWrite but host report is false or not_reported
   | 'EXECUTION_STATE_DRIFT'      // ID842: T2 current artifacts crbundle.v1 fingerprint ≠ receipt-authorized fingerprint
+  | 'EXECUTION_STATE_UNMEASURABLE' // T2 cannot assert (missing authorized fingerprint or missing artifacts) — not silent ALLOW
 export type UnavailableCause = AvailabilityCause | IntegrityCause;
 
 // D-detector — fail-safe + versioned (the trust core; the Grok corpus of 68

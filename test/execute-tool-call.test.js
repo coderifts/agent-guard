@@ -36,8 +36,8 @@ function envelope(execution_action, decision, opts = {}) {
     correlation_id: 'c',
     evaluated_at: '2026-07-28T00:00:00Z',
     expires_at: opts.expires_at || '2099-01-01T00:00:00Z',
-    fingerprint: opts.fingerprint || ('sha256:' + 'd'.repeat(64)),
-    input_fingerprint: opts.fingerprint || ('sha256:' + 'd'.repeat(64)),
+    fingerprint: opts.fingerprint || ARTIFACTS_FP,
+    input_fingerprint: opts.fingerprint || ARTIFACTS_FP,
     safe_for_agent: decision === 'ALLOW' || decision === 'WARN',
     analysis_complete: true,
     operation: opts.operation || 'tool_call',
@@ -86,6 +86,7 @@ const ARTIFACTS = [
     after: 'openapi: 3.0.1\ninfo: {title: A}',
   },
 ];
+const ARTIFACTS_FP = computeCanonicalBundleFingerprint(ARTIFACTS, { operation: 'tool_call' });
 
 function contractArgs(artifacts = ARTIFACTS) {
   return { artifacts };

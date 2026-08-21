@@ -6,8 +6,8 @@
  * fingerprint authorized on the receipt/envelope. No network, no host callback —
  * measures only the artifacts it is given.
  *
- * Gated at the guard wire by GuardConfig.requireExecutionStateMatch (default false;
- * product default flip is ID842 step 3).
+ * Gated at the guard wire by GuardConfig.requireExecutionStateMatch
+ * (guard@8 default true — fail-closed; false / 'warn' are explicit opt-down).
  */
 
 import { createHash } from 'node:crypto';

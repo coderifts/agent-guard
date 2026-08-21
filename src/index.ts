@@ -42,7 +42,7 @@ export type {
 // and local artifact_digest / input_fingerprint recomputation.
 export { evaluateEnvelope, computeArtifactDigest, computeBundleFingerprint } from './enforcement-gate.js';
 export type { GateResult } from './enforcement-gate.js';
-// ID842 step 1 — host-independent T2 execution-time fingerprint recheck (opt-in requireExecutionStateMatch).
+// ID842 — host-independent T2 execution-time fingerprint recheck (guard@8 default ON).
 export {
   checkExecutionTimeFingerprint,
   authorizedFingerprintFromEnvelope,

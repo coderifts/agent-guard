@@ -278,11 +278,8 @@ export type WithCodeRiftsInput = {
   requireConditionalWrite?: boolean;
   /**
    * Policy (ID842): T2 execution-time fingerprint recheck. Forwarded UNCHANGED onto
-   * GuardConfig.requireExecutionStateMatch. Default absent = off (no recheck; same as today).
-   * Tri-state boolean | 'warn' — see GuardConfig / README requireExecutionStateMatch for warn/true
-   * semantics (warn: loud execution_state_drift_observed on real drift / quiet
-   * execution_state_unmeasurable when nothing to measure, then proceeds; true blocks with
-   * EXECUTION_STATE_DRIFT). A default flip remains a separate versioned decision (step3b).
+   * GuardConfig.requireExecutionStateMatch. Absent inherits guard@8 default true
+   * (fail-closed). Explicit opt-down: false | 'warn'.
    */
   requireExecutionStateMatch?: GuardConfig['requireExecutionStateMatch'];
 };

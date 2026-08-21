@@ -53,36 +53,31 @@ if (!outcome.executed) console.error('blocked:', outcome.verdict);
 // Retry ONLY when outcome.executionAttempted === false (the safe-to-retry signal).
 ```
 
-#### `requireExecutionStateMatch` — first-class opt-in warn telemetry (safe pre-flip observation)
-
-> **891 / install-time recommendation:** this is the **safe pre-flip observation mode**.
-> It is **built, split, and ready** — but **default remains OFF** by design. Enable
-> `requireExecutionStateMatch: 'warn'` yourself when you want host-side telemetry
-> without blocking tool calls. CodeRifts does **not** auto-flip this default.
+#### `requireExecutionStateMatch` — T2 execution-state recheck (guard@8 default ON)
 
 After a fully enforceable ALLOW/MONITOR decision and **immediately before** `executeFactory`,
-the guard can recompute the execution-time change-set fingerprint (crbundle.v1 over the
-**current** `artifacts[]` the guard already holds) and compare it to what the receipt
+the guard recomputes the execution-time change-set fingerprint (crbundle.v1 over the
+**current** `artifacts[]` the guard already holds) and compares it to what the receipt
 authorized. Config field on `GuardConfig` (tri-state):
 
 ```ts
-requireExecutionStateMatch?: boolean | 'warn';  // default: absent / false (OFF)
+requireExecutionStateMatch?: boolean | 'warn';  // default: absent → true (enforce)
 ```
 
 | Mode | Value | Behavior |
 |---|---|---|
-| **OFF** (default) | `false` / absent | No recheck. Residual execution-state race as described under “TOCTOU is unclosed.” |
-| **Warn** (report-only · **recommended first step**) | `'warn'` | Rechecks. On **real drift**, emits loud `execution_state_drift_observed` via **`onEvent`**, then **proceeds** (does not block). On **unmeasurable** state (nothing to compare), emits quiet `execution_state_unmeasurable` (not drift, not safety), then **proceeds**. On match, silent. |
-| **Enforce** | `true` | Rechecks. On mismatch, **blocks** with integrity cause `EXECUTION_STATE_DRIFT` (factory never runs). Byte-identical to the original enforce path. |
+| **Enforce** (default) | `true` / absent | Rechecks. Content mismatch → `EXECUTION_STATE_DRIFT` (factory never runs). Missing authorized fingerprint or missing artifacts → `EXECUTION_STATE_UNMEASURABLE` (cannot assert; STOP). |
+| **Warn** (opt-down) | `'warn'` | Rechecks. Emits `execution_state_drift_observed` (loud) or `execution_state_unmeasurable` (quiet), then **runs unenforced** (`enforced: false` on mismatch). |
+| **OFF** (opt-down) | `false` | No recheck (v7 proceed-on-drift). Must be set explicitly. |
 
-**Two warn signals (noise-split — already shipped; use before any default flip):**
+**Two warn signals (noise-split):**
 
 | Event | When | Meaning |
 |---|---|---|
 | `execution_state_drift_observed` (loud) | `reason === fingerprint_stale_at_execute` | Authorized fp ≠ current artifacts hash — real T1→T2 content drift. |
 | `execution_state_unmeasurable` (quiet) | `missing_artifacts` or `missing_authorized_fingerprint` | Nothing to measure — **not** evidence of drift and **not** evidence of safety. |
 
-A future default flip to warn (step3b, guard@7) will ride on the **loud** signal only; quiet unmeasurable must not page as drift. **Recommended adoption ladder (human climbs; nothing auto-enables):** **off → `'warn'` (observe loud only, still proceeds) → `true` (enforce / hard stop)**.
+Quiet unmeasurable must not page as drift. **Opt-down ladder (safe-by-default):** default/`true` (enforce) → `'warn'` (observe, run unenforced) → `false` (off). `false` is supported with no timed removal.
 
 Warn-mode events (host-side only; the guard does **not** phone home), on `GuardConfig.onEvent`:
 
@@ -113,7 +108,7 @@ Warn-mode events (host-side only; the guard does **not** phone home), on `GuardC
 const outcome = await guardToolCall(call, executeFactory, {
   client,
   operation: 'merge',
-  requireExecutionStateMatch: 'warn', // opt-in telemetry; still proceeds on drift
+  requireExecutionStateMatch: 'warn', // opt-down: emit, then run unenforced on mismatch
   onEvent: (e) => {
     if (e.type === 'execution_state_drift_observed') {
       // host metrics / log — real drift only; nothing is sent to CodeRifts from here
@@ -124,9 +119,9 @@ const outcome = await guardToolCall(call, executeFactory, {
 });
 ```
 
-Honesty: this aids **detection** (warn) or **hard stop** (enforce) for execution-state
-mismatch at the guard boundary. It does **not** close TOCTOU proper — measurement-to-commit
-and host-side unconditional writes remain; see Guarantees.
+Honesty: default enforce **refuses on observed execution-state drift**. It does **not**
+close TOCTOU proper — measurement-to-commit and host-side unconditional writes remain;
+see Guarantees.
 
 > **Supply `artifacts[]` with content.** If the guard detects a contract change (e.g. from
 > `filesTouched`/`diff`) but you did **not** supply `artifacts[]` with `before`/`after`, it fails
@@ -173,9 +168,9 @@ const { tools, registry_report, composition_assurance } = withCodeRifts({
 Optional guard-policy fields on the same input are forwarded **unchanged** onto `GuardConfig` when
 present (absent = today’s defaults — no behavior change): `onEvent`, `monitoringSinkWired`,
 `resolvePriorContent`, `requireFreshness`, `allowStaleContext`, `requireConditionalWrite`, and
-**`requireExecutionStateMatch`** (`boolean | 'warn'`, default off). The last is plumbing for the
-ID842 T2 recheck so one-call hosts can opt into warn/true; it is **not** TOCTOU closure and does
-not flip the package default (see **`requireExecutionStateMatch`** above).
+**`requireExecutionStateMatch`** (`boolean | 'warn'`, default true). Forwarded onto
+`GuardConfig`; absent inherits the fail-closed default. `'warn'` / `false` are explicit
+opt-down. Not TOCTOU closure (see **`requireExecutionStateMatch`** above).
 
 ### Final-answer proof block (ID645)
 
@@ -768,11 +763,10 @@ Pass both on `withCodeRifts({ …, onEvent, monitoringSinkWired: true })`, or on
   measurement-to-commit race remains: content resolved at measurement time can change before the
   host commits. Closing that needs a host-side conditional write (compare-and-swap on a version
   token) — this package never writes, and reports `conditional_write` as a host assertion it
-  cannot verify. Opt-in **`requireExecutionStateMatch`** (`false` / `'warn'` / `true`) can
-  recheck the execution-time fingerprint before the factory (warn = loud
-  `execution_state_drift_observed` on real drift / quiet `execution_state_unmeasurable` when
-  nothing to measure; true = block with `EXECUTION_STATE_DRIFT`) — a detection or
-  enforcement aid, **not** a full TOCTOU closure. See the subsection above.
+  cannot verify. **`requireExecutionStateMatch`** (default `true`) refuses on observed
+  execution-state drift (`EXECUTION_STATE_DRIFT`) or unmeasurable T2
+  (`EXECUTION_STATE_UNMEASURABLE`). Opt-down: `'warn'` / `false`. Not a full TOCTOU
+  closure (no `observed_token_at_commit` CAS). See the subsection above.
 - **Retry-safe** — `executionAttempted` is the only safe-to-retry signal; a post-authorization throw
   is `executionAttempted:true` (the remote side effect may have landed).
 - **`enforced:true` only on a LIVE, receipt-verified `ALLOW`/`MONITOR`** — never on cached/LKG,

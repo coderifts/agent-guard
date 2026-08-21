@@ -12,6 +12,7 @@ const {
   withCodeRifts,
   collectFreshnessCallContext,
   computeBodyHash,
+  computeCanonicalBundleFingerprint,
 } = require('../dist/cjs/index.js');
 
 function signedFor(env) { return { fp: env.fingerprint, bh: computeBodyHash(env) }; }
@@ -20,6 +21,7 @@ function boundVerify(env) { return { valid: true, status: 'VERIFIED_CURRENT', pa
 const BEFORE = 'openapi: 3.0.0\npaths: {}\n';
 const AFTER = 'openapi: 3.0.0\npaths:\n  /x:\n    get: {}\n';
 const ARTIFACTS = [{ id: 'openapi:spec.yaml', type: 'openapi', before: BEFORE, after: AFTER }];
+const ARTIFACTS_FP = computeCanonicalBundleFingerprint(ARTIFACTS, { operation: 'tool_call' });
 const TRIGGER = { toolName: 'Edit', arguments: { path: 'spec.yaml', old_string: 'a', new_string: 'b' }, artifacts: ARTIFACTS };
 const WRITE = {
   toolName: 'Write',
@@ -33,8 +35,8 @@ function envelope(execution_action, decision, opts = {}) {
     spec_version: 'decision-result.v1.1', decision, execution_action,
     decision_id: 'dec_fw', correlation_id: 'c', evaluated_at: new Date().toISOString(),
     expires_at: opts.expires_at || new Date(Date.now() + 900000).toISOString(),
-    fingerprint: opts.fingerprint || ('sha256:' + 'a'.repeat(64)),
-    input_fingerprint: 'sha256:' + 'b'.repeat(64),
+    fingerprint: opts.fingerprint || ARTIFACTS_FP,
+    input_fingerprint: opts.fingerprint || ARTIFACTS_FP,
     operation: 'tool_call',
     receipt: { token: 'tok', format_version: 'crchain.v1', key_id: 'k', issued_at: 'x' },
   };

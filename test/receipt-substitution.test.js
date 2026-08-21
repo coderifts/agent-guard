@@ -12,7 +12,10 @@
 
 const { test, describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { guardToolCall, bindReceiptToEnvelope, computeBodyHash } = require('../dist/cjs/index.js');
+const { guardToolCall, bindReceiptToEnvelope, computeBodyHash, computeCanonicalBundleFingerprint } = require('../dist/cjs/index.js');
+
+const RUN_ARTIFACTS = [{ id: 'a', type: 'openapi', before: 'x', after: 'y' }];
+const RUN_FP = computeCanonicalBundleFingerprint(RUN_ARTIFACTS, { operation: 'tool_call', environment: 'prod' });
 
 // ── helpers ───────────────────────────────────────────────────────────────────────────────────────
 function makeEnvelope(o = {}) {
@@ -22,7 +25,7 @@ function makeEnvelope(o = {}) {
     execution_action: 'CONTINUE', decision_id: 'dec_1', correlation_id: 'corr_1',
     evaluated_at: '2026-07-28T00:00:00Z', expires_at: '2099-01-01T00:00:00Z', summary: 'ok',
     blocking_reasons: [], warnings: [], required_action: null, next_actions: [],
-    fingerprint: 'sha256:' + 'a'.repeat(64), input_fingerprint: 'sha256:' + 'b'.repeat(64),
+    fingerprint: RUN_FP, input_fingerprint: RUN_FP,
     decision_body_hash: null, report_url: null, evidence_quality: 'HIGH', confidence: 90,
     evidence: [], analysis_complete: true, operation: 'tool_call', environment: 'prod', audience: null,
     ...rest,
@@ -42,7 +45,7 @@ async function runGuard(envelope, vr, config = {}) {
     async verifyReceipt() { return vr; },
   };
   const outcome = await guardToolCall(
-    { toolName: 'apply_openapi', artifacts: [{ id: 'a', type: 'openapi', before: 'x', after: 'y' }] },
+    { toolName: 'apply_openapi', artifacts: RUN_ARTIFACTS },
     async () => { executed = true; return 'SIDE_EFFECT_EXECUTED'; },
     { client, environment: 'prod', operation: 'tool_call', ...config },
   );

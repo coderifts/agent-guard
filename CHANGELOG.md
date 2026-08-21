@@ -1,5 +1,23 @@
 # Changelog
 
+## 8.0.0
+
+### Breaking
+
+- **`requireExecutionStateMatch` defaults to `true`.** Immediately before `executeFactory`,
+  the guard recomputes crbundle.v1 over the current `artifacts[]` and compares it to the
+  fingerprint authorized on the receipt. Observed mismatch → integrity `EXECUTION_STATE_DRIFT`
+  (factory does not run). Missing authorized fingerprint or missing artifacts →
+  `EXECUTION_STATE_UNMEASURABLE` (cannot assert; STOP — not silent ALLOW).
+- **Opt-down (not removed):** `'warn'` still emits (`execution_state_drift_observed` /
+  `execution_state_unmeasurable`) then runs the factory **unenforced** (`enforced: false`
+  on mismatch). `false` turns the recheck off entirely (v7 proceed-on-drift). Hosts that
+  need v7 default behavior must set `requireExecutionStateMatch: false` explicitly.
+  No timed auto-removal of the opt-down.
+
+Honesty: this refuses on *observed* execution-state drift. It does **not** close TOCTOU
+proper — recheck and execute are not atomic (no `observed_token_at_commit` CAS).
+
 ## 4.2.0
 
 ### Breaking (honest claims)

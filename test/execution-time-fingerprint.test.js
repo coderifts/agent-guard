@@ -6,8 +6,8 @@
  * (a) receipt authorizes A; current still A → match, execution proceeds (flag true)
  * (b) receipt authorizes A; current is A′ → BLOCKED executed:false EXECUTION_STATE_DRIFT
  * (c) primitive is pure (same inputs → same verdict)
- * Plus: flag default OFF does not change behavior (even with stale envelope fp).
- * Step 3a: 'warn' emits execution_state_drift_observed on mismatch but still executes.
+ * Plus: guard@8 default true — stale envelope fp DOES block (EXECUTION_STATE_DRIFT).
+ * Opt-down: 'warn' emits and runs unenforced; false skips the recheck.
  */
 
 const { describe, it } = require('node:test');
@@ -199,15 +199,17 @@ describe('checkExecutionTimeFingerprint pure primitive', () => {
 
 // ── Guard wire (after decide, before executeFactory) ────────────────────────────
 describe('execution-time fingerprint guard wire (TOCTOU)', () => {
-  it('default OFF: stale envelope fingerprint does NOT block (no default flip)', async () => {
-    // Envelope authorizes garbage; current is A — without the flag this still executes
-    // (existing behavior: host is not forced to re-measure at T2).
+  it('default true: stale envelope fingerprint DOES block (EXECUTION_STATE_DRIFT)', async () => {
     const { outcome, executed } = await run(ARTIFACTS_A, 'sha256:' + 'f'.repeat(64), {
-      // requireExecutionStateMatch omitted → default false
+      // requireExecutionStateMatch omitted → default true (guard@8)
     });
-    assert.equal(executed, true);
-    assert.equal(outcome.executed, true);
-    assert.equal(outcome.enforced, true);
+    assert.equal(executed, false, 'factory must NOT run on observed drift');
+    assert.equal(outcome.executed, false);
+    assert.equal(outcome.executionAttempted, false);
+    assert.equal(outcome.enforced, false);
+    assert.equal(outcome.verdict.kind, 'UNAVAILABLE');
+    assert.equal(outcome.verdict.cause, 'EXECUTION_STATE_DRIFT');
+    assert.equal(outcome.verdict.action, 'STOP');
   });
 
   it('(a) flag ON + receipt authorizes A + current A → execution proceeds', async () => {
@@ -244,13 +246,13 @@ describe('execution-time fingerprint guard wire (TOCTOU)', () => {
   });
 
   // ── ID842 step 3a — warn mode (emit-and-proceed); loud vs quiet split ─────
-  it("warn + real drift → loud execution_state_drift_observed (shape byte-identical)", async () => {
+  it("warn + real drift → loud execution_state_drift_observed; runs unenforced", async () => {
     const { outcome, executed, events } = await run(ARTIFACTS_A_PRIME, FP_A, {
       requireExecutionStateMatch: 'warn',
     });
     assert.equal(executed, true, 'warn mode must NOT block the factory');
     assert.equal(outcome.executed, true);
-    assert.equal(outcome.enforced, true, 'warn still runs the enforced path; it only softens the T2 gate');
+    assert.equal(outcome.enforced, false, 'observed mismatch is not an enforced run');
     assert.equal(outcome.verdict.kind, 'ALLOW');
     const drifts = driftEvents(events);
     assert.equal(drifts.length, 1, 'exactly one loud drift event');
@@ -318,6 +320,7 @@ describe('execution-time fingerprint guard wire (TOCTOU)', () => {
     );
     assert.equal(executed, true, 'unmeasurable must not block');
     assert.equal(outcome.executed, true);
+    assert.equal(outcome.enforced, false);
     assert.equal(driftEvents(events).length, 0, 'must not emit loud drift for unmeasurable');
     const quiet = unmeasurableEvents(events);
     assert.equal(quiet.length, 1);
@@ -357,6 +360,7 @@ describe('execution-time fingerprint guard wire (TOCTOU)', () => {
     );
     assert.equal(executed, true);
     assert.equal(outcome.executed, true);
+    assert.equal(outcome.enforced, false);
     assert.equal(driftEvents(events).length, 0, 'must not emit loud drift');
     const quiet = unmeasurableEvents(events);
     assert.equal(quiet.length, 1);
@@ -389,8 +393,7 @@ describe('execution-time fingerprint guard wire (TOCTOU)', () => {
     assert.equal(unmeasurableEvents(events).length, 0);
   });
 
-  it('enforce (true) + missing authorized fingerprint → still EXECUTION_STATE_DRIFT (cause unchanged)', async () => {
-    // Regression-lock: true-mode still collapses unmeasurable into EXECUTION_STATE_DRIFT (@7 may split).
+  it('enforce (true) + missing authorized fingerprint → EXECUTION_STATE_UNMEASURABLE (cannot assert)', async () => {
     const events = [];
     let executed = false;
     const env = envelope(FP_A);
@@ -417,23 +420,19 @@ describe('execution-time fingerprint guard wire (TOCTOU)', () => {
     );
     assert.equal(executed, false);
     assert.equal(outcome.executed, false);
-    assert.equal(outcome.verdict.cause, 'EXECUTION_STATE_DRIFT');
+    assert.equal(outcome.verdict.cause, 'EXECUTION_STATE_UNMEASURABLE');
     assert.equal(driftEvents(events).length, 0);
     assert.equal(unmeasurableEvents(events).length, 0);
   });
 
-  it('off/default + drift → executes, NO loud/quiet events (byte-identical off)', async () => {
+  it('explicit false opt-down + drift → executes, NO loud/quiet events', async () => {
     const { outcome, executed, events } = await run(ARTIFACTS_A_PRIME, FP_A, {
-      // requireExecutionStateMatch omitted
+      requireExecutionStateMatch: false,
     });
     assert.equal(executed, true);
     assert.equal(outcome.executed, true);
+    assert.equal(outcome.enforced, true);
     assert.equal(driftEvents(events).length, 0);
     assert.equal(unmeasurableEvents(events).length, 0);
-
-    const r2 = await run(ARTIFACTS_A_PRIME, FP_A, { requireExecutionStateMatch: false });
-    assert.equal(r2.executed, true);
-    assert.equal(driftEvents(r2.events).length, 0);
-    assert.equal(unmeasurableEvents(r2.events).length, 0);
   });
 });

@@ -13,11 +13,12 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { guardToolCall, guardToolRegistry, computeBodyHash, computeArtifactDigest } = require('../dist/cjs/index.js');
+const { guardToolCall, guardToolRegistry, computeBodyHash, computeArtifactDigest, computeCanonicalBundleFingerprint } = require('../dist/cjs/index.js');
 
 // ── content-bearing artifacts (the WORKING shape) + a valid happy-path envelope/client ──────────────
 const ARTIFACTS = [{ id: 'public-api', type: 'openapi', before: 'openapi: 3.0.0', after: 'openapi: 3.0.1' }];
 const LOCAL_DIGEST = computeArtifactDigest(ARTIFACTS);
+const LOCAL_FP = computeCanonicalBundleFingerprint(ARTIFACTS, { operation: 'tool_call' });
 const TRIGGER_WITH_CONTENT = { toolName: 'apply_openapi', arguments: {}, artifacts: ARTIFACTS };
 
 function envelope(o = {}) {
@@ -25,7 +26,7 @@ function envelope(o = {}) {
     spec_version: 'decision-result.v1.1', decision: 'ALLOW', safe_for_agent: true,
     execution_action: 'CONTINUE', decision_id: 'dec_1', correlation_id: 'c',
     evaluated_at: '2026-07-28T00:00:00Z', expires_at: '2099-01-01T00:00:00Z',
-    fingerprint: 'sha256:' + 'a'.repeat(64), input_fingerprint: 'sha256:' + 'b'.repeat(64),
+    fingerprint: LOCAL_FP, input_fingerprint: LOCAL_FP,
     analysis_complete: true, artifact_digest: LOCAL_DIGEST, operation: 'tool_call', ...o,
   };
   for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];

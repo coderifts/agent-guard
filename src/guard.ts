@@ -588,16 +588,16 @@ export async function guardToolCall<T>(
   // Freshness + conditional-write are additional conjuncts — already applied above.
   const enforceable = receiptVerified && (kind === 'ALLOW' || sinkWired);
   if (enforceable) {
-    // ID842 — T2 execution-time fingerprint recheck (AFTER decide, IMMEDIATELY BEFORE executeFactory).
-    // Host-independent: recomputes crbundle.v1 over CURRENT artifacts the guard already holds; does
-    // not trust a host-supplied expected_fingerprint for the T2 measurement.
-    // requireExecutionStateMatch: false/absent=off, true=enforce (block), 'warn'=emit-and-proceed.
-    // Default stays off; warn is opt-in telemetry (step 3a) before any default-flip.
-    const execStateMode = config.requireExecutionStateMatch;
-    if (execStateMode === true || execStateMode === 'warn') {
+    // T2 fingerprint recheck immediately before executeFactory (host-independent crbundle.v1
+    // over CURRENT artifacts). Refuses on *observed* execution-state drift — this is not a
+    // full TOCTOU close (recheck and executeFactory are not atomic; no observed_token_at_commit
+    // CAS). guard@8: default ON (absent → true). Explicit opt-down: false | 'warn'.
+    const execStateMode = config.requireExecutionStateMatch === undefined
+      ? true
+      : config.requireExecutionStateMatch;
+    if (execStateMode !== false) {
       const et = checkExecutionTimeFingerprint({
         artifacts: detection.artifacts,
-        // Same context slots the guard sent on preflight (server folds these into crbundle.v1).
         context: {
           operation: config.operation ?? 'tool_call',
           environment: config.environment,
@@ -605,15 +605,12 @@ export async function guardToolCall<T>(
         envelope: envelope as unknown as Record<string, unknown>,
       });
       if (!et.match) {
+        const unmeasurable = isUnmeasurableExecutionStateReason(et.reason);
         if (execStateMode === true) {
-          // enforce path — behaviorally identical to step 1 (block; do not change).
-          // @7 candidate (not this pass): split the refusal cause so missing_authorized_fingerprint /
-          // missing_artifacts do not collapse into EXECUTION_STATE_DRIFT (consumers may match that
-          // cause string). Changing the cause value is a breaking surface — leave true-mode as-is.
           breakerRecord(config);
           return closedIntegrity(
             config,
-            'EXECUTION_STATE_DRIFT',
+            unmeasurable ? 'EXECUTION_STATE_UNMEASURABLE' : 'EXECUTION_STATE_DRIFT',
             failPolicy,
             fctx,
             cwctx,
@@ -621,11 +618,8 @@ export async function guardToolCall<T>(
             detection.artifacts,
           );
         }
-        // warn path — split signals (step3a noise-fix for a future default-to-warn):
-        //   real drift (fingerprint_stale_at_execute) → execution_state_drift_observed (loud, shape frozen)
-        //   unmeasurable (missing_artifacts | missing_authorized_fingerprint) → execution_state_unmeasurable
-        // Then fall through to executeFactory either way.
-        if (isUnmeasurableExecutionStateReason(et.reason)) {
+        // warn opt-down: emit, then run unenforced — a measured mismatch is not an enforced run.
+        if (unmeasurable) {
           emit(config, {
             type: 'execution_state_unmeasurable',
             at: iso(),
@@ -645,8 +639,13 @@ export async function guardToolCall<T>(
             reason: et.reason,
           });
         }
+        const warnVerdict: GuardVerdict = kind === 'ALLOW'
+          ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
+          : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
+        return runUnenforced(
+          config, executeFactory, envelope, warnVerdict, true, redacted, freshBasis, cwBasis,
+        );
       }
-      // match in warn or enforce → proceed silently (no matched event — drift-only telemetry).
     }
     const approved: ApprovedVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified: true }
