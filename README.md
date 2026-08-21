@@ -172,6 +172,14 @@ present (absent = today’s defaults — no behavior change): `onEvent`, `monito
 `GuardConfig`; absent inherits the fail-closed default. `'warn'` / `false` are explicit
 opt-down. Not TOCTOU closure (see **`requireExecutionStateMatch`** above).
 
+**`profile?: 'ENFORCING_STRICT'`** (guard@8.1, opt-in). Locks the fail-closed conjunction
+(`requireCoverage: 'COMPLETE'`, `requireFreshness: true`, `requireExecutionStateMatch: true`,
+`requireConditionalWrite: true`, `failOnUnguardedMutator: true`, `unknownToolPolicy: 'mutating'`).
+A conflicting opt-down **aborts construction** (`ENFORCING_STRICT cannot be weakened: <flag> conflicts`).
+Requires `resolvePriorContent` at construction. Does **not** claim host cannot register raw tools
+outside the returned table — residual `calls_outside_guarded_path_invisible`. Adapters
+(`withCodeRiftsOpenAI` / Anthropic / Gemini / LangGraph) still emit only the guarded list.
+
 ### Final-answer proof block (ID645)
 
 When a call produces a machine `GuardExecutionProof` (`outcome.proof`), you can embed a

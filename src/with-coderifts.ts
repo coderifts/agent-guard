@@ -201,6 +201,9 @@ export function guardedFractionAmongRoutes(
   return { kind: 'present', fraction: counts.GUARDED / sum };
 }
 
+/** Opt-in fail-closed lock. Only value today: ENFORCING_STRICT. Absent = today's per-flag defaults. */
+export type WithCodeRiftsProfile = 'ENFORCING_STRICT';
+
 export type WithCodeRiftsInput = {
   /** Raw tool list handed to the frozen guardToolRegistry (required). */
   tools: RawTool[];
@@ -212,6 +215,13 @@ export type WithCodeRiftsInput = {
    * tools; specialised classes keep their operationForClass-derived operation.
    */
   operation: string;
+  /**
+   * Opt-in profile. `ENFORCING_STRICT` locks the fail-closed conjunction (requireCoverage COMPLETE,
+   * requireFreshness, requireExecutionStateMatch true, requireConditionalWrite, failOnUnguardedMutator,
+   * unknownToolPolicy mutating) and ABORTS construction on any conflicting opt-down.
+   * Absent: today's defaults (freshness/conditional-write remain opt-in). Not weakenable when set.
+   */
+  profile?: WithCodeRiftsProfile;
   /** Optional; carried through untouched. Artifact resolution is a later slice — S1 invents no use for it. */
   repository?: string;
   /**
@@ -363,6 +373,11 @@ export type ReceiptThreadHandle = {
 const RESIDUAL_CALL_POLICY_INCOMPLETE = 'composition_call_policy_incomplete';
 /** Composition residual: host did not supply resolvePriorContent (NOT the same as DEGRADED). */
 const RESIDUAL_FRESHNESS_NOT_CONFIGURED = 'composition_freshness_not_configured';
+/**
+ * Honesty residual: host-invoked raw tools outside the returned table are invisible.
+ * Always named under ENFORCING_STRICT — never a claim of total inescapability (ID781).
+ */
+const RESIDUAL_CALLS_OUTSIDE_GUARDED_PATH = 'calls_outside_guarded_path_invisible';
 // S2 weakening-override residuals — derived SOLELY from registry report.warnings (never recomputed).
 const RESIDUAL_FORCED_READONLY = 'composition_forced_readonly_on_heuristic_mutator';
 const RESIDUAL_UNKNOWN_READONLY = 'composition_unknown_treated_as_readonly';
@@ -386,6 +401,32 @@ function coverageRank(coverage: string): number | undefined {
   return Object.prototype.hasOwnProperty.call(COVERAGE_STRENGTH, coverage)
     ? COVERAGE_STRENGTH[coverage as EnforcementCoverage]
     : undefined;
+}
+
+function isEnforcingStrict(input: WithCodeRiftsInput): boolean {
+  return input.profile === 'ENFORCING_STRICT';
+}
+
+/**
+ * Explicit opt-downs that contradict ENFORCING_STRICT. Empty = no conflict.
+ * `unknownToolPolicy: 'reject'` is stricter than 'mutating' (unclassified throws) — not a weaken.
+ * `'readonly'` hides a possible mutator → conflict.
+ */
+function enforcingStrictWeakenFlags(input: WithCodeRiftsInput): string[] {
+  const flags: string[] = [];
+  if (input.requireCoverage !== undefined) {
+    const rank = coverageRank(input.requireCoverage);
+    if (rank !== undefined && rank < COVERAGE_STRENGTH.COMPLETE) flags.push('requireCoverage');
+  }
+  if (input.requireFreshness === false) flags.push('requireFreshness');
+  if (input.requireExecutionStateMatch === false || input.requireExecutionStateMatch === 'warn') {
+    flags.push('requireExecutionStateMatch');
+  }
+  if (input.requireConditionalWrite === false) flags.push('requireConditionalWrite');
+  const reg = input.registry ?? {};
+  if (reg.failOnUnguardedMutator === false) flags.push('failOnUnguardedMutator');
+  if (reg.unknownToolPolicy === 'readonly') flags.push('unknownToolPolicy');
+  return flags;
 }
 
 /**
@@ -605,7 +646,8 @@ function wrapForReceiptCursor(tool: ProtectedTool, cursor: ReceiptCursorState): 
 /**
  * Wrap guardToolRegistry with a mandatory operation and a separately-computed composition assurance.
  * Fails at CONSTRUCTION (never at first tool call) for a missing client, a missing/empty operation, an
- * invalid requireCoverage value, or (S2) an unmet requireCoverage. Registry-thrown construction errors
+ * invalid requireCoverage value, (S2) an unmet requireCoverage, or `profile: 'ENFORCING_STRICT'` plus a
+ * conflicting opt-down / missing resolvePriorContent. Registry-thrown construction errors
  * propagate UNCHANGED.
  */
 export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
@@ -624,6 +666,19 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.requireCoverage !== undefined && coverageRank(input.requireCoverage) === undefined) {
     problems.push(`\`requireCoverage\` must be one of COMPLETE | PARTIAL | BYPASSED | UNKNOWN (got ${JSON.stringify(input.requireCoverage)})`);
+  }
+  if (input.profile !== undefined && input.profile !== 'ENFORCING_STRICT') {
+    problems.push(`\`profile\` must be 'ENFORCING_STRICT' when set (got ${JSON.stringify(input.profile)})`);
+  }
+  if (isEnforcingStrict(input)) {
+    const weaken = enforcingStrictWeakenFlags(input);
+    if (weaken.length > 0) {
+      problems.push(`ENFORCING_STRICT cannot be weakened: ${weaken.join(', ')} conflicts`);
+    }
+    // requireFreshness=true is construction-detectable without a resolver → abort (not call-time FRESHNESS_REQUIRED).
+    if (typeof input.resolvePriorContent !== 'function') {
+      problems.push('ENFORCING_STRICT cannot be weakened: resolvePriorContent conflicts');
+    }
   }
   if (problems.length > 0) {
     throw new Error(
@@ -681,14 +736,22 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   if (input.requireExecutionStateMatch !== undefined) {
     guard.requireExecutionStateMatch = input.requireExecutionStateMatch;
   }
+  const strict = isEnforcingStrict(input);
+  if (strict) {
+    // Lock the fail-closed conjunction. Conflicts already aborted above — these are the STRICT values.
+    guard.requireFreshness = true;
+    guard.requireConditionalWrite = true;
+    guard.requireExecutionStateMatch = true;
+  }
   const config: GuardToolRegistryConfig = {
     guard,
-    unknownToolPolicy: reg.unknownToolPolicy ?? 'mutating',
+    unknownToolPolicy: strict ? (reg.unknownToolPolicy === 'reject' ? 'reject' : 'mutating') : (reg.unknownToolPolicy ?? 'mutating'),
     classify: reg.classify,
     binders: reg.binders,
     forceReadonly: reg.forceReadonly,
-    failOnUnguardedMutator: reg.failOnUnguardedMutator,
+    failOnUnguardedMutator: strict ? true : reg.failOnUnguardedMutator,
   };
+  const requireCoverage = strict ? 'COMPLETE' : input.requireCoverage;
 
   // Registry-thrown construction errors (INVALID_TOOL, DUPLICATE_TOOL_NAME, UNKNOWN_TOOL,
   // FORCE_READONLY_MUTATOR, GUARD_CONFIG_INVALID) propagate UNCHANGED — never caught, wrapped, or
@@ -699,12 +762,12 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   // S2 requireCoverage — abort if the REGISTRY-level coverage is weaker than required. This is not a
   // weakening-specific rule: BYPASSED (from a forced downgrade under failOnUnguardedMutator:false) is
   // simply weaker than COMPLETE by the ordering, so it fails here for the same reason PARTIAL does.
-  if (input.requireCoverage !== undefined) {
-    const requiredRank = coverageRank(input.requireCoverage); // validated non-undefined pre-registry
+  if (requireCoverage !== undefined) {
+    const requiredRank = coverageRank(requireCoverage); // validated non-undefined pre-registry
     const actualRank = coverageRank(report.coverage) ?? -1;   // fail-closed: unknown coverage = below any floor
     if (requiredRank !== undefined && actualRank < requiredRank) {
       throw new Error(
-        `withCodeRifts: requireCoverage not met — registry coverage '${report.coverage}' is weaker than required '${input.requireCoverage}' `
+        `withCodeRifts: requireCoverage not met — registry coverage '${report.coverage}' is weaker than required '${requireCoverage}' `
         + `(strength ordering COMPLETE > PARTIAL > BYPASSED > UNKNOWN). requireCoverage constrains the REGISTRY tool-boundary surface ONLY; `
         + `a green construction here is NOT a product-level runtime-inescapability guarantee — composition_assurance.inescapable_runtime stays false until receipt carry-forward and a freshness-safe prior for write-style calls land.`,
       );
@@ -736,8 +799,11 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   // requireConditionalWrite policy without a host reporting path: residual only (inescapable stays false).
   // Per-call truth is outcome.conditional_write; composition names the policy gap.
-  if (input.requireConditionalWrite === true) {
+  if (input.requireConditionalWrite === true || strict) {
     residuals.push('composition_unconditional_write_under_policy');
+  }
+  if (strict) {
+    residuals.push(RESIDUAL_CALLS_OUTSIDE_GUARDED_PATH);
   }
 
   // 'PARTIAL' from the existing EnforcementCoverage union — never 'COMPLETE' while inescapable_runtime

@@ -303,7 +303,7 @@ export {
   guardedFractionAmongRoutes,
 } from './with-coderifts.js';
 export type {
-  WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, CompositionAssurance,
+  WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, WithCodeRiftsProfile, CompositionAssurance,
   SettledCallObservation, CallRoute, CallTerminal, TableSettledCallRouteCounts,
   ReceiptThreadHandle, ReceiptCursorSkipReason,
 } from './with-coderifts.js';

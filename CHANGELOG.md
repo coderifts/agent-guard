@@ -1,5 +1,20 @@
 # Changelog
 
+## 8.1.0
+
+### Added
+
+- **`withCodeRifts({ profile: 'ENFORCING_STRICT' })`** — opt-in lock of the fail-closed
+  conjunction: `requireCoverage: 'COMPLETE'`, `requireFreshness: true`,
+  `requireExecutionStateMatch: true`, `requireConditionalWrite: true`,
+  `failOnUnguardedMutator: true`, `unknownToolPolicy: 'mutating'`. Construction
+  **aborts** on a conflicting opt-down (`ENFORCING_STRICT cannot be weakened: <flag> conflicts`)
+  — no silent overwrite, no silent host-win. Missing `resolvePriorContent` under STRICT
+  aborts at construction (detectable; not deferred to call-time `FRESHNESS_REQUIRED`).
+  Composition residual `calls_outside_guarded_path_invisible` is always named under STRICT:
+  host-invoked raw tools outside the returned table remain invisible (not total inescapability).
+  Absent profile: **no default change** (freshness / conditional-write stay opt-in).
+
 ## 8.0.0
 
 ### Breaking
