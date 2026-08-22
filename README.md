@@ -123,6 +123,44 @@ Honesty: default enforce **refuses on observed execution-state drift**. It does 
 close TOCTOU proper — measurement-to-commit and host-side unconditional writes remain;
 see Guarantees.
 
+#### `requireCommitObservation` — T3 post-commit observation (guard@8.2 default ON)
+
+T2 looks at the target immediately **before** the write. T3 looks at it **after**. Once the host
+write returns, the guard re-reads the target and compares it to the authorized `after`:
+
+- **filesystem adapters** — re-read the file through `node:fs`, sha256 it, compare to the
+  authorized `after` content.
+- **API / DB / Registry adapters** — call the same `current_token()` reader that
+  `executeIfUnchanged` already requires, and compare it to the intended post-write token.
+
+The result lands on every `GuardOutcome` arm and on `GuardExecutionProof` as
+`commit_observation`, with one of four statuses:
+
+| `status` | Meaning |
+| --- | --- |
+| `not_observed` | No reader was available, or observation was switched off. |
+| `observed_match` | Content re-read after the write matched the authorized `after`. |
+| `observed_drift` | What is there now is not what was authorized. |
+| `observed_token_match` | Token-only adapter: the version token matched. Content was not compared. |
+
+On content drift the guard re-runs preflight against the **observed** state and reports the
+result under `commit_observation.blast`. `host_attestation` (`absent`,
+`host_attested_committed`, `host_attested_refused`, `conflict`) is a **label the host supplies
+on top of** the measurement — a host that says `committed` while the guard observed drift is
+recorded as `conflict`, not as a pass.
+
+**`enforced` is unchanged by T3.** `enforced` remains a pre-write fact: receipt-verified
+`ALLOW`/`MONITOR` plus the T2 recheck. The drift event `commit_observed_drift` is
+**report-only — it is not a permission gate.**
+
+Default ON. Opt out with `requireCommitObservation: false`, which emits
+`commit_observation_check_disabled`. Measured cost: **+0.087 ms/call** on filesystem adapters;
+preflight re-runs only on drift.
+
+Honesty (verbatim, and also on the machine proof as
+`limits.commit_observation_is_observed_at_t3_not_atomic: true`):
+`commit_observation is observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content; host attestation is a host claim layered on the measurement`.
+
 > **Supply `artifacts[]` with content.** If the guard detects a contract change (e.g. from
 > `filesTouched`/`diff`) but you did **not** supply `artifacts[]` with `before`/`after`, it fails
 > closed **locally** with `outcome.verdict.cause === 'MISSING_ARTIFACT_CONTENT'` — the tool does not
@@ -208,8 +246,8 @@ Honesty (do not over-claim):
   `resolvePriorContent`. A resolver that returns stale or empty bytes is still your measurement.
 - **CAS / conditional write** is a **host assertion** (`conditional_write: true` on the write).
   This package never writes and cannot verify the swap. `requireConditionalWrite` refuses
-  `enforced: true` when the host does not report it. Not a full TOCTOU closure (no
-  `observed_token_at_commit` CAS).
+  `enforced: true` when the host does not report it. No atomic CAS at commit; T3 observes the
+  result after the write (not atomic).
 - Host-invoked raw tools outside the returned table remain invisible
   (`calls_outside_guarded_path_invisible`). `composition_assurance.inescapable_runtime` stays false.
 
@@ -806,8 +844,8 @@ Pass both on `withCodeRifts({ …, onEvent, monitoringSinkWired: true })`, or on
   token) — this package never writes, and reports `conditional_write` as a host assertion it
   cannot verify. **`requireExecutionStateMatch`** (default `true`) refuses on observed
   execution-state drift (`EXECUTION_STATE_DRIFT`) or unmeasurable T2
-  (`EXECUTION_STATE_UNMEASURABLE`). Opt-down: `'warn'` / `false`. Not a full TOCTOU
-  closure (no `observed_token_at_commit` CAS). See the subsection above.
+  (`EXECUTION_STATE_UNMEASURABLE`). Opt-down: `'warn'` / `false`. No atomic CAS at commit;
+  T3 observes the result after the write (not atomic). See the subsection above.
 - **Retry-safe** — `executionAttempted` is the only safe-to-retry signal; a post-authorization throw
   is `executionAttempted:true` (the remote side effect may have landed).
 - **`enforced:true` only on a LIVE, receipt-verified `ALLOW`/`MONITOR`** — never on cached/LKG,
