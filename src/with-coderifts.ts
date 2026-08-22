@@ -292,6 +292,12 @@ export type WithCodeRiftsInput = {
    * (fail-closed). Explicit opt-down: false | 'warn'.
    */
   requireExecutionStateMatch?: GuardConfig['requireExecutionStateMatch'];
+  /**
+   * Policy (ID781 T3): post-commit observation. Forwarded onto GuardConfig.requireCommitObservation.
+   * Absent inherits default true. Explicit opt-out: false (emits commit_observation_check_disabled;
+   * does not change enforced).
+   */
+  requireCommitObservation?: GuardConfig['requireCommitObservation'];
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -735,6 +741,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.requireExecutionStateMatch !== undefined) {
     guard.requireExecutionStateMatch = input.requireExecutionStateMatch;
+  }
+  if (input.requireCommitObservation !== undefined) {
+    guard.requireCommitObservation = input.requireCommitObservation;
   }
   const strict = isEnforcingStrict(input);
   if (strict) {

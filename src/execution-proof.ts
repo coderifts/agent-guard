@@ -20,6 +20,7 @@
 
 import { createHash } from 'node:crypto';
 import type { GuardVerdict } from './types.js';
+import type { CommitObservation } from './commit-observation.js';
 
 /** Machine-readable schema id for this block. */
 export const EXECUTION_PROOF_SPEC = 'guard-execution-proof.v1' as const;
@@ -110,7 +111,15 @@ export type GuardExecutionProof = {
      * never as false. (ID781 option A: honesty label; real CAS attestation is separate work.)
      */
     conditional_write_is_host_asserted_not_cas_verified: true;
+    /**
+     * commit_observation is observed at T3, not atomic: another writer may act between write
+     * and observation; token-only adapters compare version token not content; host attestation
+     * is a host claim layered on the measurement.
+     */
+    commit_observation_is_observed_at_t3_not_atomic: true;
   };
+  /** T3 post-commit observation. Always present; not_observed when nothing was re-read. */
+  commit_observation: CommitObservation;
 };
 
 export type ProofBuildInput = {
@@ -129,6 +138,8 @@ export type ProofBuildInput = {
     write_style: boolean;
     conditional_write: true | false | 'not_reported';
   };
+  /** T3 observation assembled by the guard after executeFactory (or not_observed). */
+  commitObservation?: CommitObservation;
 };
 
 const LIMITS: GuardExecutionProof['limits'] = Object.freeze({
@@ -139,6 +150,7 @@ const LIMITS: GuardExecutionProof['limits'] = Object.freeze({
   calls_outside_guarded_path_invisible: true,
   execution_result_hash_is_not_artifact_match_proof: true,
   conditional_write_is_host_asserted_not_cas_verified: true,
+  commit_observation_is_observed_at_t3_not_atomic: true,
 });
 
 /**
@@ -299,9 +311,17 @@ export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof
     verdict_kind: typeof input.verdict?.kind === 'string' ? input.verdict.kind : 'UNKNOWN',
     execution_result_hash: Object.freeze(executionResultHashOf(input)),
     limits: LIMITS,
+    commit_observation: freezeCommitObservation(input.commitObservation),
   };
 
   return freezeProof(proof);
+}
+
+function freezeCommitObservation(obs: CommitObservation | undefined): CommitObservation {
+  const o: CommitObservation = obs && typeof obs === 'object'
+    ? { ...obs, ...(obs.blast ? { blast: Object.freeze({ ...obs.blast }) } : {}) }
+    : { status: 'not_observed', observed_at: '', host_attestation: 'absent' };
+  return Object.freeze(o);
 }
 
 function freezeProof(p: GuardExecutionProof): GuardExecutionProof {

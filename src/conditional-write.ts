@@ -165,7 +165,7 @@ export function conditionalWriteResidual(input: {
  *   (detection only — not a rollback)
  */
 export type ExecuteIfUnchangedOutcome<T> =
-  | { status: 'committed'; result: T; version_token: VersionToken }
+  | { status: 'committed'; result: T; version_token: VersionToken; observed_token?: VersionToken | null }
   | {
       status: 'refused';
       reason: 'stale_version_token';
@@ -178,6 +178,7 @@ export type ExecuteIfUnchangedOutcome<T> =
       result: T;
       expected_token: VersionToken;
       post_commit_token: VersionToken | null;
+      observed_token?: VersionToken | null;
     };
 
 /**
@@ -266,20 +267,30 @@ export async function executeIfUnchanged<T>(
     throw err;
   }
 
+  // T3: always re-read current_token after write (same host reader executeIfUnchanged already required).
+  // Detection (opt-in) reuses this read — not a second I/O. Observation failure must not fail the write.
+  let observed_token: VersionToken | null = null;
+  try {
+    observed_token = await args.current_token();
+  } catch (err) {
+    if (args.detect_stale_during_commit === true) throw err;
+    observed_token = null;
+  }
+
   // Post-commit detection (best-effort honesty, not prevention).
   if (args.detect_stale_during_commit === true && typeof args.expected_after_commit === 'function') {
     const want = await args.expected_after_commit(result);
-    const post = await args.current_token();
-    if (!tokensEqual(want, post)) {
+    if (!tokensEqual(want, observed_token)) {
       return {
         status: 'committed_stale_detected',
         reason: 'stale_during_commit',
         result,
         expected_token: expected,
-        post_commit_token: post == null ? null : post,
+        post_commit_token: observed_token,
+        observed_token,
       };
     }
   }
 
-  return { status: 'committed', result, version_token: expected };
+  return { status: 'committed', result, version_token: expected, observed_token };
 }

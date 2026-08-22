@@ -121,6 +121,9 @@ function limitLines(proof: GuardExecutionProof): string[] {
     'Calls outside the guarded path are invisible to this proof.',
     'execution_result_hash is NOT proof that applied artifacts match change_fp.',
     'conditional_write:true is host-asserted (the host says it conditioned on a version token); it is NOT independently CAS-verified by the guard.',
+    ...(L.commit_observation_is_observed_at_t3_not_atomic === true
+      ? ['commit_observation is observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content; host attestation is a host claim layered on the measurement']
+      : []),
     // Machine keys for greppability (still honest if someone only reads keys).
     `limits.does_not_claim_host_cannot_bypass=${L.does_not_claim_host_cannot_bypass === true}`,
     `limits.calls_outside_guarded_path_invisible=${L.calls_outside_guarded_path_invisible === true}`,
@@ -217,6 +220,21 @@ export function renderFinalAnswerProof(
   lines.push(bullet(`enforced: ${yn(proof.execution.enforced === true)}`));
   lines.push(bullet(`execution_result_hash: ${formatResultHash(proof.execution_result_hash)}`));
   lines.push('');
+
+  const co = proof.commit_observation;
+  if (co && typeof co === 'object') {
+    lines.push(h2('Commit observation (T3)'));
+    lines.push(bullet(`status: ${co.status}`));
+    lines.push(bullet(`observed_at: ${co.observed_at || '(none)'}`));
+    if (co.host_attestation) lines.push(bullet(`host_attestation: ${co.host_attestation}`));
+    if (co.observed_fp) lines.push(bullet(`observed_fp: ${co.observed_fp}`));
+    if (co.expected_fp) lines.push(bullet(`expected_fp: ${co.expected_fp}`));
+    if (co.token) lines.push(bullet(`token: ${co.token}`));
+    lines.push(bullet(
+      'Observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content; host attestation is a host claim layered on the measurement.',
+    ));
+    lines.push('');
+  }
 
   // Unconditional: the limits are part of the proof, not a presentation option. A block that
   // dropped them would still call itself the same proof while no longer stating what it does not

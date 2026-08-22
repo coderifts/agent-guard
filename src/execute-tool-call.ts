@@ -111,6 +111,14 @@ const CW_NOT_REPORTED = Object.freeze({
   write_style: false,
 });
 
+function notObserved() {
+  return {
+    status: 'not_observed' as const,
+    observed_at: new Date().toISOString(),
+    host_attestation: 'absent' as const,
+  };
+}
+
 /**
  * Unknown tool name — typed refusal via binder no-result path.
  * Uses CONFIG_ERROR integrity UNAVAILABLE (not a fabricated ALLOW).
@@ -126,12 +134,14 @@ function unknownToolOutcome(toolName: string): GuardOutcome<unknown> {
     decisionMissing: true,
     unavailableCount: 1,
   };
+  const commit_observation = notObserved();
   const proof = buildExecutionProof({
     preflighted: false,
     executionAttempted: false,
     executed: false,
     enforced: false,
     verdict,
+    commitObservation: commit_observation,
   });
   // Annotate verdict for body text; proof already has verdict_kind.
   void toolName;
@@ -144,6 +154,7 @@ function unknownToolOutcome(toolName: string): GuardOutcome<unknown> {
     proof,
     freshness: FRESHNESS_NOT_CONFIGURED,
     conditional_write: CW_NOT_REPORTED,
+    commit_observation,
   };
 }
 
@@ -158,6 +169,7 @@ function wrapRawAsOutcome(result: unknown): GuardOutcome<unknown> {
     signals: ['dispatcher_passthrough'],
     detectorVersion: 'execute-tool-call',
   };
+  const commit_observation = notObserved();
   const proof = buildExecutionProof({
     preflighted: false,
     executionAttempted: true,
@@ -165,6 +177,7 @@ function wrapRawAsOutcome(result: unknown): GuardOutcome<unknown> {
     enforced: false,
     verdict,
     result,
+    commitObservation: commit_observation,
   });
   return {
     executionAttempted: true,
@@ -176,6 +189,7 @@ function wrapRawAsOutcome(result: unknown): GuardOutcome<unknown> {
     proof,
     freshness: FRESHNESS_NOT_CONFIGURED,
     conditional_write: CW_NOT_REPORTED,
+    commit_observation,
   };
 }
 
@@ -186,6 +200,7 @@ function wrapThrownAsOutcome(error: unknown): GuardOutcome<unknown> {
     signals: ['dispatcher_passthrough_throw'],
     detectorVersion: 'execute-tool-call',
   };
+  const commit_observation = notObserved();
   const proof = buildExecutionProof({
     preflighted: false,
     executionAttempted: true,
@@ -193,6 +208,7 @@ function wrapThrownAsOutcome(error: unknown): GuardOutcome<unknown> {
     enforced: false,
     verdict,
     error,
+    commitObservation: commit_observation,
   });
   return {
     executionAttempted: true,
@@ -204,6 +220,7 @@ function wrapThrownAsOutcome(error: unknown): GuardOutcome<unknown> {
     proof,
     freshness: FRESHNESS_NOT_CONFIGURED,
     conditional_write: CW_NOT_REPORTED,
+    commit_observation,
   };
 }
 

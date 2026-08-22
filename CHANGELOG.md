@@ -1,5 +1,26 @@
 # Changelog
 
+## 8.2.0
+
+### Added
+
+- **T3 post-commit observation** (`commit_observation` on every `GuardOutcome` / proof).
+  After `executeFactory` returns, the guard re-reads the target and compares to the
+  authorized `after` (FS content via `node:fs`) or the intended post token (API/DB/Registry
+  reuse `current_token()` already required by `executeIfUnchanged`). Status is
+  `observed_match` | `observed_token_match` | `observed_drift` | `not_observed`.
+  Default ON; `requireCommitObservation: false` emits `commit_observation_check_disabled`
+  and leaves `enforced` unchanged. Observed drift reports (`commit_observed_drift`) and
+  re-runs preflight on the observed content for blast radius; it does **not** flip
+  `enforced` (pre-write fact). Host `cas-attestation.v1` is a label on top of the
+  measurement (`host_attested_committed` / `host_attested_refused` / `conflict`) — never
+  a substitute. `executeIfUnchanged` now always re-reads after write and attaches
+  additive `observed_token` (same reader; not a new host callback).
+
+Honesty: observed at T3, not atomic: another writer may act between write and
+observation; token-only adapters compare version token not content; host attestation
+is a host claim layered on the measurement. Signed receipt / `bh` unchanged.
+
 ## 8.1.1
 
 ### Fixed

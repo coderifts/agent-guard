@@ -92,7 +92,13 @@ export type {
   GuardExecutionProof,
   ExecutionResultHash,
   GuardToolCallContext,
+  CommitObservation,
+  CommitObservationStatus,
+  CommitHostAttestation,
+  CommitObservationBlast,
 } from './types.js';
+
+export { observeCommit, hashObservedContent } from './commit-observation.js';
 
 // Guard-produced execution proof (assembled from observed state only; never caller-supplied).
 export {

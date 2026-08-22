@@ -92,6 +92,11 @@ export interface GuardConfig {
    * atomic with the measurement (no observed_token_at_commit CAS).
    */
   requireExecutionStateMatch?: boolean | 'warn';
+  /**
+   * T3 post-commit observation. Default ON (absent → true). false → not_observed +
+   * commit_observation_check_disabled. Never changes `enforced`.
+   */
+  requireCommitObservation?: boolean;
 }
 
 export interface ToolCallDescriptor {
@@ -129,6 +134,13 @@ export type {
   VersionedContent,
   VersionToken,
 } from './conditional-write.js';
+import type { CommitObservation } from './commit-observation.js';
+export type {
+  CommitObservation,
+  CommitObservationStatus,
+  CommitHostAttestation,
+  CommitObservationBlast,
+} from './commit-observation.js';
 
 /**
  * Runner-collected context for guardToolCall (4th arg).
@@ -139,20 +151,21 @@ export type GuardToolCallContext = FreshnessCallContext & ConditionalWriteCallCo
 
 export type GuardOutcome<T> =
   // enforced:true is its OWN arm — only ApprovedVerdict + receiptVerified:true + preflighted:true reach it.
-  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis }
+  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation }
   // executed but NOT enforced (SKIPPED / observeOnly / open- or lkg-UNAVAILABLE pass-through):
-  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis }
+  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation }
   // guard blocked before the factory ran:
-  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis }
+  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation }
   // factory threw AFTER a fully-enforced approval (side effect may have landed; enforced passes through per rule 11):
-  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis }
+  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation }
   // factory threw after an UNENFORCED execution (SKIPPED / observeOnly / open- or lkg-pass-through):
-  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis };
+  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
 // proof is always present and is guard-produced (not caller-writable).
 // freshness is always present: per-call forensic basis (NOT_CONFIGURED | DEGRADED | ACTIVE+assessment).
 // conditional_write is always present: three-valued host report (default not_reported).
+// commit_observation is always present (T3): not_observed when no reader / factory did not run / opt-out.
 
 export type GuardVerdict =
   | { kind: 'ALLOW';    action: 'CONTINUE';                 envelope: DecisionResultEnvelope; receiptVerified: boolean }
@@ -224,7 +237,8 @@ export type GuardEvent =
           |'monitoring_required'|'monitoring_unwired'|'receipt_unverified'
           |'breaker_tripped'|'observe_only_passthrough'|'factory_error'
           |'artifact_content_missing'    // detector triggered but no analyzable artifacts[] → local fail-closed
-          |'execution_state_check_disabled'; // requireExecutionStateMatch:false — T2 not run; enforced:false
+          |'execution_state_check_disabled' // requireExecutionStateMatch:false — T2 not run; enforced:false
+          |'commit_observation_check_disabled'; // requireCommitObservation:false — T3 not run; enforced unchanged
       at: string; correlationId?: string; decisionId?: string;
       action?: ExecutionAction; cause?: string; durationMs?: number;
       signals?: string[]; detectorVersion?: string }
@@ -238,4 +252,7 @@ export type GuardEvent =
    */
   | { type: 'execution_state_unmeasurable'; at: string; decisionId?: string;
       current_fingerprint: string | null; authorized_fingerprint: string | null; reason: string;
-      note: string };
+      note: string }
+  /** T3: observed post-write state ≠ authorized after / intended post token. Not a BLOCK. enforced unchanged. */
+  | { type: 'commit_observed_drift'; at: string; decisionId?: string;
+      observed_fp?: string; expected_fp?: string; token?: string };

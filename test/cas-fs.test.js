@@ -133,6 +133,7 @@ describe('executeIfUnchanged (generic helper)', () => {
       status: 'committed',
       result: 'payload',
       version_token: 'tok-a',
+      observed_token: 'tok-a',
     });
   });
 

@@ -76,6 +76,7 @@ function assertLimits(proof) {
   assert.equal(proof.limits.change_fp_is_what_was_checked_not_what_executed, true);
   assert.equal(proof.limits.calls_outside_guarded_path_invisible, true);
   assert.equal(proof.limits.execution_result_hash_is_not_artifact_match_proof, true);
+  assert.equal(proof.limits.commit_observation_is_observed_at_t3_not_atomic, true);
 }
 
 describe('execution proof — allowed, executed, enforced', () => {

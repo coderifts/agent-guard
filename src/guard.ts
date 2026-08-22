@@ -36,6 +36,8 @@ import {
   type ConditionalWriteBasis,
   type ConditionalWriteCallContext,
 } from './conditional-write.js';
+import { observeCommit, type CommitObservation } from './commit-observation.js';
+import { buildCasAttestation, isExecuteIfUnchangedOutcome } from './cas-attestation.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();
@@ -175,21 +177,11 @@ async function runEnforced<T>(
   try {
     const result = await factory(approved.envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: true as const, result, verdict: approved, preflighted: true as const };
-    return {
-      ...base,
-      proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
-      freshness,
-      conditional_write,
-    };
+    return finishExecuted(config, base, freshness, conditional_write, redacted, result);
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso(), action: approved.action });
     const base = { executionAttempted: true as const, executed: false as const, enforced: true as const, error, verdict: approved, preflighted: true as const };
-    return {
-      ...base,
-      proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
-      freshness,
-      conditional_write,
-    };
+    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined);
   }
 }
 async function runUnenforced<T>(
@@ -206,21 +198,11 @@ async function runUnenforced<T>(
   try {
     const result = await factory(envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: false as const, result, verdict, preflighted };
-    return {
-      ...base,
-      proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
-      freshness,
-      conditional_write,
-    };
+    return finishExecuted(config, base, freshness, conditional_write, redacted, result);
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso() });
     const base = { executionAttempted: true as const, executed: false as const, enforced: false as const, error, verdict, preflighted };
-    return {
-      ...base,
-      proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
-      freshness,
-      conditional_write,
-    };
+    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined);
   }
 }
 function blocked<T>(
@@ -229,13 +211,63 @@ function blocked<T>(
   freshness: FreshnessBasis,
   conditional_write: ConditionalWriteBasis,
 ): GuardOutcome<T> {
+  const commit_observation: CommitObservation = {
+    status: 'not_observed', observed_at: iso(), host_attestation: 'absent',
+  };
   const base = { executionAttempted: false as const, executed: false as const, enforced: false as const, verdict, preflighted };
   return {
     ...base,
-    proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write }),
+    proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write, commitObservation: commit_observation }),
     freshness,
     conditional_write,
+    commit_observation,
   };
+}
+
+async function finishExecuted<T>(
+  config: GuardConfig,
+  base: { executionAttempted: true; executed: boolean; enforced: boolean; verdict: GuardVerdict; preflighted: boolean; result?: T; error?: unknown },
+  freshness: FreshnessBasis,
+  conditional_write: ConditionalWriteBasis,
+  redacted: ToolCallDescriptor,
+  result: unknown,
+): Promise<GuardOutcome<T>> {
+  const enabled = config.requireCommitObservation !== false;
+  const commit_observation = await observeCommit({
+    enabled,
+    call: redacted,
+    result,
+    now: iso(),
+    preflightOnObserved: (artifacts) => preflightWithRetry(config, {
+      artifacts,
+      context: { operation: config.operation ?? 'tool_call', environment: config.environment, audience: config.audience },
+      previous_receipt: resolvePreviousReceipt(config),
+    }),
+  });
+  if (!enabled) {
+    emit(config, {
+      type: 'commit_observation_check_disabled',
+      at: iso(),
+      cause: 'requireCommitObservation_false',
+    });
+  } else if (commit_observation.status === 'observed_drift') {
+    emit(config, {
+      type: 'commit_observed_drift',
+      at: iso(),
+      observed_fp: commit_observation.observed_fp,
+      expected_fp: commit_observation.expected_fp,
+      token: commit_observation.token,
+    });
+  }
+  const proof = buildExecutionProof({
+    ...base,
+    conditionalWriteBasis: conditional_write,
+    commitObservation: commit_observation,
+  });
+  if (result !== undefined && isExecuteIfUnchangedOutcome(result)) {
+    try { buildCasAttestation(proof, result); } catch { /* label already set; never throw */ }
+  }
+  return { ...base, proof, freshness, conditional_write, commit_observation } as GuardOutcome<T>;
 }
 
 function preflightBeforeByIdFrom(arts: Artifact[] | undefined): Record<string, string> {
