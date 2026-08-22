@@ -1,5 +1,16 @@
 # Changelog
 
+## 8.1.1
+
+### Fixed
+
+- **`requireExecutionStateMatch: false` no longer reports `enforced: true`.** The opt-down
+  still proceeds on drift (behavior unchanged). The T2 recheck did not run, so the outcome
+  now uses the same `runUnenforced` arm as `'warn'` mismatch (`enforced: false`) and emits
+  `execution_state_check_disabled`. Claiming `enforced: true` when the check was off was a
+  honesty bug (P0-6 / audit #16). `GuardOutcome.enforced` stays boolean — there is no
+  `NOT_CHECKED` arm; `false` is the honest value.
+
 ## 8.1.0
 
 ### Added

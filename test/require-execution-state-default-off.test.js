@@ -22,7 +22,7 @@ describe('guard@8: requireExecutionStateMatch default is ON', () => {
   it('guard.ts: absent defaults to true; recheck unless explicit false', () => {
     const src = fs.readFileSync(path.join(ROOT, 'src/guard.ts'), 'utf8');
     assert.match(src, /config\.requireExecutionStateMatch === undefined\s*\n\s*\? true/);
-    assert.match(src, /execStateMode !== false/);
+    assert.match(src, /execStateMode === false/);
     assert.match(src, /default ON \(absent → true\)/);
   });
 

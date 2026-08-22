@@ -583,9 +583,10 @@ export async function guardToolCall<T>(
 
   // ── enforced ⟺ executed INVARIANT (contract-triggering path): execute ONLY when we can ENFORCE. ──
   // enforceable = a bound-verified receipt AND (MONITOR) a wired sink. Anything else FAILS CLOSED —
-  // the guard NEVER runs the factory unenforced on a contract change. Closes CE-EP-06 (no receipt),
-  // CE-EP-08 (verifyReceipts:false), CE-CC-04 (MONITOR without a monitoring sink).
-  // Freshness + conditional-write are additional conjuncts — already applied above.
+  // the guard NEVER runs the factory *as enforced* on a contract change. Explicit opt-downs
+  // ('warn' mismatch, requireExecutionStateMatch:false) run unenforced (enforced:false) so the
+  // field tells the truth. Closes CE-EP-06 (no receipt), CE-EP-08 (verifyReceipts:false),
+  // CE-CC-04 (MONITOR without a monitoring sink). Freshness + conditional-write already applied.
   const enforceable = receiptVerified && (kind === 'ALLOW' || sinkWired);
   if (enforceable) {
     // T2 fingerprint recheck immediately before executeFactory (host-independent crbundle.v1
@@ -595,57 +596,71 @@ export async function guardToolCall<T>(
     const execStateMode = config.requireExecutionStateMatch === undefined
       ? true
       : config.requireExecutionStateMatch;
-    if (execStateMode !== false) {
-      const et = checkExecutionTimeFingerprint({
-        artifacts: detection.artifacts,
-        context: {
-          operation: config.operation ?? 'tool_call',
-          environment: config.environment,
-        },
-        envelope: envelope as unknown as Record<string, unknown>,
+    // false opt-down: T2 does not run. Proceed-on-drift remains, but enforced:false —
+    // the check was not performed (NOT_CHECKED). Same runUnenforced arm as 'warn' mismatch.
+    if (execStateMode === false) {
+      emit(config, {
+        type: 'execution_state_check_disabled',
+        at: iso(),
+        decisionId: envelope.decision_id,
+        cause: 'requireExecutionStateMatch_false',
       });
-      if (!et.match) {
-        const unmeasurable = isUnmeasurableExecutionStateReason(et.reason);
-        if (execStateMode === true) {
-          breakerRecord(config);
-          return closedIntegrity(
-            config,
-            unmeasurable ? 'EXECUTION_STATE_UNMEASURABLE' : 'EXECUTION_STATE_DRIFT',
-            failPolicy,
-            fctx,
-            cwctx,
-            redacted,
-            detection.artifacts,
-          );
-        }
-        // warn opt-down: emit, then run unenforced — a measured mismatch is not an enforced run.
-        if (unmeasurable) {
-          emit(config, {
-            type: 'execution_state_unmeasurable',
-            at: iso(),
-            decisionId: envelope.decision_id,
-            current_fingerprint: et.current_fingerprint,
-            authorized_fingerprint: et.authorized_fingerprint,
-            reason: et.reason,
-            note: EXECUTION_STATE_UNMEASURABLE_NOTE,
-          });
-        } else {
-          emit(config, {
-            type: 'execution_state_drift_observed',
-            at: iso(),
-            decisionId: envelope.decision_id,
-            current_fingerprint: et.current_fingerprint,
-            authorized_fingerprint: et.authorized_fingerprint,
-            reason: et.reason,
-          });
-        }
-        const warnVerdict: GuardVerdict = kind === 'ALLOW'
-          ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
-          : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
-        return runUnenforced(
-          config, executeFactory, envelope, warnVerdict, true, redacted, freshBasis, cwBasis,
+      const offVerdict: GuardVerdict = kind === 'ALLOW'
+        ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
+        : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
+      return runUnenforced(
+        config, executeFactory, envelope, offVerdict, true, redacted, freshBasis, cwBasis,
+      );
+    }
+    const et = checkExecutionTimeFingerprint({
+      artifacts: detection.artifacts,
+      context: {
+        operation: config.operation ?? 'tool_call',
+        environment: config.environment,
+      },
+      envelope: envelope as unknown as Record<string, unknown>,
+    });
+    if (!et.match) {
+      const unmeasurable = isUnmeasurableExecutionStateReason(et.reason);
+      if (execStateMode === true) {
+        breakerRecord(config);
+        return closedIntegrity(
+          config,
+          unmeasurable ? 'EXECUTION_STATE_UNMEASURABLE' : 'EXECUTION_STATE_DRIFT',
+          failPolicy,
+          fctx,
+          cwctx,
+          redacted,
+          detection.artifacts,
         );
       }
+      // warn opt-down: emit, then run unenforced — a measured mismatch is not an enforced run.
+      if (unmeasurable) {
+        emit(config, {
+          type: 'execution_state_unmeasurable',
+          at: iso(),
+          decisionId: envelope.decision_id,
+          current_fingerprint: et.current_fingerprint,
+          authorized_fingerprint: et.authorized_fingerprint,
+          reason: et.reason,
+          note: EXECUTION_STATE_UNMEASURABLE_NOTE,
+        });
+      } else {
+        emit(config, {
+          type: 'execution_state_drift_observed',
+          at: iso(),
+          decisionId: envelope.decision_id,
+          current_fingerprint: et.current_fingerprint,
+          authorized_fingerprint: et.authorized_fingerprint,
+          reason: et.reason,
+        });
+      }
+      const warnVerdict: GuardVerdict = kind === 'ALLOW'
+        ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
+        : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
+      return runUnenforced(
+        config, executeFactory, envelope, warnVerdict, true, redacted, freshBasis, cwBasis,
+      );
     }
     const approved: ApprovedVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified: true }

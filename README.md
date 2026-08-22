@@ -68,7 +68,7 @@ requireExecutionStateMatch?: boolean | 'warn';  // default: absent → true (enf
 |---|---|---|
 | **Enforce** (default) | `true` / absent | Rechecks. Content mismatch → `EXECUTION_STATE_DRIFT` (factory never runs). Missing authorized fingerprint or missing artifacts → `EXECUTION_STATE_UNMEASURABLE` (cannot assert; STOP). |
 | **Warn** (opt-down) | `'warn'` | Rechecks. Emits `execution_state_drift_observed` (loud) or `execution_state_unmeasurable` (quiet), then **runs unenforced** (`enforced: false` on mismatch). |
-| **OFF** (opt-down) | `false` | No recheck (v7 proceed-on-drift). Must be set explicitly. |
+| **OFF** (opt-down) | `false` | No recheck (v7 proceed-on-drift). Factory still runs. **`enforced: false`** — the check was not performed. Emits `execution_state_check_disabled`. Must be set explicitly. |
 
 **Two warn signals (noise-split):**
 

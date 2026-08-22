@@ -223,7 +223,8 @@ export type GuardEvent =
           |'detection_skip'|'execution_started'|'execution_skipped'
           |'monitoring_required'|'monitoring_unwired'|'receipt_unverified'
           |'breaker_tripped'|'observe_only_passthrough'|'factory_error'
-          |'artifact_content_missing';   // detector triggered but no analyzable artifacts[] → local fail-closed
+          |'artifact_content_missing'    // detector triggered but no analyzable artifacts[] → local fail-closed
+          |'execution_state_check_disabled'; // requireExecutionStateMatch:false — T2 not run; enforced:false
       at: string; correlationId?: string; decisionId?: string;
       action?: ExecutionAction; cause?: string; durationMs?: number;
       signals?: string[]; detectorVersion?: string }

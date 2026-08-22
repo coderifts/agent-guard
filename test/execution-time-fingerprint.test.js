@@ -237,12 +237,13 @@ describe('execution-time fingerprint guard wire (TOCTOU)', () => {
     assert.equal(outcome.verdict.action, 'STOP');
   });
 
-  it('flag explicitly false behaves like default OFF', async () => {
+  it('flag explicitly false proceeds on drift but is not enforced', async () => {
     const { outcome, executed } = await run(ARTIFACTS_A, 'sha256:' + 'e'.repeat(64), {
       requireExecutionStateMatch: false,
     });
     assert.equal(executed, true);
     assert.equal(outcome.executed, true);
+    assert.equal(outcome.enforced, false, 'T2 off is not an enforced run');
   });
 
   // ── ID842 step 3a — warn mode (emit-and-proceed); loud vs quiet split ─────
@@ -425,14 +426,19 @@ describe('execution-time fingerprint guard wire (TOCTOU)', () => {
     assert.equal(unmeasurableEvents(events).length, 0);
   });
 
-  it('explicit false opt-down + drift → executes, NO loud/quiet events', async () => {
+  it('explicit false opt-down + drift → executes unenforced, NO loud/quiet events', async () => {
     const { outcome, executed, events } = await run(ARTIFACTS_A_PRIME, FP_A, {
       requireExecutionStateMatch: false,
     });
-    assert.equal(executed, true);
+    assert.equal(executed, true, 'false opt-down still proceeds on drift');
     assert.equal(outcome.executed, true);
-    assert.equal(outcome.enforced, true);
+    assert.equal(outcome.enforced, false, 'T2 was not checked — enforced must not be true');
     assert.equal(driftEvents(events).length, 0);
     assert.equal(unmeasurableEvents(events).length, 0);
+    assert.equal(
+      events.filter((e) => e.type === 'execution_state_check_disabled').length,
+      1,
+      'honesty breadcrumb: T2 was explicitly off',
+    );
   });
 });
