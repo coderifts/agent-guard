@@ -2,7 +2,7 @@
 
 Fail-closed guard for AI agent tool calls — preflight contract changes before they execute.
 
-Security core **FROZEN** (agent-guard-api v1.0). Built on [`@coderifts/sdk`](https://www.npmjs.com/package/@coderifts/sdk) `^1.1.1`.
+Security core **FROZEN** (agent-guard-api v1.0). Built on [`@coderifts/sdk`](https://www.npmjs.com/package/@coderifts/sdk) `^3.0.0`.
 
 ```bash
 npm install @coderifts/agent-guard @coderifts/sdk
@@ -179,6 +179,39 @@ A conflicting opt-down **aborts construction** (`ENFORCING_STRICT cannot be weak
 Requires `resolvePriorContent` at construction. Does **not** claim host cannot register raw tools
 outside the returned table — residual `calls_outside_guarded_path_invisible`. Adapters
 (`withCodeRiftsOpenAI` / Anthropic / Gemini / LangGraph) still emit only the guarded list.
+
+### Production enforcement (`ENFORCING_STRICT` + freshness / CAS)
+
+The `withCodeRifts` example above is the **entry point** (absent profile: freshness and
+conditional-write stay opt-in). For production, lock the fail-closed conjunction with
+`profile: 'ENFORCING_STRICT'` (shipped guard@8.1.0; current package 8.1.1). Construction
+**aborts** if you opt down any locked flag or omit `resolvePriorContent`.
+
+```typescript
+import { withCodeRifts } from '@coderifts/agent-guard';
+
+const { tools, registry_report, composition_assurance, receipt_thread } = withCodeRifts({
+  tools: rawTools,
+  client,
+  operation: 'merge',
+  profile: 'ENFORCING_STRICT',
+  // Required under STRICT (abort at construction if missing). Host measures prior
+  // bytes for write-style freshness; the package never reads the filesystem.
+  resolvePriorContent: ({ artifactId }) => readPrior(artifactId),
+});
+// register ONLY `tools`. Receipt carry-forward is default-on (`receipt_thread`).
+```
+
+Honesty (do not over-claim):
+
+- **Freshness** is ACTIVE only because STRICT sets `requireFreshness` **and** you supplied
+  `resolvePriorContent`. A resolver that returns stale or empty bytes is still your measurement.
+- **CAS / conditional write** is a **host assertion** (`conditional_write: true` on the write).
+  This package never writes and cannot verify the swap. `requireConditionalWrite` refuses
+  `enforced: true` when the host does not report it. Not a full TOCTOU closure (no
+  `observed_token_at_commit` CAS).
+- Host-invoked raw tools outside the returned table remain invisible
+  (`calls_outside_guarded_path_invisible`). `composition_assurance.inescapable_runtime` stays false.
 
 ### Final-answer proof block (ID645)
 
