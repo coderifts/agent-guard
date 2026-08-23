@@ -100,6 +100,7 @@ test('MONITOR + declared and wired (monitoringSinkWired + onEvent) => enforced:t
   assert.equal(o.verdict.kind, 'MONITOR');
   assert.equal(o.enforced, true);
   assert.equal(o.executed, true);
+  assert.equal(o.monitoring_delivery.status, 'sent_unacked');
 });
 
 test('MONITOR + declared but no callback => FAIL-CLOSED (contradiction) — MONITORING_UNWIRED', async () => {

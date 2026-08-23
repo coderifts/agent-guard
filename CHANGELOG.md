@@ -1,5 +1,29 @@
 # Changelog
 
+## 8.4.0
+
+### Added
+
+- **N-4 monitoring delivery attestation.** CWM outcomes gain observation-side
+  `monitoring_delivery` with a closed tri-state: `delivered_acked` |
+  `sent_unacked` | `not_delivered`. A dedicated `monitoringSink` (callback
+  returning an ack, or HTTP POST `{ url }`) is invoked with a bounded timeout
+  (default 5s, `monitoringSinkTimeoutMs`). Evidence records `{ at, ack_hash
+  or status_code, sink_kind, ack_verified? }`. Optional HMAC (`ackHmacKey`;
+  header `x-coderifts-ack-signature` / `x-hub-signature-256`) — valid →
+  `ack_verified: true`; invalid → `not_delivered` (a lying sink is worse than
+  no sink); no key → no verification, no penalty. No dedicated sink (host
+  claim + `onEvent` only) → `sent_unacked`.
+- **ENFORCING teeth:** `not_delivered` under default `failPolicy: 'closed'`
+  (and `profile: 'ENFORCING_STRICT'`) treats CWM as the sink-not-wired case
+  (`MONITORING_UNWIRED`, factory does not run). `observeOnly` / `failPolicy:
+  'open'` degrade: proceed unenforced with the reason visible.
+- **Proof:** `renderFinalAnswerProof` adds a Monitoring delivery section when
+  the field is present (`monitoring: delivered (acked sha256:ab12…)` /
+  `sent, not acked` / `NOT delivered`). Honesty: delivered_acked does **not**
+  mean a human saw the event. ALLOW proofs are unchanged (field omitted).
+  Observation-side only — never the verdict/preimage.
+
 ## 8.3.0
 
 ### Added

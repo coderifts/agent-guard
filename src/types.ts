@@ -47,10 +47,26 @@ export interface GuardConfig {
    * - `true`  + no `onEvent`       → contradiction → fail-closed MONITORING_UNWIRED.
    * - absent / `false`             → monitoring treated as unwired (even if `onEvent` exists).
    *
-   * This is a claim the host records, not a fact the package checks: a callback cannot prove
-   * delivery to any destination. Empty/no-op handlers are indistinguishable from real sinks.
+   * This is a claim the host records. Measured delivery (ack) lives on `monitoringSink`
+   * and is recorded as `monitoring_delivery` on the CWM outcome. A no-op `onEvent`
+   * remains indistinguishable from a real logger; it yields `sent_unacked`.
    */
   monitoringSinkWired?: boolean;
+  /**
+   * Optional dedicated CWM delivery sink (callback that may return an ack, or HTTP POST).
+   * Distinct from `onEvent` (lifecycle, never throws). Absent → `sent_unacked` when the
+   * MONITOR gate is otherwise wired (claim + onEvent only; no ack semantics).
+   */
+  monitoringSink?: import('./monitoring-delivery.js').MonitoringSink;
+  /** Per-sink invocation timeout. Default 5000ms. */
+  monitoringSinkTimeoutMs?: number;
+  /**
+   * Optional HMAC key for ack verification (callback signature field or HTTP ack header).
+   * No key → no verification, no penalty. Invalid HMAC → `not_delivered`.
+   */
+  ackHmacKey?: string | Buffer;
+  /** Forwarded from withCodeRifts. Used with failPolicy/observeOnly for delivery fail-closed teeth. */
+  profile?: 'ENFORCING_STRICT';
   /**
    * Optional prior chain-receipt token for the preflight `previous_receipt` field (server hashes it
    * into the signed `prev` slot). Host-owned only: a string the host updates between calls, or a
@@ -143,6 +159,16 @@ export type {
   CommitHostAttestation,
   CommitObservationBlast,
 } from './commit-observation.js';
+import type { MonitoringDelivery } from './monitoring-delivery.js';
+export type {
+  MonitoringDelivery,
+  MonitoringDeliveryStatus,
+  MonitoringDeliveryEvidence,
+  MonitoringSink,
+  MonitoringSinkHttp,
+  MonitoringSinkCallback,
+  MonitoringSinkPayload,
+} from './monitoring-delivery.js';
 
 /**
  * Runner-collected context for guardToolCall (4th arg).
@@ -153,21 +179,22 @@ export type GuardToolCallContext = FreshnessCallContext & ConditionalWriteCallCo
 
 export type GuardOutcome<T> =
   // enforced:true is its OWN arm — only ApprovedVerdict + receiptVerified:true + preflighted:true reach it.
-  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation }
+  | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery }
   // executed but NOT enforced (SKIPPED / observeOnly / open- or lkg-UNAVAILABLE pass-through):
-  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation }
+  | { executionAttempted: true;  executed: true;  enforced: false; result: T;   verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery }
   // guard blocked before the factory ran:
-  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation }
+  | { executionAttempted: false; executed: false; enforced: false;              verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery }
   // factory threw AFTER a fully-enforced approval (side effect may have landed; enforced passes through per rule 11):
-  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation }
+  | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery }
   // factory threw after an UNENFORCED execution (SKIPPED / observeOnly / open- or lkg-pass-through):
-  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation };
+  | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
 // proof is always present and is guard-produced (not caller-writable).
 // freshness is always present: per-call forensic basis (NOT_CONFIGURED | DEGRADED | ACTIVE+assessment).
 // conditional_write is always present: three-valued host report (default not_reported).
 // commit_observation is always present (T3): not_observed when no reader / factory did not run / opt-out.
+// monitoring_delivery is present on CWM/MONITOR arms only (tri-state; omitted on ALLOW/SKIPPED/etc).
 
 export type GuardVerdict =
   | { kind: 'ALLOW';    action: 'CONTINUE';                 envelope: DecisionResultEnvelope; receiptVerified: boolean }
@@ -237,7 +264,7 @@ export interface LkgStore {
 export type GuardEvent =
   | { type: 'preflight_start'|'preflight_result'|'preflight_unavailable'
           |'detection_skip'|'execution_started'|'execution_skipped'
-          |'monitoring_required'|'monitoring_unwired'|'receipt_unverified'
+          |'monitoring_required'|'monitoring_unwired'|'monitoring_not_delivered'|'receipt_unverified'
           |'breaker_tripped'|'observe_only_passthrough'|'factory_error'
           |'artifact_content_missing'    // detector triggered but no analyzable artifacts[] → local fail-closed
           |'execution_state_check_disabled' // requireExecutionStateMatch:false — T2 not run; enforced:false

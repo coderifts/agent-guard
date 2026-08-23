@@ -248,6 +248,13 @@ export type WithCodeRiftsInput = {
    */
   monitoringSinkWired?: boolean;
   /**
+   * Optional dedicated CWM delivery sink (callback or HTTP). Forwarded onto GuardConfig.
+   * Distinct from onEvent. See monitoring_delivery on the CWM outcome.
+   */
+  monitoringSink?: GuardConfig['monitoringSink'];
+  monitoringSinkTimeoutMs?: GuardConfig['monitoringSinkTimeoutMs'];
+  ackHmacKey?: GuardConfig['ackHmacKey'];
+  /**
    * Optional. Invoked once per SETTLED call through the returned tool table (every route and both
    * terminals). Discriminated union — see SettledCallObservation. Throws and rejected promises are
    * swallowed so observation never changes host-visible execution. Replaces the former `onOutcome`
@@ -717,6 +724,18 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.monitoringSinkWired !== undefined) {
     guard.monitoringSinkWired = input.monitoringSinkWired;
+  }
+  if (input.monitoringSink !== undefined) {
+    guard.monitoringSink = input.monitoringSink;
+  }
+  if (input.monitoringSinkTimeoutMs !== undefined) {
+    guard.monitoringSinkTimeoutMs = input.monitoringSinkTimeoutMs;
+  }
+  if (input.ackHmacKey !== undefined) {
+    guard.ackHmacKey = input.ackHmacKey;
+  }
+  if (input.profile === 'ENFORCING_STRICT') {
+    guard.profile = 'ENFORCING_STRICT';
   }
   // previousReceipt getter: host override > composition cursor > undefined.
   // Always install a getter when threading is on OR the host supplied an override, so the frozen

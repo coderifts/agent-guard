@@ -807,42 +807,45 @@ The chain records an issued decision for a mutation that may never have landed �
 Do **not** claim an intact chain proves session completeness, that edits landed, or that downstream
 CI may skip re-analysis. Prefer tamper-evident language over “tamper-proof.”
 
-### WARN / `CONTINUE_WITH_MONITORING` needs a host assertion + `onEvent`
+### WARN / `CONTINUE_WITH_MONITORING` — claim gate + measured delivery
 
 Without both **`monitoringSinkWired: true`** and an **`onEvent`** handler, a **WARN** verdict does
-**not** proceed. The outcome is fail-closed with cause **`MONITORING_UNWIRED`**, and the tool **does
-not run**. That is intentional, not a transport bug.
+**not** proceed (`MONITORING_UNWIRED`, tool does not run). That claim-agreement gate is unchanged.
 
-The host **asserts** that a monitoring sink is intentionally wired (`monitoringSinkWired: true`). The
-package records that claim and checks only that it **agrees** with a present `onEvent` callback. It
-does **not** and **cannot** confirm that any event reaches a destination — a no-op `() => {}` is
-indistinguishable from a real logger, and we do not try to detect empty functions. A declaration is
-a claim we record, not a fact we verify.
+**Measured delivery (N-4)** is a separate observation. Set `monitoringSink` to a callback that may
+return an ack, or to `{ url }` (HTTP POST). The CWM outcome then carries `monitoring_delivery`:
 
-**Agreement (fail closed on contradiction):**
+| `monitoring_delivery.status` | Meaning |
+|------------------------------|---------|
+| `delivered_acked` | Sink invocation completed and returned a non-error ack (callback value / HTTP 2xx). Evidence: `{ at, ack_hash: sha256(ack-bytes) or status_code, sink_kind }`. Optional HMAC (`ackHmacKey`) valid → `ack_verified: true`. |
+| `sent_unacked` | Invocation dispatched, no ack semantics (undefined-returning callback, or claim+`onEvent` only with no dedicated sink). |
+| `not_delivered` | Throw / timeout (default 5s, `monitoringSinkTimeoutMs`) / HTTP non-2xx / invalid HMAC. |
 
-| `monitoringSinkWired` | `onEvent` | MONITOR gate |
-|-----------------------|-----------|--------------|
-| `true` | function present | wired — proceeds (when receipt verified) |
+**Teeth:** under default `failPolicy: 'closed'` (and `profile: 'ENFORCING_STRICT'`), `not_delivered`
+is treated as the sink-not-wired case — `MONITORING_UNWIRED`, factory does not run. `observeOnly` or
+`failPolicy: 'open'` degrade: the call proceeds **unenforced** with the reason visible.
+
+**Honesty:** `delivered_acked` means the sink returned an ack. It does **not** mean a human saw the
+event. Invalid HMAC is `not_delivered` (a lying sink is worse than no sink). No HMAC key configured
+→ no verification attempted, no penalty.
+
+**Agreement (fail closed on contradiction) — claim gate, still required:**
+
+| `monitoringSinkWired` | `onEvent` | MONITOR claim gate |
+|-----------------------|-----------|--------------------|
+| `true` | function present | wired — proceeds to delivery measurement (when receipt verified) |
 | `true` | absent | contradiction → `MONITORING_UNWIRED` |
 | absent / `false` | function present | **unwired** — declaration required; `onEvent` alone is not enough |
-| absent / `false` | absent | unwired (same as today with no sink) |
+| absent / `false` | absent | unwired |
 
-**Absent declaration = unwired** (breaking for callers that only passed `onEvent`). That closes the
-hole where `onEvent: () => {}` unlocked MONITOR while observing nothing. Cost: every host that wants
-WARN to proceed must set `monitoringSinkWired: true` in addition to `onEvent`.
+**Three different jobs (not three sinks):** `onEvent` = lifecycle events (never throws, never an
+ack); `monitoringSinkWired` = host claim that monitoring is intentionally wired; `monitoringSink` =
+measured delivery (callback or HTTP); `onSettledCall` = one settle record per returned-table call
+and gates nothing.
 
-On a MONITOR/WARN path the guard emits `monitoring_required` when the gate is wired, or
-`monitoring_unwired` when it is not (then `MONITORING_UNWIRED` if the call would otherwise be
-enforceable).
-
-**Three different jobs (not three sinks):** `onEvent` = lifecycle events; `monitoringSinkWired` =
-host claim that monitoring is intentionally wired (opens MONITOR only when it agrees with
-`onEvent`); `onSettledCall` = one settle record per returned-table call (GUARDED arm carries
-`GuardOutcome`) and gates nothing.
-
-Pass both on `withCodeRifts({ …, onEvent, monitoringSinkWired: true })`, or on `guardToolCall` /
-`guardToolRegistry`’s `guard: { client, onEvent, monitoringSinkWired: true }` — same fields.
+Pass claim+lifecycle on `withCodeRifts({ …, onEvent, monitoringSinkWired: true })` and optionally
+`monitoringSink` / `ackHmacKey` / `monitoringSinkTimeoutMs`. Same fields on `guardToolCall` /
+`guardToolRegistry`’s `guard` config.
 
 ## Guarantees (tsc-verified)
 

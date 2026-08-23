@@ -38,6 +38,11 @@ import {
 } from './conditional-write.js';
 import { observeCommit, type CommitObservation } from './commit-observation.js';
 import { buildCasAttestation, isExecuteIfUnchangedOutcome } from './cas-attestation.js';
+import {
+  deliverMonitoring,
+  monitoringDeliveryFailClosed,
+  type MonitoringDelivery,
+} from './monitoring-delivery.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();
@@ -172,16 +177,17 @@ async function runEnforced<T>(
   redacted: ToolCallDescriptor,
   freshness: FreshnessBasis,
   conditional_write: ConditionalWriteBasis,
+  monitoring_delivery?: MonitoringDelivery,
 ): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso(), action: approved.action, decisionId: approved.envelope.decision_id });
   try {
     const result = await factory(approved.envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: true as const, result, verdict: approved, preflighted: true as const };
-    return finishExecuted(config, base, freshness, conditional_write, redacted, result);
+    return finishExecuted(config, base, freshness, conditional_write, redacted, result, monitoring_delivery);
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso(), action: approved.action });
     const base = { executionAttempted: true as const, executed: false as const, enforced: true as const, error, verdict: approved, preflighted: true as const };
-    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined);
+    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined, monitoring_delivery);
   }
 }
 async function runUnenforced<T>(
@@ -193,16 +199,17 @@ async function runUnenforced<T>(
   redacted: ToolCallDescriptor,
   freshness: FreshnessBasis,
   conditional_write: ConditionalWriteBasis,
+  monitoring_delivery?: MonitoringDelivery,
 ): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso() });
   try {
     const result = await factory(envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: false as const, result, verdict, preflighted };
-    return finishExecuted(config, base, freshness, conditional_write, redacted, result);
+    return finishExecuted(config, base, freshness, conditional_write, redacted, result, monitoring_delivery);
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso() });
     const base = { executionAttempted: true as const, executed: false as const, enforced: false as const, error, verdict, preflighted };
-    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined);
+    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined, monitoring_delivery);
   }
 }
 function blocked<T>(
@@ -210,6 +217,7 @@ function blocked<T>(
   preflighted: boolean,
   freshness: FreshnessBasis,
   conditional_write: ConditionalWriteBasis,
+  monitoring_delivery?: MonitoringDelivery,
 ): GuardOutcome<T> {
   const commit_observation: CommitObservation = {
     status: 'not_observed', observed_at: iso(), host_attestation: 'absent',
@@ -217,10 +225,16 @@ function blocked<T>(
   const base = { executionAttempted: false as const, executed: false as const, enforced: false as const, verdict, preflighted };
   return {
     ...base,
-    proof: buildExecutionProof({ ...base, conditionalWriteBasis: conditional_write, commitObservation: commit_observation }),
+    proof: buildExecutionProof({
+      ...base,
+      conditionalWriteBasis: conditional_write,
+      commitObservation: commit_observation,
+      monitoringDelivery: monitoring_delivery,
+    }),
     freshness,
     conditional_write,
     commit_observation,
+    ...(monitoring_delivery ? { monitoring_delivery } : {}),
   };
 }
 
@@ -231,6 +245,7 @@ async function finishExecuted<T>(
   conditional_write: ConditionalWriteBasis,
   redacted: ToolCallDescriptor,
   result: unknown,
+  monitoring_delivery?: MonitoringDelivery,
 ): Promise<GuardOutcome<T>> {
   const enabled = config.requireCommitObservation !== false;
   const commit_observation = await observeCommit({
@@ -263,11 +278,19 @@ async function finishExecuted<T>(
     ...base,
     conditionalWriteBasis: conditional_write,
     commitObservation: commit_observation,
+    monitoringDelivery: monitoring_delivery,
   });
   if (result !== undefined && isExecuteIfUnchangedOutcome(result)) {
     try { buildCasAttestation(proof, result); } catch { /* label already set; never throw */ }
   }
-  return { ...base, proof, freshness, conditional_write, commit_observation } as GuardOutcome<T>;
+  return {
+    ...base,
+    proof,
+    freshness,
+    conditional_write,
+    commit_observation,
+    ...(monitoring_delivery ? { monitoring_delivery } : {}),
+  } as GuardOutcome<T>;
 }
 
 function preflightBeforeByIdFrom(arts: Artifact[] | undefined): Record<string, string> {
@@ -592,6 +615,45 @@ export async function guardToolCall<T>(
     else emit(config, { type: 'monitoring_unwired', at: iso(), decisionId: envelope.decision_id });
   }
 
+  let monitoringDelivery: MonitoringDelivery | undefined;
+  if (kind === 'MONITOR') {
+    if (!sinkWired) {
+      monitoringDelivery = {
+        status: 'not_delivered',
+        evidence: { at: iso(), sink_kind: 'callback' },
+        reason: 'sink_not_wired',
+      };
+    } else {
+      monitoringDelivery = await deliverMonitoring({
+        sink: config.monitoringSink,
+        timeoutMs: config.monitoringSinkTimeoutMs,
+        ackHmacKey: config.ackHmacKey,
+        payload: {
+          at: iso(),
+          decision_id: typeof envelope.decision_id === 'string' ? envelope.decision_id : undefined,
+          action: 'CONTINUE_WITH_MONITORING',
+          kind: 'MONITOR',
+        },
+        now: iso(),
+      });
+      if (monitoringDelivery.status === 'not_delivered') {
+        emit(config, {
+          type: 'monitoring_not_delivered',
+          at: iso(),
+          decisionId: envelope.decision_id,
+          cause: monitoringDelivery.reason,
+        });
+        if (monitoringDeliveryFailClosed(config)) {
+          breakerRecord(config);
+          return closedIntegrity(
+            config, 'MONITORING_UNWIRED', failPolicy, fctx, cwctx, redacted, detection.artifacts,
+            monitoringDelivery,
+          );
+        }
+      }
+    }
+  }
+
   // Freshness re-check immediately before any execution (ACTIVE assessment uses preflight befores).
   const { basis: freshBasis, blockCause: freshBlock } = freshnessFor(
     config, redacted, fctx, detection.artifacts,
@@ -615,7 +677,17 @@ export async function guardToolCall<T>(
     const verdict: GuardVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
-    return runUnenforced(config, executeFactory, envelope, verdict, true, redacted, freshBasis, cwBasis);
+    return runUnenforced(config, executeFactory, envelope, verdict, true, redacted, freshBasis, cwBasis, monitoringDelivery);
+  }
+
+  // Advisory CWM (sink WAS wired): delivery failed but failPolicy/observeOnly said not to block.
+  // Proceed unenforced with the reason visible. Unwired MONITOR still falls through to
+  // MONITORING_UNWIRED (CE-CC-04). ENFORCING not_delivered already returned closedIntegrity.
+  if (kind === 'MONITOR' && sinkWired && monitoringDelivery && monitoringDelivery.status === 'not_delivered') {
+    const degraded: GuardVerdict = { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
+    return runUnenforced(
+      config, executeFactory, envelope, degraded, true, redacted, freshBasis, cwBasis, monitoringDelivery,
+    );
   }
 
   // ── enforced ⟺ executed INVARIANT (contract-triggering path): execute ONLY when we can ENFORCE. ──
@@ -646,7 +718,7 @@ export async function guardToolCall<T>(
         ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
         : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
       return runUnenforced(
-        config, executeFactory, envelope, offVerdict, true, redacted, freshBasis, cwBasis,
+        config, executeFactory, envelope, offVerdict, true, redacted, freshBasis, cwBasis, monitoringDelivery,
       );
     }
     const et = checkExecutionTimeFingerprint({
@@ -696,13 +768,13 @@ export async function guardToolCall<T>(
         ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
         : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
       return runUnenforced(
-        config, executeFactory, envelope, warnVerdict, true, redacted, freshBasis, cwBasis,
+        config, executeFactory, envelope, warnVerdict, true, redacted, freshBasis, cwBasis, monitoringDelivery,
       );
     }
     const approved: ApprovedVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified: true }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified: true };
-    return runEnforced(config, executeFactory, approved, redacted, freshBasis, cwBasis);
+    return runEnforced(config, executeFactory, approved, redacted, freshBasis, cwBasis, monitoringDelivery);
   }
   breakerRecord(config);
   return closedIntegrity(
@@ -713,6 +785,7 @@ export async function guardToolCall<T>(
     cwctx,
     redacted,
     detection.artifacts,
+    monitoringDelivery,
   );
 }
 
@@ -724,13 +797,14 @@ function closedIntegrity<T>(
   cwctx: ConditionalWriteCallContext,
   redacted: ToolCallDescriptor,
   arts?: Artifact[],
+  monitoring_delivery?: MonitoringDelivery,
 ): GuardOutcome<T> {
   const count = (breakers.get(config)?.fails.length) ?? 1;
   emit(config, { type: 'breaker_tripped', at: iso(), cause });
   const v = unavailableVerdict({ cause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
   const { basis } = freshnessFor(config, redacted, fctx, arts);
   const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
-  return blocked(v, false, basis, cw);
+  return blocked(v, false, basis, cw, monitoring_delivery);
 }
 
 function isExpired(envelope: DecisionResultEnvelope): boolean {

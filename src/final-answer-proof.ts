@@ -17,6 +17,7 @@
 
 import type { GuardExecutionProof, ExecutionResultHash } from './execution-proof.js';
 import { EXECUTION_PROOF_SPEC } from './execution-proof.js';
+import { formatMonitoringDeliveryLine } from './monitoring-delivery.js';
 
 export type FinalAnswerProofFormat = 'markdown' | 'plain';
 
@@ -232,6 +233,16 @@ export function renderFinalAnswerProof(
     if (co.token) lines.push(bullet(`token: ${co.token}`));
     lines.push(bullet(
       'Observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content; host attestation is a host claim layered on the measurement.',
+    ));
+    lines.push('');
+  }
+
+  const mdv = proof.monitoring_delivery;
+  if (mdv && typeof mdv === 'object' && typeof mdv.status === 'string') {
+    lines.push(h2('Monitoring delivery'));
+    lines.push(bullet(formatMonitoringDeliveryLine(mdv)));
+    lines.push(bullet(
+      'delivered_acked means the sink returned an ack — it does NOT mean a human saw the event.',
     ));
     lines.push('');
   }

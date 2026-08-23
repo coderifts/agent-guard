@@ -101,6 +101,24 @@ export type {
 
 export { observeCommit, hashObservedContent } from './commit-observation.js';
 
+export {
+  deliverMonitoring,
+  formatMonitoringDeliveryLine,
+  monitoringDeliveryFailClosed,
+  verifyAckHmac,
+  ackBytes,
+  DEFAULT_MONITORING_SINK_TIMEOUT_MS,
+} from './monitoring-delivery.js';
+export type {
+  MonitoringDelivery,
+  MonitoringDeliveryStatus,
+  MonitoringDeliveryEvidence,
+  MonitoringSink,
+  MonitoringSinkHttp,
+  MonitoringSinkCallback,
+  MonitoringSinkPayload,
+} from './monitoring-delivery.js';
+
 // Guard-produced execution proof (assembled from observed state only; never caller-supplied).
 export {
   buildExecutionProof,

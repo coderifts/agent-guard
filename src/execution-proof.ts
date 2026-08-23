@@ -21,6 +21,7 @@
 import { createHash } from 'node:crypto';
 import type { GuardVerdict } from './types.js';
 import type { CommitObservation } from './commit-observation.js';
+import type { MonitoringDelivery } from './monitoring-delivery.js';
 
 /** Machine-readable schema id for this block. */
 export const EXECUTION_PROOF_SPEC = 'guard-execution-proof.v1' as const;
@@ -120,6 +121,11 @@ export type GuardExecutionProof = {
   };
   /** T3 post-commit observation. Always present; not_observed when nothing was re-read. */
   commit_observation: CommitObservation;
+  /**
+   * CWM monitoring delivery (N-4). Present only on CONTINUE_WITH_MONITORING arms.
+   * Observation-side — never a verdict/preimage field. delivered_acked ≠ human attention.
+   */
+  monitoring_delivery?: MonitoringDelivery;
 };
 
 export type ProofBuildInput = {
@@ -140,6 +146,8 @@ export type ProofBuildInput = {
   };
   /** T3 observation assembled by the guard after executeFactory (or not_observed). */
   commitObservation?: CommitObservation;
+  /** CWM delivery evidence; omit on non-MONITOR arms. */
+  monitoringDelivery?: MonitoringDelivery;
 };
 
 const LIMITS: GuardExecutionProof['limits'] = Object.freeze({
@@ -313,8 +321,19 @@ export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof
     limits: LIMITS,
     commit_observation: freezeCommitObservation(input.commitObservation),
   };
+  if (input.monitoringDelivery && typeof input.monitoringDelivery === 'object') {
+    proof.monitoring_delivery = freezeMonitoringDelivery(input.monitoringDelivery);
+  }
 
   return freezeProof(proof);
+}
+
+function freezeMonitoringDelivery(d: MonitoringDelivery): MonitoringDelivery {
+  return Object.freeze({
+    status: d.status,
+    ...(d.reason ? { reason: d.reason } : {}),
+    ...(d.evidence ? { evidence: Object.freeze({ ...d.evidence }) } : {}),
+  });
 }
 
 function freezeCommitObservation(obs: CommitObservation | undefined): CommitObservation {
