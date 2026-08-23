@@ -58,7 +58,8 @@ export type {
   BundleFingerprintContext,
 } from './execution-time-fingerprint.js';
 // Guard-local readDecision: present-but-unrecognised execution_action does NOT fall through to
-// the decision map (SDK ladder did — that reinvented permission). Missing action still maps.
+// the decision map (SDK ladder did — that reinvented permission). Missing action maps ONLY when
+// decision_spec_version === "1.0" on a non-v2 body; otherwise UNREADABLE_DECISION.
 export { readDecision } from './read-decision.js';
 export type { ReadDecisionResult, ReadDecisionReason } from './read-decision.js';
 // Additive session-taint surface (SEPARATE from the frozen single-call detector; own version).

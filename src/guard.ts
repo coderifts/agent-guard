@@ -511,13 +511,18 @@ export async function guardToolCall<T>(
   // We have a response. Read the decision (envelope-first) and verify the receipt.
   const rd = readDecision(pf.response);
   // PRESENT but unrecognised action — halt with its own code before any decision map or reconcile.
-  // (Missing action still maps from decision inside readDecision; that path never sets this reason.)
   if (rd.reason === 'EXECUTION_ACTION_UNRECOGNISED') {
     breakerRecord(config);
     return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }
-  if (rd.reason === 'UNREADABLE_DECISION' || !rd.envelope) {
-    // Schema-invalid / no envelope => integrity => closed.
+  // Missing EA on v2 / non-legacy-1.0 — reuse closedIntegrity halt arm, cause UNREADABLE_DECISION.
+  // executed:false, enforced:false (blocked()). Never remap to CONTINUE.
+  if (rd.reason === 'UNREADABLE_DECISION') {
+    breakerRecord(config);
+    return closedIntegrity(config, 'UNREADABLE_DECISION', failPolicy, fctx, cwctx, redacted, detection.artifacts);
+  }
+  if (!rd.envelope) {
+    // Known action but no envelope => integrity => closed.
     breakerRecord(config);
     return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, cwctx, redacted, detection.artifacts);
   }

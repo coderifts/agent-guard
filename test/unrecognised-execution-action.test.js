@@ -5,7 +5,9 @@
  *
  * The SDK ladder treated an unknown present action as absent and mapped from decision —
  * reinventing permission. The guard ladder halts with EXECUTION_ACTION_UNRECOGNISED.
- * Missing action still maps. Known mismatch keeps DECISION_INCONSISTENT (distinct code).
+ * Missing action maps ONLY when decision_spec_version === "1.0" on a non-v2 body.
+ * Otherwise missing EA → UNREADABLE_DECISION (never ALLOW→CONTINUE).
+ * Known mismatch keeps DECISION_INCONSISTENT (distinct code).
  */
 
 const { describe, it } = require('node:test');
@@ -100,17 +102,57 @@ describe('readDecision — present unknown vs missing action', () => {
     assert.notEqual(rd.executionAction, 'CONTINUE');
   });
 
-  it('MISSING action + decision ALLOW → still maps to CONTINUE (legacy path unchanged)', () => {
+  it('MISSING action + decision ALLOW (no spec_version) → UNREADABLE_DECISION (not CONTINUE)', () => {
     const rd = readDecision({ decision: 'ALLOW' });
+    assert.equal(rd.reason, 'UNREADABLE_DECISION');
+    assert.equal(rd.executionAction, 'STOP');
+    assert.equal(rd.decision, 'ALLOW');
+    assert.notEqual(rd.executionAction, 'CONTINUE');
+  });
+
+  it('MISSING action + decision ALLOW + decision_spec_version 1.0 → maps to CONTINUE (legacy path)', () => {
+    const rd = readDecision({ decision: 'ALLOW', decision_spec_version: '1.0' });
     assert.equal(rd.reason, undefined);
     assert.equal(rd.executionAction, 'CONTINUE');
     assert.equal(rd.decision, 'ALLOW');
   });
 
-  it('MISSING action + decision BLOCK → maps to STOP', () => {
-    const rd = readDecision({ decision: 'BLOCK' });
+  it('MISSING action + decision BLOCK + decision_spec_version 1.0 → maps to STOP (legacy path)', () => {
+    const rd = readDecision({ decision: 'BLOCK', decision_spec_version: '1.0' });
     assert.equal(rd.executionAction, 'STOP');
     assert.equal(rd.reason, undefined);
+  });
+
+  it('MISSING action + v2 body (decision_spec_version 2.0 + preflight_mode) ALLOW → UNREADABLE_DECISION', () => {
+    const rd = readDecision({
+      preflight_mode: 'authorize',
+      decision_spec_version: '2.0',
+      decision: 'ALLOW',
+      safe_for_agent: true,
+    });
+    assert.equal(rd.reason, 'UNREADABLE_DECISION');
+    assert.equal(rd.executionAction, 'STOP');
+    assert.notEqual(rd.executionAction, 'CONTINUE');
+  });
+
+  it('MISSING action + decision_result envelope (v2) ALLOW → UNREADABLE_DECISION; envelope retained', () => {
+    const env = envelope({ execution_action: undefined });
+    const rd = readDecision({ decision: 'ALLOW', decision_result: env });
+    assert.equal(rd.reason, 'UNREADABLE_DECISION');
+    assert.equal(rd.executionAction, 'STOP');
+    assert.ok(rd.envelope, 'envelope still attached for diagnostics');
+    assert.notEqual(rd.executionAction, 'CONTINUE');
+  });
+
+  it('1.0 + decision_result present is v2: missing EA does not use the legacy map', () => {
+    const env = envelope({ execution_action: undefined, decision: 'ALLOW' });
+    const rd = readDecision({
+      decision: 'ALLOW',
+      decision_spec_version: '1.0',
+      decision_result: env,
+    });
+    assert.equal(rd.reason, 'UNREADABLE_DECISION');
+    assert.equal(rd.executionAction, 'STOP');
   });
 
   it('known CONTINUE is returned as-is (no false unrecognised)', () => {
@@ -176,6 +218,21 @@ describe('guardToolCall — end-to-end unknown action halts with own code', () =
     assert.equal(outcome.verdict.cause, 'EXECUTION_ACTION_UNRECOGNISED');
   });
 
+  it('MISSING execution_action + ALLOW on v2 envelope → not executed, UNREADABLE_DECISION', async () => {
+    const env = envelope({ execution_action: undefined });
+    let executed = false;
+    const outcome = await guardToolCall(
+      TRIGGER,
+      async () => { executed = true; return 'SIDE'; },
+      { client: client(env) },
+    );
+    assert.equal(executed, false);
+    assert.equal(outcome.executed, false);
+    assert.equal(outcome.enforced, false);
+    assert.equal(outcome.verdict.kind, 'UNAVAILABLE');
+    assert.equal(outcome.verdict.cause, 'UNREADABLE_DECISION');
+  });
+
   it('known mismatch still uses DECISION_INCONSISTENT path (or block), not unrecognised', async () => {
     // ALLOW + STOP with receipt: stricter STOP → block-strict kind BLOCK, or fail-closed
     const env = envelope({ decision: 'ALLOW', execution_action: 'STOP', safe_for_agent: true });
@@ -190,6 +247,22 @@ describe('guardToolCall — end-to-end unknown action halts with own code', () =
     } else {
       assert.ok(outcome.verdict.kind === 'BLOCK' || outcome.verdict.kind === 'APPROVAL');
     }
+  });
+});
+
+describe('AA-MISSING-EXECUTION-ACTION against agent-guard subject shape', () => {
+  it('suite case: v2 ALLOW with omitted execution_action → halt (acceptance floor)', () => {
+    const response = {
+      preflight_mode: 'authorize',
+      decision_spec_version: '2.0',
+      decision: 'ALLOW',
+      safe_for_agent: true,
+    };
+    const result = agentGuardSubjectShape(response);
+    assert.equal(result.outcome, 'halt');
+    const rd = readDecision(response);
+    assert.equal(rd.reason, 'UNREADABLE_DECISION');
+    assert.equal(rd.executionAction, 'STOP');
   });
 });
 

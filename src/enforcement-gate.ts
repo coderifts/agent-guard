@@ -85,7 +85,8 @@ export function evaluateEnvelope(
   const top = (response && typeof response === 'object') ? response as Record<string, unknown> : {};
 
   // 0. PRESENT-but-unrecognised action — before any decision map or reconciliation.
-  //    Missing action is not handled here (readDecision maps legacy missing → closed Action).
+  //    Missing action is not handled here (readDecision maps legacy 1.0 missing → closed Action;
+  //    v2 / unspecified missing EA is UNREADABLE_DECISION in readDecision, before this gate).
   const candidates: unknown[] = [executionAction, envelope.execution_action, top.execution_action];
   for (const cand of candidates) {
     if (cand === undefined || cand === null || cand === '') continue; // missing — skip

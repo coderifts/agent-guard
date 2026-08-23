@@ -95,6 +95,8 @@ export interface GuardConfig {
   /**
    * T3 post-commit observation. Default ON (absent → true). false → not_observed +
    * commit_observation_check_disabled. Never changes `enforced`.
+   * Under `profile: 'ENFORCING_STRICT'`, false is a construction abort (same class as
+   * requireExecutionStateMatch:false).
    */
   requireCommitObservation?: boolean;
 }
@@ -203,6 +205,7 @@ export type IntegrityCause =
   // P0-b/c client-enforcement gates (§106/§111/§115 mirrored client-side):
   | 'DECISION_INCONSISTENT'       // decision↔execution_action mismatch (known action disagrees), missing decision, or safe_for_agent=false on allow-class
   | 'EXECUTION_ACTION_UNRECOGNISED' // execution_action PRESENT but outside the closed set (version skew) — not the same as missing; not a decision↔action mismatch
+  | 'UNREADABLE_DECISION'         // missing execution_action on a v2 / non-legacy-1.0 body — never map ALLOW→CONTINUE
   | 'ANALYSIS_DEGRADED'           // analysis_complete=false / degraded_reasons / degraded / coverage_gap (§111)
   | 'ARTIFACT_MISMATCH'           // envelope artifact_digest / input_fingerprint ≠ locally-recomputed value
   | 'RECEIPT_MISSING'             // contract-triggering executable decision with no verifiable receipt (no unenforced execute)

@@ -9,7 +9,9 @@
  *
  *   - PRESENT + closed set  → use that action
  *   - PRESENT + not closed  → halt reason EXECUTION_ACTION_UNRECOGNISED (do not map from decision)
- *   - MISSING               → legacy decision→action map (unchanged)
+ *   - MISSING               → legacy decision→action map ONLY when decision_spec_version === "1.0"
+ *                             explicitly AND the body is not v2 (no decision_result, no preflight_mode,
+ *                             spec_version does not start "2."). Otherwise STOP + UNREADABLE_DECISION.
  *   - nothing readable      → STOP + UNREADABLE_DECISION
  */
 
@@ -84,6 +86,22 @@ function decisionOf(...candidates: unknown[]): string | null {
 }
 
 /**
+ * v2 body: decision_result present, OR decision_spec_version starts "2.", OR preflight_mode present.
+ * Legacy decision→action map is allowed ONLY when decision_spec_version === "1.0" explicitly
+ * AND the body is not v2. Missing spec_version is not legacy.
+ */
+function isV2Response(r: Record<string, unknown>, envObj: Record<string, unknown> | null): boolean {
+  if (envObj) return true;
+  if (r.preflight_mode != null && r.preflight_mode !== '') return true;
+  const ver = r.decision_spec_version;
+  return typeof ver === 'string' && ver.startsWith('2.');
+}
+
+function allowLegacyDecisionMap(r: Record<string, unknown>, envObj: Record<string, unknown> | null): boolean {
+  return r.decision_spec_version === '1.0' && !isV2Response(r, envObj);
+}
+
+/**
  * Read a governance decision from ANY CodeRifts response, fail-closed.
  * Never throws.
  */
@@ -148,35 +166,38 @@ export function readDecision(response: unknown): ReadDecisionResult {
     return out;
   }
 
-  // 3. Action MISSING everywhere — legacy decision→action map only (do not invent on unknown).
-  const topDecision = decisionOf(r.decision);
-  if (topDecision && Object.prototype.hasOwnProperty.call(DECISION_TO_ACTION, topDecision)) {
-    const out: ReadDecisionResult = {
-      executionAction: DECISION_TO_ACTION[topDecision]!,
-      decision: topDecision,
-    };
-    if (envObj) {
-      out.envelope = asEnvelope(envObj);
-      out.receipt = receiptOf(envObj);
+  // 3. Action MISSING everywhere — legacy decision→action map ONLY for explicit spec 1.0
+  //    on a non-v2 body. v2 (or unspecified) missing EA is not permission.
+  if (allowLegacyDecisionMap(r, envObj)) {
+    const topDecision = decisionOf(r.decision);
+    if (topDecision && Object.prototype.hasOwnProperty.call(DECISION_TO_ACTION, topDecision)) {
+      return {
+        executionAction: DECISION_TO_ACTION[topDecision]!,
+        decision: topDecision,
+      };
     }
-    return out;
-  }
-  const envDecision = envObj ? decisionOf(envObj.decision) : null;
-  if (envDecision && Object.prototype.hasOwnProperty.call(DECISION_TO_ACTION, envDecision)) {
-    return {
-      executionAction: DECISION_TO_ACTION[envDecision]!,
-      decision: envDecision,
-      envelope: envObj ? asEnvelope(envObj) : undefined,
-      receipt: envObj ? receiptOf(envObj) : undefined,
-    };
+    const envDecision = envObj ? decisionOf(envObj.decision) : null;
+    if (envDecision && Object.prototype.hasOwnProperty.call(DECISION_TO_ACTION, envDecision)) {
+      return {
+        executionAction: DECISION_TO_ACTION[envDecision]!,
+        decision: envDecision,
+        envelope: envObj ? asEnvelope(envObj) : undefined,
+        receipt: envObj ? receiptOf(envObj) : undefined,
+      };
+    }
   }
 
-  // 4. Fail closed.
-  return {
+  // 4. Fail closed — missing EA on v2 / unspecified spec is UNREADABLE_DECISION, not CONTINUE.
+  const unreadable: ReadDecisionResult = {
     executionAction: 'STOP',
     decision: decisionOf(r.decision, envObj?.decision),
     reason: 'UNREADABLE_DECISION',
   };
+  if (envObj) {
+    unreadable.envelope = asEnvelope(envObj);
+    unreadable.receipt = receiptOf(envObj);
+  }
+  return unreadable;
 }
 
 export { CLOSED_ACTIONS, DECISION_TO_ACTION, isClosedAction, isMissingAction, classifyAction };

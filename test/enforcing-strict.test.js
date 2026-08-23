@@ -63,6 +63,10 @@ describe('ENFORCING_STRICT — construction abort on weaken', () => {
     assertWeakenAbort({ requireConditionalWrite: false }, 'requireConditionalWrite');
   });
 
+  it('requireCommitObservation: false → abort', () => {
+    assertWeakenAbort({ requireCommitObservation: false }, 'requireCommitObservation');
+  });
+
   it('failOnUnguardedMutator: false → abort', () => {
     assertWeakenAbort({ registry: { failOnUnguardedMutator: false } }, 'failOnUnguardedMutator');
   });

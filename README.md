@@ -218,7 +218,8 @@ opt-down. Not TOCTOU closure (see **`requireExecutionStateMatch`** above).
 
 **`profile?: 'ENFORCING_STRICT'`** (guard@8.1, opt-in). Locks the fail-closed conjunction
 (`requireCoverage: 'COMPLETE'`, `requireFreshness: true`, `requireExecutionStateMatch: true`,
-`requireConditionalWrite: true`, `failOnUnguardedMutator: true`, `unknownToolPolicy: 'mutating'`).
+`requireConditionalWrite: true`, `requireCommitObservation: true`, `failOnUnguardedMutator: true`,
+`unknownToolPolicy: 'mutating'`).
 A conflicting opt-down **aborts construction** (`ENFORCING_STRICT cannot be weakened: <flag> conflicts`).
 Requires `resolvePriorContent` at construction. Does **not** claim host cannot register raw tools
 outside the returned table — residual `calls_outside_guarded_path_invisible`. Adapters

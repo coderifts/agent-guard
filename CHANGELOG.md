@@ -1,5 +1,22 @@
 # Changelog
 
+## 8.2.1
+
+### Fixed
+
+- **P0-2: missing `execution_action` on a v2 body never maps ALLOW→CONTINUE.**
+  `readDecision` applies the legacy decision→action map **only** when
+  `decision_spec_version === "1.0"` explicitly on a non-v2 body (no
+  `decision_result`, no `preflight_mode`, spec does not start `"2."`).
+  Otherwise missing action → `STOP` + reason `UNREADABLE_DECISION`.
+  `guardToolCall` reuses the existing `closedIntegrity` halt arm with
+  cause `UNREADABLE_DECISION` (`executed:false`, `enforced:false`).
+- **P0-4: `ENFORCING_STRICT` locks `requireCommitObservation`.** Explicit
+  `requireCommitObservation: false` aborts construction
+  (`ENFORCING_STRICT cannot be weakened: requireCommitObservation conflicts`),
+  same error style as `requireExecutionStateMatch: false`. The STRICT lock
+  block now sets `requireCommitObservation: true` with freshness / CW / T2.
+
 ## 8.2.0
 
 ### Added

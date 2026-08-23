@@ -217,8 +217,8 @@ export type WithCodeRiftsInput = {
   operation: string;
   /**
    * Opt-in profile. `ENFORCING_STRICT` locks the fail-closed conjunction (requireCoverage COMPLETE,
-   * requireFreshness, requireExecutionStateMatch true, requireConditionalWrite, failOnUnguardedMutator,
-   * unknownToolPolicy mutating) and ABORTS construction on any conflicting opt-down.
+   * requireFreshness, requireExecutionStateMatch true, requireConditionalWrite, requireCommitObservation,
+   * failOnUnguardedMutator, unknownToolPolicy mutating) and ABORTS construction on any conflicting opt-down.
    * Absent: today's defaults (freshness/conditional-write remain opt-in). Not weakenable when set.
    */
   profile?: WithCodeRiftsProfile;
@@ -295,7 +295,8 @@ export type WithCodeRiftsInput = {
   /**
    * Policy (ID781 T3): post-commit observation. Forwarded onto GuardConfig.requireCommitObservation.
    * Absent inherits default true. Explicit opt-out: false (emits commit_observation_check_disabled;
-   * does not change enforced).
+   * does not change enforced). Under `profile: 'ENFORCING_STRICT'`, false aborts construction
+   * (`requireCommitObservation conflicts`) and the lock forces true.
    */
   requireCommitObservation?: GuardConfig['requireCommitObservation'];
 };
@@ -429,6 +430,7 @@ function enforcingStrictWeakenFlags(input: WithCodeRiftsInput): string[] {
     flags.push('requireExecutionStateMatch');
   }
   if (input.requireConditionalWrite === false) flags.push('requireConditionalWrite');
+  if (input.requireCommitObservation === false) flags.push('requireCommitObservation');
   const reg = input.registry ?? {};
   if (reg.failOnUnguardedMutator === false) flags.push('failOnUnguardedMutator');
   if (reg.unknownToolPolicy === 'readonly') flags.push('unknownToolPolicy');
@@ -751,6 +753,7 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
     guard.requireFreshness = true;
     guard.requireConditionalWrite = true;
     guard.requireExecutionStateMatch = true;
+    guard.requireCommitObservation = true;
   }
   const config: GuardToolRegistryConfig = {
     guard,
