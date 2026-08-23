@@ -208,4 +208,15 @@ describe('bindGeminiGuardOutcome — ID827 phase 2 (object response)', () => {
       renderFinalAnswerProof(o.proof),
     );
   });
+
+  it('S4: default attaches proof fields; attachProof:false suppresses', () => {
+    const o = armAllow();
+    const def = bindGeminiGuardOutcome(o, { name: 'edit_file' });
+    assert.ok('final_answer_proof' in def.functionResponse.response);
+    assert.match(def.functionResponse.response.final_answer_proof_text, /CodeRifts execution proof/);
+    const off = bindGeminiGuardOutcome(o, { name: 'edit_file', attachProof: false });
+    assert.ok(!('final_answer_proof' in off.functionResponse.response));
+    assert.ok(!('final_answer_proof_text' in off.functionResponse.response));
+    assert.deepEqual(off.functionResponse.response.result, o.result);
+  });
 });

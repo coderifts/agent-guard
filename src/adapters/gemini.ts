@@ -200,6 +200,11 @@ export type BindGeminiGuardOutcomeArgs<T> = {
    * non-JSON values fall back to String().
    */
   serialize?: (result: T) => unknown;
+  /**
+   * Attach the rendered GuardExecutionProof (S4). Default ON.
+   * Pass `false` to opt out — response stays { result } / { gate_message } only.
+   */
+  attachProof?: boolean;
 };
 
 /**
@@ -261,11 +266,13 @@ export function bindGeminiGuardOutcome<T>(
     };
   }
 
-  // Reuse attachProofToAgentResponse object path → adds final_answer_proof + final_answer_proof_text.
-  const bound = attachProofToAgentResponse(base, outcome.proof) as Record<string, unknown> & {
-    final_answer_proof: GuardExecutionProof;
-    final_answer_proof_text: string;
-  };
+  // Default ON (S4). attachProof:false skips proof fields.
+  const bound = args.attachProof === false
+    ? base
+    : attachProofToAgentResponse(base, outcome.proof) as Record<string, unknown> & {
+      final_answer_proof: GuardExecutionProof;
+      final_answer_proof_text: string;
+    };
 
   const part: GeminiFunctionResponse = {
     functionResponse: {

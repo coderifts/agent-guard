@@ -200,6 +200,11 @@ export type BindLangGraphGuardOutcomeArgs<T> = {
   /** Optional tool name (ToolMessage.name). */
   name?: string;
   serialize?: (result: T) => string;
+  /**
+   * Attach the rendered GuardExecutionProof (S4). Default ON.
+   * Pass `false` to opt out.
+   */
+  attachProof?: boolean;
 };
 
 export function defaultSerializeLangGraphToolResult<T>(result: T): string {
@@ -246,7 +251,9 @@ export function bindLangGraphGuardOutcome<T>(
       `Tool execution failed after gate decision (verdict: ${kind}): ${formatGuardError(err)}`;
   }
 
-  const content = attachProofToAgentResponse(body, outcome.proof) as string;
+  const content = args.attachProof === false
+    ? body
+    : attachProofToAgentResponse(body, outcome.proof) as string;
   const msg: LangGraphToolMessage = {
     content,
     tool_call_id,

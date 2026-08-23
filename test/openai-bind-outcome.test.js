@@ -367,4 +367,18 @@ describe('bindOpenAIGuardOutcome — ID827 phase 1 (Option B)', () => {
     assert.match(msg.content, /stable-string/);
     assert.match(msg.content, /CodeRifts execution proof/);
   });
+
+  it('S4: default attaches proof; attachProof:false suppresses; wording snapshot unchanged', () => {
+    const outcome = armAllowExecuted();
+    const def = bindOpenAIGuardOutcome(outcome, { tool_call_id: 'call_def' });
+    assert.match(def.content, /CodeRifts execution proof/);
+    const expected = attachProofToAgentResponse(
+      defaultSerializeOpenAIToolResult(outcome.result),
+      outcome.proof,
+    );
+    assert.equal(def.content, expected, 'default wording is attachProofToAgentResponse snapshot');
+    const off = bindOpenAIGuardOutcome(outcome, { tool_call_id: 'call_off', attachProof: false });
+    assert.equal(off.content, defaultSerializeOpenAIToolResult(outcome.result));
+    assert.ok(!/CodeRifts execution proof/.test(off.content));
+  });
 });

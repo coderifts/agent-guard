@@ -173,6 +173,11 @@ export type BindOpenAIGuardOutcomeArgs<T> = {
   tool_call_id: string;
   /** Override result serialization (default: JSON.stringify objects, String() primitives). */
   serialize?: (result: T) => string;
+  /**
+   * Attach the rendered GuardExecutionProof to the tool message (S4).
+   * Default ON. Pass `false` to opt out — host then owns the proof surface.
+   */
+  attachProof?: boolean;
 };
 
 /**
@@ -240,8 +245,10 @@ export function bindOpenAIGuardOutcome<T>(
       `Tool execution failed after gate decision (verdict: ${kind}): ${errText}`;
   }
 
-  // Reuse public proof render path (string append) — same separator/render as final-answer attach.
-  const content = attachProofToAgentResponse(body, outcome.proof) as string;
+  // Default ON (S4). attachProof:false is the explicit opt-out.
+  const content = args.attachProof === false
+    ? body
+    : attachProofToAgentResponse(body, outcome.proof) as string;
 
   // Type brand only (no extra wire keys — OpenAI tool messages stay {role, tool_call_id, content}).
   const msg: OpenAIToolMessage = {

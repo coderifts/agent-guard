@@ -172,4 +172,13 @@ describe('bindLangGraphGuardOutcome — ID827 phase 2', () => {
     bindLangGraphGuardOutcome(o, { tool_call_id: 'tc_pure' });
     assert.equal(JSON.stringify(o), before);
   });
+
+  it('S4: default attaches proof; attachProof:false suppresses', () => {
+    const o = armAllow();
+    const def = bindLangGraphGuardOutcome(o, { tool_call_id: 'tc_def' });
+    assert.match(def.content, /CodeRifts execution proof/);
+    const off = bindLangGraphGuardOutcome(o, { tool_call_id: 'tc_off', attachProof: false });
+    assert.equal(off.content, defaultSerializeLangGraphToolResult(o.result));
+    assert.ok(!/CodeRifts execution proof/.test(off.content));
+  });
 });

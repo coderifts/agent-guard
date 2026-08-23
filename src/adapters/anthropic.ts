@@ -165,6 +165,11 @@ export type BindAnthropicGuardOutcomeArgs<T> = {
   /** Anthropic tool_use block id this tool_result answers. */
   tool_use_id: string;
   serialize?: (result: T) => string;
+  /**
+   * Attach the rendered GuardExecutionProof (S4). Default ON.
+   * Pass `false` to opt out.
+   */
+  attachProof?: boolean;
 };
 
 export function defaultSerializeAnthropicToolResult<T>(result: T): string {
@@ -211,7 +216,9 @@ export function bindAnthropicGuardOutcome<T>(
       `Tool execution failed after gate decision (verdict: ${kind}): ${formatGuardError(err)}`;
   }
 
-  const content = attachProofToAgentResponse(body, outcome.proof) as string;
+  const content = args.attachProof === false
+    ? body
+    : attachProofToAgentResponse(body, outcome.proof) as string;
   const block: AnthropicToolResult = {
     type: 'tool_result',
     tool_use_id,

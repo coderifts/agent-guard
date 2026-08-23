@@ -1,5 +1,18 @@
 # Changelog
 
+## 8.3.0
+
+### Added
+
+- **S4 binder auto-attach default ON.** `bindOpenAIGuardOutcome` /
+  `bindAnthropicGuardOutcome` / `bindGeminiGuardOutcome` /
+  `bindLangGraphGuardOutcome` attach the rendered `GuardExecutionProof` by
+  default (this was already the measured behaviour; it is now an explicit
+  default). Opt out with `{ attachProof: false }`. Proof wording is unchanged
+  (`renderFinalAnswerProof` / `attachProofToAgentResponse`). Honesty: the
+  block still states authorization + observed state only — no
+  executed/enforced upgrade.
+
 ## 8.2.1
 
 ### Fixed

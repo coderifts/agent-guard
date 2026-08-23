@@ -229,7 +229,7 @@ outside the returned table — residual `calls_outside_guarded_path_invisible`. 
 
 The `withCodeRifts` example above is the **entry point** (absent profile: freshness and
 conditional-write stay opt-in). For production, lock the fail-closed conjunction with
-`profile: 'ENFORCING_STRICT'` (shipped guard@8.1.0; current package 8.2.0). Construction
+`profile: 'ENFORCING_STRICT'` (shipped guard@8.1.0; current package 8.3.0). Construction
 **aborts** if you opt down any locked flag or omit `resolvePriorContent`.
 
 ```typescript
@@ -291,12 +291,14 @@ message — not only in a human final answer.
 | `bindLangGraphGuardOutcome(outcome, { tool_call_id, name? })` | `tool_call_id` (+ optional `name`) | LangGraph/LangChain ToolMessage `content` (string) |
 
 **Behaviour (all four):** take the full `GuardOutcome` (ALLOW / BLOCK / APPROVAL / SKIPPED / error
-arms); always embed `outcome.proof` (present on every arm); on a blocked arm state that the gate
-did not permit execution with **no fabricated tool result**; on factory-error arms report the
-failure + proof. Pure and non-mutating. No framework SDK dependency — minimal local types only.
-Return types are type-level branded (`ProofBoundOpenAIToolMessage`, etc.) so the compiler can
-distinguish a proof-bound tool result from a raw one (proof-forgotten *detection*, not
-prevention). Proof formatting reuses `attachProofToAgentResponse` / `renderFinalAnswerProof`.
+arms); **auto-attach** `outcome.proof` by default (S4; `{ attachProof: false }` opts out); on a
+blocked arm state that the gate did not permit execution with **no fabricated tool result**; on
+factory-error arms report the failure + proof. Pure and non-mutating. No framework SDK dependency
+— minimal local types only. Return types are type-level branded (`ProofBoundOpenAIToolMessage`,
+etc.) so the compiler can distinguish a proof-bound tool result from a raw one (proof-forgotten
+*detection*, not prevention). Proof formatting reuses `attachProofToAgentResponse` /
+`renderFinalAnswerProof`. The proof claims authorization + observed state only — not
+executed/enforced.
 
 OpenAI-compatible providers (Grok, Kimi, Qwen, DeepSeek, …) use **`bindOpenAIGuardOutcome`** for
 their tool-results — same ChatCompletions tool-message shape.

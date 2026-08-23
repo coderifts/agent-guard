@@ -178,6 +178,15 @@ describe('bindAnthropicGuardOutcome — ID827 phase 2', () => {
     assert.equal(JSON.stringify(o), before);
   });
 
+  it('S4: default attaches proof; attachProof:false suppresses', () => {
+    const o = armAllow();
+    const def = bindAnthropicGuardOutcome(o, { tool_use_id: 'tu_def' });
+    assert.match(def.content, /CodeRifts execution proof/);
+    const off = bindAnthropicGuardOutcome(o, { tool_use_id: 'tu_off', attachProof: false });
+    assert.equal(off.content, defaultSerializeAnthropicToolResult(o.result));
+    assert.ok(!/CodeRifts execution proof/.test(off.content));
+  });
+
   it('rendered proof text present (renderFinalAnswerProof reuse)', () => {
     const o = armAllow();
     const msg = bindAnthropicGuardOutcome(o, { tool_use_id: 'tu_r' });
