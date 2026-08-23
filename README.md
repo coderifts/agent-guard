@@ -203,6 +203,12 @@ const { tools, registry_report, composition_assurance } = withCodeRifts({
 // the guard — the composition can only protect the table it returns.
 ```
 
+> **An absent `profile` is not `ENFORCING_STRICT`.** This entry-point call runs today's
+> defaults: freshness, conditional-write and complete-coverage stay **opt-in**. Nothing here
+> locks the fail-closed conjunction — see
+> [Production enforcement](#production-enforcement-enforcing_strict--freshness--cas) for
+> `profile: 'ENFORCING_STRICT'`, which locks those flags and aborts on a conflicting opt-down.
+
 Optional guard-policy fields on the same input are forwarded **unchanged** onto `GuardConfig` when
 present (absent = today’s defaults — no behavior change): `onEvent`, `monitoringSinkWired`,
 `resolvePriorContent`, `requireFreshness`, `allowStaleContext`, `requireConditionalWrite`, and
@@ -222,7 +228,7 @@ outside the returned table — residual `calls_outside_guarded_path_invisible`. 
 
 The `withCodeRifts` example above is the **entry point** (absent profile: freshness and
 conditional-write stay opt-in). For production, lock the fail-closed conjunction with
-`profile: 'ENFORCING_STRICT'` (shipped guard@8.1.0; current package 8.1.1). Construction
+`profile: 'ENFORCING_STRICT'` (shipped guard@8.1.0; current package 8.2.0). Construction
 **aborts** if you opt down any locked flag or omit `resolvePriorContent`.
 
 ```typescript
@@ -234,7 +240,8 @@ const { tools, registry_report, composition_assurance, receipt_thread } = withCo
   operation: 'merge',
   profile: 'ENFORCING_STRICT',
   // Required under STRICT (abort at construction if missing). Host measures prior
-  // bytes for write-style freshness; the package never reads the filesystem.
+  // bytes for write-style freshness. The composition core does not read the filesystem;
+  // the FS token resolver and the T3 commit-observation adapters do (node:fs).
   resolvePriorContent: ({ artifactId }) => readPrior(artifactId),
 });
 // register ONLY `tools`. Receipt carry-forward is default-on (`receipt_thread`).
