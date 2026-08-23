@@ -317,6 +317,11 @@ export type WithCodeRiftsInput = {
    * is a later, evidence-gated decision.
    */
   autoDerive?: GuardConfig['autoDerive'];
+  /**
+   * S2-F2a R3. Customer-pinned executor registry `{ registry }`. Forwarded onto GuardConfig.
+   * Default absent — no verification attempted, CAS evidence stays host_claimed (no penalty).
+   */
+  executorAttestation?: GuardConfig['executorAttestation'];
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -782,6 +787,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.autoDerive !== undefined) {
     guard.autoDerive = input.autoDerive;
+  }
+  if (input.executorAttestation !== undefined) {
+    guard.executorAttestation = input.executorAttestation;
   }
   const strict = isEnforcingStrict(input);
   if (strict) {

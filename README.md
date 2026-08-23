@@ -161,6 +161,8 @@ Honesty (verbatim, and also on the machine proof as
 `limits.commit_observation_is_observed_at_t3_not_atomic: true`):
 `commit_observation is observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content; host attestation is a host claim layered on the measurement`.
 
+When `withCodeRifts({ executorAttestation: { registry } })` is set and a CAS outcome carries a verified `cr.exec.attest.v1` token, the T3 section upgrades to `committed — executor-attested (ATTEST_VALID, kid …)`. Invalid attestation stays host-claimed with `attest_status` visible. Observation-side only.
+
 > **Supply `artifacts[]` with content.** If the guard detects a contract change (e.g. from
 > `filesTouched`/`diff`) but you did **not** supply `artifacts[]` with `before`/`after`, it fails
 > closed **locally** with `outcome.verdict.cause === 'MISSING_ARTIFACT_CONTENT'` — the tool does not

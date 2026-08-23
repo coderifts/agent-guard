@@ -37,7 +37,7 @@ import {
   type ConditionalWriteCallContext,
 } from './conditional-write.js';
 import { observeCommit, type CommitObservation } from './commit-observation.js';
-import { buildCasAttestation, isExecuteIfUnchangedOutcome } from './cas-attestation.js';
+import { buildCasAttestation, evaluateCasEvidence, isExecuteIfUnchangedOutcome } from './cas-attestation.js';
 import {
   deliverMonitoring,
   monitoringDeliveryFailClosed,
@@ -274,14 +274,24 @@ async function finishExecuted<T>(
       token: commit_observation.token,
     });
   }
+  const cas_evidence = result !== undefined
+    ? evaluateCasEvidence(result, {
+      registry: config.executorAttestation && config.executorAttestation.registry,
+    })
+    : undefined;
   const proof = buildExecutionProof({
     ...base,
     conditionalWriteBasis: conditional_write,
     commitObservation: commit_observation,
     monitoringDelivery: monitoring_delivery,
+    ...(cas_evidence ? { casEvidence: cas_evidence } : {}),
   });
   if (result !== undefined && isExecuteIfUnchangedOutcome(result)) {
-    try { buildCasAttestation(proof, result); } catch { /* label already set; never throw */ }
+    try {
+      buildCasAttestation(proof, result, {
+        registry: config.executorAttestation && config.executorAttestation.registry,
+      });
+    } catch { /* label already set; never throw */ }
   }
   return {
     ...base,
@@ -290,6 +300,7 @@ async function finishExecuted<T>(
     conditional_write,
     commit_observation,
     ...(monitoring_delivery ? { monitoring_delivery } : {}),
+    ...(cas_evidence ? { cas_evidence } : {}),
   } as GuardOutcome<T>;
 }
 

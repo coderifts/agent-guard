@@ -127,6 +127,12 @@ export interface GuardConfig {
    * when the host did not supply args.artifacts. Not a fingerprint preimage field.
    */
   autoDerive?: boolean | import('./auto-derive.js').AutoDeriveConfig;
+  /**
+   * S2-F2a R3. Customer-pinned executor key registry. When set, a CAS outcome
+   * that carries an attestation token is verified (sdk verifyExecutionAttestation).
+   * Observation-side only — never a verdict/preimage field.
+   */
+  executorAttestation?: import('./cas-attestation.js').ExecutorAttestationConfig;
 }
 
 export interface ToolCallDescriptor {
@@ -201,10 +207,11 @@ type GuardOutcomeCore<T> =
   // factory threw after an UNENFORCED execution (SKIPPED / observeOnly / open- or lkg-pass-through):
   | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery };
 
-/** S6 + S1 additive observation (optional). Absent when those wrap layers did not run. */
+/** S6 + S1 + F2a additive observation (optional). Absent when those wrap layers did not run. */
 export type GuardOutcome<T> = GuardOutcomeCore<T>
   & import('./auto-recheck.js').RecheckObservation
-  & import('./auto-derive.js').AutoDeriveObservation;
+  & import('./auto-derive.js').AutoDeriveObservation
+  & { cas_evidence?: import('./cas-attestation.js').CasEvidence };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
 // proof is always present and is guard-produced (not caller-writable).

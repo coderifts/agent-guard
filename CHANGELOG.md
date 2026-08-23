@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 8.5.0
 
 ### Added
 
@@ -33,8 +33,18 @@
   `source: "guard_auto_derived"` on derived artifacts — not a preimage field.
   Frozen `guard.ts` untouched. Re-preflight (S6) re-derives FRESH.
 
-**8.5.0 note:** `package.json` stays **8.4.0** this round. The 8.5.0 publish
-will carry auto-recheck, auto-derive, and F2a R3 `executor_attested`.
+- **S2-F2a R3 `executor_attested` evidence class.** Opt-in
+  `withCodeRifts({ executorAttestation: { registry } })` (customer-pinned
+  executor keys). When a CAS outcome carries an attestation token (from the
+  executor's mutation response), the guard verifies it via
+  `@coderifts/sdk` `verifyExecutionAttestation` (no re-implementation).
+  Observation-side `cas_evidence: { class, attest_status, executor_kid, grant_jti }`
+  with `class` ∈ `executor_attested` | `host_claimed` | `absent`.
+  Invalid / unbound attestation stays `host_claimed` with `attest_status`
+  visible (a lying token must not upgrade — N-4 lying-sink principle).
+  No registry configured → `host_claimed`, no verification, no penalty.
+  Proof/T3: `committed — executor-attested (ATTEST_VALID, kid …)` vs today's
+  host-claim wording. Verdict/preimage untouched.
 
 ## 8.4.0
 

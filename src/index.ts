@@ -246,12 +246,18 @@ export {
   buildCasAttestation,
   isGuardExecutionProof,
   isExecuteIfUnchangedOutcome,
+  evaluateCasEvidence,
+  extractExecutorAttestationToken,
   CAS_ATTESTATION_SPEC,
 } from './cas-attestation.js';
 export type {
   CasAttestation,
   CasAttestationCas,
   CasAttestationLimits,
+  CasEvidence,
+  CasEvidenceClass,
+  ExecutorAttestationConfig,
+  EvaluateCasEvidenceOpts,
 } from './cas-attestation.js';
 
 // Remediation-loop attestation — BLOCK remediation_transaction + ALLOW proof (+ optional CAS).

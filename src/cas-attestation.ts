@@ -2,7 +2,8 @@
  * CAS attestation binder (ID781 option A follow-on) — separate record linking a frozen
  * GuardExecutionProof (v1) with an ExecuteIfUnchangedOutcome.
  *
- * Does NOT modify execution-proof.ts, the proof shape, or conditional-write outcome types.
+ * Does NOT mutate execution-proof assembly or conditional-write outcome types.
+ * Additive `cas_evidence` is observation-only (optional on the proof / outcome).
  * Does NOT claim that the host write is unique, that version tokens equal change_fp, or that
  * committed_stale_detected is "safe". Those non-claims are always set on `limits`.
  *
@@ -11,6 +12,8 @@
  * widening the proof spec.
  */
 
+import { verifyExecutionAttestation } from '@coderifts/sdk';
+import type { ExecutorKeyRegistry } from '@coderifts/sdk';
 import type { GuardExecutionProof, ExecutionResultHash } from './execution-proof.js';
 import { EXECUTION_PROOF_SPEC } from './execution-proof.js';
 import type { ExecuteIfUnchangedOutcome, VersionToken } from './conditional-write.js';
@@ -96,8 +99,139 @@ export type CasAttestation = {
     /** outcome.status === 'refused'. */
     refused: boolean;
   };
+  /**
+   * Observation-side CAS evidence class (S2-F2a R3). Never a verdict/preimage field.
+   * executor_attested only after a customer-pinned registry verifies the token.
+   * A lying/invalid attestation stays host_claimed with attest_status visible
+   * (same principle as N-4's lying sink). No registry → host_claimed, no penalty.
+   */
+  cas_evidence: CasEvidence;
   limits: CasAttestationLimits;
 };
+
+/** Tri-state CAS evidence (N-4 monitoring_delivery is the pattern). */
+export type CasEvidenceClass = 'executor_attested' | 'host_claimed' | 'absent';
+
+export type CasEvidence = {
+  class: CasEvidenceClass;
+  attest_status: string | null;
+  executor_kid: string | null;
+  grant_jti: string | null;
+};
+
+export type ExecutorAttestationConfig = {
+  /** Customer-pinned executor key registry. Required to attempt verification. */
+  registry: ExecutorKeyRegistry;
+};
+
+export type EvaluateCasEvidenceOpts = {
+  registry?: ExecutorKeyRegistry | null;
+  grant?: string | null;
+  receipt_digest?: string | null;
+};
+
+const ABSENT_EVIDENCE: CasEvidence = Object.freeze({
+  class: 'absent',
+  attest_status: null,
+  executor_kid: null,
+  grant_jti: null,
+});
+
+function hostClaimed(status: string | null, kid: string | null, jti: string | null): CasEvidence {
+  return Object.freeze({
+    class: 'host_claimed',
+    attest_status: status,
+    executor_kid: kid,
+    grant_jti: jti,
+  });
+}
+
+/** Pull the attestation token from the CAS outcome or the mutation response body. */
+export function extractExecutorAttestationToken(outcome: unknown): string | null {
+  if (!outcome || typeof outcome !== 'object') return null;
+  const o = outcome as Record<string, unknown>;
+  if (typeof o.executor_attestation === 'string' && o.executor_attestation.length > 0) {
+    return o.executor_attestation;
+  }
+  const r = o.result;
+  if (r && typeof r === 'object') {
+    const tok = (r as Record<string, unknown>).executor_attestation;
+    if (typeof tok === 'string' && tok.length > 0) return tok;
+  }
+  return null;
+}
+
+function intendedFromOutcome(outcome: unknown): { grant?: string; receipt_digest?: string } {
+  const intended: { grant?: string; receipt_digest?: string } = {};
+  if (!outcome || typeof outcome !== 'object') return intended;
+  const o = outcome as Record<string, unknown>;
+  const r = o.result && typeof o.result === 'object' ? (o.result as Record<string, unknown>) : o;
+  if (typeof r.grant === 'string' && r.grant.length > 0) intended.grant = r.grant;
+  else if (typeof r.execution_grant === 'string' && r.execution_grant.length > 0) {
+    intended.grant = r.execution_grant;
+  }
+  if (typeof r.receipt_digest === 'string' && r.receipt_digest.length > 0) {
+    intended.receipt_digest = r.receipt_digest;
+  }
+  return intended;
+}
+
+/**
+ * Observation-side CAS evidence. Does not change authorized_and_committed.
+ * Invalid attestation never upgrades the class (lying token stays host_claimed).
+ */
+export function evaluateCasEvidence(
+  outcome: unknown,
+  opts: EvaluateCasEvidenceOpts = {},
+): CasEvidence {
+  if (!isExecuteIfUnchangedOutcome(outcome)) return ABSENT_EVIDENCE;
+  if (outcome.status === 'refused') return ABSENT_EVIDENCE;
+
+  const token = extractExecutorAttestationToken(outcome);
+  const registry = opts.registry;
+  const fromOutcome = intendedFromOutcome(outcome);
+  const grant = opts.grant || fromOutcome.grant || null;
+  const receipt_digest = opts.receipt_digest || fromOutcome.receipt_digest || null;
+
+  if (!registry || !Array.isArray(registry.keys)) {
+    return hostClaimed(null, null, null);
+  }
+  if (!token) {
+    return hostClaimed(null, null, null);
+  }
+
+  const intended: { grant?: string; receipt_digest?: string } = {};
+  if (grant) intended.grant = grant;
+  if (receipt_digest) intended.receipt_digest = receipt_digest;
+  const wantsIntended = Object.keys(intended).length > 0;
+
+  let verified;
+  try {
+    verified = verifyExecutionAttestation(token, {
+      registry,
+      ...(wantsIntended ? { intended } : {}),
+    });
+  } catch {
+    return hostClaimed('ATTEST_MALFORMED', null, null);
+  }
+
+  const payload = verified.payload && typeof verified.payload === 'object'
+    ? verified.payload as Record<string, unknown>
+    : null;
+  const kid = payload && typeof payload.executor_kid === 'string' ? payload.executor_kid : null;
+  const jti = payload && typeof payload.grant_jti === 'string' ? payload.grant_jti : null;
+
+  if (verified.valid === true
+      && (verified.status === 'ATTEST_VALID' || verified.status === 'ATTEST_RETIRED_KEY_VALID_AT_ISSUE')) {
+    return Object.freeze({
+      class: 'executor_attested',
+      attest_status: verified.status,
+      executor_kid: kid,
+      grant_jti: jti,
+    });
+  }
+  return hostClaimed(verified.status, kid, jti);
+}
 
 /** Type guard: object carries the frozen v1 proof_spec. */
 export function isGuardExecutionProof(x: unknown): x is GuardExecutionProof {
@@ -169,6 +303,7 @@ function projectCas(outcome: ExecuteIfUnchangedOutcome<unknown>): CasAttestation
 export function buildCasAttestation(
   proof: GuardExecutionProof,
   outcome: ExecuteIfUnchangedOutcome<unknown>,
+  opts: EvaluateCasEvidenceOpts = {},
 ): CasAttestation {
   if (!isGuardExecutionProof(proof)) {
     throw new TypeError(
@@ -206,6 +341,7 @@ export function buildCasAttestation(
       stale_during_commit,
       refused,
     }),
+    cas_evidence: evaluateCasEvidence(outcome, opts),
     limits: LIMITS,
   };
 

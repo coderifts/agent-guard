@@ -22,6 +22,7 @@ import { createHash } from 'node:crypto';
 import type { GuardVerdict } from './types.js';
 import type { CommitObservation } from './commit-observation.js';
 import type { MonitoringDelivery } from './monitoring-delivery.js';
+import type { CasEvidence } from './cas-attestation.js';
 
 /** Machine-readable schema id for this block. */
 export const EXECUTION_PROOF_SPEC = 'guard-execution-proof.v1' as const;
@@ -127,6 +128,11 @@ export type GuardExecutionProof = {
    */
   monitoring_delivery?: MonitoringDelivery;
   /**
+   * S2-F2a R3 CAS evidence class (observation). Present when a CAS outcome was
+   * observed. Not a preimage field. executor_attested only after registry verify.
+   */
+  cas_evidence?: CasEvidence;
+  /**
    * S6 auto-recheck trail (observation). Present when the wrap-layer loop ran.
    * Additive; not a preimage field. Final outcome is the last decision.
    */
@@ -158,6 +164,8 @@ export type ProofBuildInput = {
   commitObservation?: CommitObservation;
   /** CWM delivery evidence; omit on non-MONITOR arms. */
   monitoringDelivery?: MonitoringDelivery;
+  /** S2-F2a R3 CAS evidence (observation). */
+  casEvidence?: CasEvidence;
   /** S6 trail passthrough (observation). */
   recheckTrail?: ReadonlyArray<{
     attempt: number;
@@ -340,6 +348,9 @@ export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof
   };
   if (input.monitoringDelivery && typeof input.monitoringDelivery === 'object') {
     proof.monitoring_delivery = freezeMonitoringDelivery(input.monitoringDelivery);
+  }
+  if (input.casEvidence && typeof input.casEvidence === 'object') {
+    proof.cas_evidence = Object.freeze({ ...input.casEvidence });
   }
   if (Array.isArray(input.recheckTrail) && input.recheckTrail.length > 0) {
     proof.recheck_trail = Object.freeze(input.recheckTrail.map((e) => Object.freeze({ ...e })));

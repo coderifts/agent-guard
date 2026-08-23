@@ -237,9 +237,24 @@ export function renderFinalAnswerProof(
     if (co.observed_fp) lines.push(bullet(`observed_fp: ${co.observed_fp}`));
     if (co.expected_fp) lines.push(bullet(`expected_fp: ${co.expected_fp}`));
     if (co.token) lines.push(bullet(`token: ${co.token}`));
-    lines.push(bullet(
-      'Observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content; host attestation is a host claim layered on the measurement.',
-    ));
+    const ce = proof.cas_evidence;
+    if (ce && ce.class === 'executor_attested') {
+      const kid = ce.executor_kid != null ? ce.executor_kid : '…';
+      const st = ce.attest_status != null ? ce.attest_status : 'ATTEST_VALID';
+      lines.push(bullet(`committed — executor-attested (${st}, kid ${kid})`));
+      lines.push(bullet(
+        'Observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content.',
+      ));
+    } else if (ce && ce.class === 'host_claimed' && ce.attest_status) {
+      lines.push(bullet(`committed — host-claimed (attest_status ${ce.attest_status})`));
+      lines.push(bullet(
+        'Observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content; host attestation is a host claim layered on the measurement.',
+      ));
+    } else {
+      lines.push(bullet(
+        'Observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content; host attestation is a host claim layered on the measurement.',
+      ));
+    }
     lines.push('');
   }
 
