@@ -22,6 +22,8 @@ import { classifyByName } from './artifact-resolver.js';
 import type { ArtifactType } from './artifact-resolver.js';
 import { collectFreshnessCallContext } from './freshness.js';
 import { runAutoRecheckLoop, normalizeAutoRecheck } from './auto-recheck.js';
+import { normalizeAutoDerive, runAutoDerive, attachDerivation } from './auto-derive.js';
+import type { AutoDeriveObservation } from './auto-derive.js';
 
 // ── public types (§1.1) ─────────────────────────────────────────────────────────────────────────
 export type ToolMutationClass =
@@ -292,8 +294,22 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
     inputSchema: tool.inputSchema,
     meta: tool.meta,
     execute: async (args: unknown) => {
-      const rebind = () => binder(tool, args, cls);
-      const call = rebind();
+      const deriveCfg = normalizeAutoDerive(guardCfg.autoDerive);
+      const rebindRaw = () => binder(tool, args, cls);
+      let lastDerivation: AutoDeriveObservation['derivation'] | null = null;
+      const rebind = async () => {
+        const c = rebindRaw();
+        if (!deriveCfg) return c;
+        const d = await runAutoDerive({
+          bound: c,
+          rawArgs: args,
+          cfg: deriveCfg,
+          config: guardCfg,
+        });
+        lastDerivation = d.derivation;
+        return d.call;
+      };
+      const call = await rebind();
       // RUNNER collects prior content (async host I/O) and passes VALUES into the pure guard path.
       // The guard never invokes resolvePriorContent itself.
       const refreshContext = async (c: ToolCallDescriptor) => collectFreshnessCallContext({
@@ -307,17 +323,17 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
       const fctx = await refreshContext(call);
       const factory = async (_envelope: DecisionResultEnvelope | null, redacted: ToolCallDescriptor) =>
         rawExecute(redacted ? redacted.arguments : args);
-      if (normalizeAutoRecheck(guardCfg.autoRecheck)) {
-        return runAutoRecheckLoop({
+      const outcome = normalizeAutoRecheck(guardCfg.autoRecheck)
+        ? await runAutoRecheckLoop({
           call,
           factory,
           config: guardCfg,
           callContext: fctx,
           rebind,
           refreshContext,
-        });
-      }
-      return guardToolCall(call, factory, guardCfg, fctx);
+        })
+        : await guardToolCall(call, factory, guardCfg, fctx);
+      return attachDerivation(outcome, lastDerivation);
     },
     _coderifts: { guarded: true, mutationClass: cls, operation },
   };

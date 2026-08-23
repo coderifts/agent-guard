@@ -21,8 +21,20 @@
   each attempt is a full re-preflight.
   Host orchestration only; nothing new enters a fingerprint preimage.
 
+- **S1 auto-derive.** Opt-in `withCodeRifts({ autoDerive: true | { readers } })`
+  (also on `GuardConfig`). Default **OFF** this round (flip-to-default is a
+  later, evidence-gated decision). When the host does not supply
+  `args.artifacts`, the wrap layer reads CURRENT state as `before` (fs/api/db/
+  registry readers; default fs = utf8 file read) and the call's intended write
+  as `after`. Missing target → `before: null` + `derivation_note:
+  before_unavailable`; empty file → `before: ""`. Host `args.artifacts` always
+  win. Reader throw/timeout → today's fragment path, event `derive_failed`.
+  Observation: `outcome.derivation { mode, targets, notes? }` with
+  `source: "guard_auto_derived"` on derived artifacts — not a preimage field.
+  Frozen `guard.ts` untouched. Re-preflight (S6) re-derives FRESH.
+
 **8.5.0 note:** `package.json` stays **8.4.0** this round. The 8.5.0 publish
-will carry this loop together with F2a R3 `executor_attested` evidence class.
+will carry auto-recheck, auto-derive, and F2a R3 `executor_attested`.
 
 ## 8.4.0
 

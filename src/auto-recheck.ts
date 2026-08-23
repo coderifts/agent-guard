@@ -201,7 +201,7 @@ function withFreshArtifacts(call: ToolCallDescriptor, artifacts: Artifact[]): To
 async function freshCall(
   cfg: AutoRecheckConfig,
   current: ToolCallDescriptor,
-  rebind: () => ToolCallDescriptor,
+  rebind: () => ToolCallDescriptor | Promise<ToolCallDescriptor>,
   artifactsBeforeFix: Artifact[] | undefined,
 ): Promise<ToolCallDescriptor> {
   // Host-updated call first so applyFix mutations of arguments / filesTouched / diff survive.
@@ -221,7 +221,7 @@ async function freshCall(
     return withFreshArtifacts(next, current.artifacts as Artifact[]);
   }
 
-  const rebound = rebind();
+  const rebound = await Promise.resolve(rebind());
   if (Array.isArray(rebound.artifacts) && rebound.artifacts.length > 0) {
     return withFreshArtifacts(next, rebound.artifacts);
   }
@@ -233,7 +233,7 @@ export type AutoRecheckLoopArgs<T> = {
   factory: ExecuteFactory<T>;
   config: GuardConfig;
   callContext?: GuardToolCallContext;
-  rebind: () => ToolCallDescriptor;
+  rebind: () => ToolCallDescriptor | Promise<ToolCallDescriptor>;
   /** Re-collect freshness VALUES from the FRESH call (full re-preflight). */
   refreshContext?: (call: ToolCallDescriptor) => Promise<GuardToolCallContext | undefined>;
 };

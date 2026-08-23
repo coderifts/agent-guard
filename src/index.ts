@@ -334,6 +334,24 @@ export type {
   RecheckObservation,
 } from './auto-recheck.js';
 
+// S1 auto-derive — wrap-layer before/after from current-state readers. Default OFF.
+export {
+  runAutoDerive,
+  normalizeAutoDerive,
+  defaultFsReader,
+  AUTO_DERIVE_SOURCE,
+  AUTO_DERIVE_READ_TIMEOUT_MS,
+} from './auto-derive.js';
+export type {
+  AutoDeriveConfig,
+  AutoDeriveReaders,
+  AutoDeriveReader,
+  AutoDeriveObservation,
+  AutoDeriveMode,
+  AutoDeriveTarget,
+  DerivedArtifact,
+} from './auto-derive.js';
+
 // withCodeRifts (S1+S2+observation) — additive orchestration ABOVE the frozen primitives. Wraps
 // guardToolRegistry with a mandatory operation; reports the registry's untouched report + a narrower
 // composition assurance; optional onEvent (pass-through) + onSettledCall (table settled-call observation).

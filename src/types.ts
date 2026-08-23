@@ -121,6 +121,12 @@ export interface GuardConfig {
    * Forwarded from withCodeRifts({ autoRecheck }).
    */
   autoRecheck?: import('./auto-recheck.js').AutoRecheckConfig;
+  /**
+   * S1 auto-derive. Default OFF. When true (or `{ readers }`), the wrap layer
+   * fills before/after from current-state readers + the call's intended write
+   * when the host did not supply args.artifacts. Not a fingerprint preimage field.
+   */
+  autoDerive?: boolean | import('./auto-derive.js').AutoDeriveConfig;
 }
 
 export interface ToolCallDescriptor {
@@ -195,8 +201,10 @@ type GuardOutcomeCore<T> =
   // factory threw after an UNENFORCED execution (SKIPPED / observeOnly / open- or lkg-pass-through):
   | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery };
 
-/** S6 additive observation (optional). Absent when autoRecheck is off / did not run. */
-export type GuardOutcome<T> = GuardOutcomeCore<T> & import('./auto-recheck.js').RecheckObservation;
+/** S6 + S1 additive observation (optional). Absent when those wrap layers did not run. */
+export type GuardOutcome<T> = GuardOutcomeCore<T>
+  & import('./auto-recheck.js').RecheckObservation
+  & import('./auto-derive.js').AutoDeriveObservation;
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
 // proof is always present and is guard-produced (not caller-writable).
@@ -300,4 +308,9 @@ export type GuardEvent =
    * (not a preimage). cause set when applyFix threw.
    */
   | { type: 'recheck_attempt'; at: string; attempt: number; decisionId?: string;
-      from_fp?: string | null; to_fp?: string | null; cause?: string };
+      from_fp?: string | null; to_fp?: string | null; cause?: string }
+  /**
+   * S1: auto-derive reader threw or timed out. Wrap falls back to today's fragment path.
+   * Observation-only — not a BLOCK on derivation itself.
+   */
+  | { type: 'derive_failed'; at: string; cause: string };

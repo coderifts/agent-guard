@@ -311,6 +311,12 @@ export type WithCodeRiftsInput = {
    * the fix (guard never writes artifacts). Hard cap 3 re-preflights.
    */
   autoRecheck?: GuardConfig['autoRecheck'];
+  /**
+   * S1 auto-derive. Default OFF. `true` or `{ readers?: { fs, api, db, registry } }`.
+   * Fills before/after when the host did not supply args.artifacts. Flip-to-default
+   * is a later, evidence-gated decision.
+   */
+  autoDerive?: GuardConfig['autoDerive'];
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -773,6 +779,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.autoRecheck !== undefined) {
     guard.autoRecheck = input.autoRecheck;
+  }
+  if (input.autoDerive !== undefined) {
+    guard.autoDerive = input.autoDerive;
   }
   const strict = isEnforcingStrict(input);
   if (strict) {
