@@ -181,6 +181,12 @@ export function renderFinalAnswerProof(
   lines.push(bullet(
     `receipt.expires_at: ${proof.receipt.expires_at != null ? proof.receipt.expires_at : '(none)'}`,
   ));
+  const trail = proof.recheck_trail;
+  if (Array.isArray(trail) && trail.length > 1) {
+    const n = trail.length - 1;
+    const id = proof.decision_id != null ? proof.decision_id : '(none)';
+    lines.push(bullet(`re-preflighted ${n}× after remediation; final decision ${id}`));
+  }
   lines.push('');
 
   lines.push(h2('Authorization'));

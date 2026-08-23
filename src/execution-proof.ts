@@ -126,6 +126,16 @@ export type GuardExecutionProof = {
    * Observation-side — never a verdict/preimage field. delivered_acked ≠ human attention.
    */
   monitoring_delivery?: MonitoringDelivery;
+  /**
+   * S6 auto-recheck trail (observation). Present when the wrap-layer loop ran.
+   * Additive; not a preimage field. Final outcome is the last decision.
+   */
+  recheck_trail?: ReadonlyArray<{
+    attempt: number;
+    decision_id: string | null;
+    fingerprint: string | null;
+    execution_action: string | null;
+  }>;
 };
 
 export type ProofBuildInput = {
@@ -148,6 +158,13 @@ export type ProofBuildInput = {
   commitObservation?: CommitObservation;
   /** CWM delivery evidence; omit on non-MONITOR arms. */
   monitoringDelivery?: MonitoringDelivery;
+  /** S6 trail passthrough (observation). */
+  recheckTrail?: ReadonlyArray<{
+    attempt: number;
+    decision_id: string | null;
+    fingerprint: string | null;
+    execution_action: string | null;
+  }>;
 };
 
 const LIMITS: GuardExecutionProof['limits'] = Object.freeze({
@@ -323,6 +340,9 @@ export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof
   };
   if (input.monitoringDelivery && typeof input.monitoringDelivery === 'object') {
     proof.monitoring_delivery = freezeMonitoringDelivery(input.monitoringDelivery);
+  }
+  if (Array.isArray(input.recheckTrail) && input.recheckTrail.length > 0) {
+    proof.recheck_trail = Object.freeze(input.recheckTrail.map((e) => Object.freeze({ ...e })));
   }
 
   return freezeProof(proof);

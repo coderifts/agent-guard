@@ -115,6 +115,12 @@ export interface GuardConfig {
    * requireExecutionStateMatch:false).
    */
   requireCommitObservation?: boolean;
+  /**
+   * S6 auto-recheck. Default OFF. When set (with applyFix), a BLOCK that carries
+   * remediation_transaction may re-preflight after the HOST applies a fix.
+   * Forwarded from withCodeRifts({ autoRecheck }).
+   */
+  autoRecheck?: import('./auto-recheck.js').AutoRecheckConfig;
 }
 
 export interface ToolCallDescriptor {
@@ -177,7 +183,7 @@ export type {
  */
 export type GuardToolCallContext = FreshnessCallContext & ConditionalWriteCallContext;
 
-export type GuardOutcome<T> =
+type GuardOutcomeCore<T> =
   // enforced:true is its OWN arm — only ApprovedVerdict + receiptVerified:true + preflighted:true reach it.
   | { executionAttempted: true;  executed: true;  enforced: true;  result: T;   verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery }
   // executed but NOT enforced (SKIPPED / observeOnly / open- or lkg-UNAVAILABLE pass-through):
@@ -188,6 +194,9 @@ export type GuardOutcome<T> =
   | { executionAttempted: true;  executed: false; enforced: true;  error: unknown; verdict: ApprovedVerdict; preflighted: true; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery }
   // factory threw after an UNENFORCED execution (SKIPPED / observeOnly / open- or lkg-pass-through):
   | { executionAttempted: true;  executed: false; enforced: false; error: unknown; verdict: GuardVerdict; preflighted: boolean; proof: GuardExecutionProof; freshness: FreshnessBasis; conditional_write: ConditionalWriteBasis; commit_observation: CommitObservation; monitoring_delivery?: MonitoringDelivery };
+
+/** S6 additive observation (optional). Absent when autoRecheck is off / did not run. */
+export type GuardOutcome<T> = GuardOutcomeCore<T> & import('./auto-recheck.js').RecheckObservation;
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
 // proof is always present and is guard-produced (not caller-writable).
@@ -285,4 +294,10 @@ export type GuardEvent =
       note: string }
   /** T3: observed post-write state ≠ authorized after / intended post token. Not a BLOCK. enforced unchanged. */
   | { type: 'commit_observed_drift'; at: string; decisionId?: string;
-      observed_fp?: string; expected_fp?: string; token?: string };
+      observed_fp?: string; expected_fp?: string; token?: string }
+  /**
+   * S6: one re-preflight attempt after applyFix. from_fp/to_fp are observation-only
+   * (not a preimage). cause set when applyFix threw.
+   */
+  | { type: 'recheck_attempt'; at: string; attempt: number; decisionId?: string;
+      from_fp?: string | null; to_fp?: string | null; cause?: string };

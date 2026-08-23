@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **S6 auto-recheck loop.** Opt-in `withCodeRifts({ autoRecheck: { maxAttempts, applyFix } })`
+  (also on `GuardConfig`). Default **OFF**. After a BLOCK that carries
+  `remediation_transaction`, the host's `applyFix` applies the fix (the guard
+  never writes artifacts); artifacts are re-resolved FRESH (`resolve` /
+  rebind) and the same `preflight_mode` runs again. `maxAttempts` bounds
+  re-preflights (1–3, hard cap 3). Trail: `outcome.recheck_trail` /
+  `proof.recheck_trail` `[{attempt, decision_id, fingerprint, execution_action}]`.
+  Final outcome is the last decision (no special-casing of executed/enforced).
+  Stops on allow-class, exhausted attempts, `applyFix` false/throw, or
+  identical fingerprint twice (`recheck_stop_reason: 'no_progress'`).
+  Events: `recheck_attempt {attempt, decision_id, from_fp, to_fp}`. Feeds the
+  849 `fixed_after_block` metric when a recheck lands allow-class.
+  Proof line: `re-preflighted N× after remediation; final decision <id>`.
+  `recheck_scope` is envelope output only — preflight has no scope hint, so
+  each attempt is a full re-preflight.
+  Host orchestration only; nothing new enters a fingerprint preimage.
+
+**8.5.0 note:** `package.json` stays **8.4.0** this round. The 8.5.0 publish
+will carry this loop together with F2a R3 `executor_attested` evidence class.
+
 ## 8.4.0
 
 ### Added

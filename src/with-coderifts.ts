@@ -306,6 +306,11 @@ export type WithCodeRiftsInput = {
    * (`requireCommitObservation conflicts`) and the lock forces true.
    */
   requireCommitObservation?: GuardConfig['requireCommitObservation'];
+  /**
+   * S6 auto-recheck. Default OFF. `{ maxAttempts: 1|2|3, applyFix }` — the HOST applies
+   * the fix (guard never writes artifacts). Hard cap 3 re-preflights.
+   */
+  autoRecheck?: GuardConfig['autoRecheck'];
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -765,6 +770,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.requireCommitObservation !== undefined) {
     guard.requireCommitObservation = input.requireCommitObservation;
+  }
+  if (input.autoRecheck !== undefined) {
+    guard.autoRecheck = input.autoRecheck;
   }
   const strict = isEnforcingStrict(input);
   if (strict) {

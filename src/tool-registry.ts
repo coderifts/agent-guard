@@ -21,6 +21,7 @@ import type { GuardConfig, ToolCallDescriptor, DecisionResultEnvelope, Artifact 
 import { classifyByName } from './artifact-resolver.js';
 import type { ArtifactType } from './artifact-resolver.js';
 import { collectFreshnessCallContext } from './freshness.js';
+import { runAutoRecheckLoop, normalizeAutoRecheck } from './auto-recheck.js';
 
 // ── public types (§1.1) ─────────────────────────────────────────────────────────────────────────
 export type ToolMutationClass =
@@ -291,24 +292,32 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
     inputSchema: tool.inputSchema,
     meta: tool.meta,
     execute: async (args: unknown) => {
-      const call = binder(tool, args, cls);
+      const rebind = () => binder(tool, args, cls);
+      const call = rebind();
       // RUNNER collects prior content (async host I/O) and passes VALUES into the pure guard path.
       // The guard never invokes resolvePriorContent itself.
-      const fctx = await collectFreshnessCallContext({
+      const refreshContext = async (c: ToolCallDescriptor) => collectFreshnessCallContext({
         call: {
-          toolName: call.toolName,
-          artifacts: call.artifacts,
-          arguments: call.arguments,
+          toolName: c.toolName,
+          artifacts: c.artifacts,
+          arguments: c.arguments,
         },
         resolvePriorContent: guardCfg.resolvePriorContent,
       });
-      return guardToolCall(
-        call,
-        async (_envelope: DecisionResultEnvelope | null, redacted: ToolCallDescriptor) =>
-          rawExecute(redacted ? redacted.arguments : args),
-        guardCfg,
-        fctx,
-      );
+      const fctx = await refreshContext(call);
+      const factory = async (_envelope: DecisionResultEnvelope | null, redacted: ToolCallDescriptor) =>
+        rawExecute(redacted ? redacted.arguments : args);
+      if (normalizeAutoRecheck(guardCfg.autoRecheck)) {
+        return runAutoRecheckLoop({
+          call,
+          factory,
+          config: guardCfg,
+          callContext: fctx,
+          rebind,
+          refreshContext,
+        });
+      }
+      return guardToolCall(call, factory, guardCfg, fctx);
     },
     _coderifts: { guarded: true, mutationClass: cls, operation },
   };
