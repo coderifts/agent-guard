@@ -133,6 +133,12 @@ export interface GuardConfig {
    * Observation-side only — never a verdict/preimage field.
    */
   executorAttestation?: import('./cas-attestation.js').ExecutorAttestationConfig;
+  /**
+   * Opt-in CWM monitoring attestation. Host supplies kid + sign(bytes) — never a raw key.
+   * When set and a CWM arm ran, the outcome carries `monitoring_attestation` (cr.monitor.attest.v1).
+   * Absent → today's CWM outcome is byte-identical (no field). Observation-side only.
+   */
+  monitoringAttestation?: import('./monitoring-attestation.js').MonitoringAttestationConfig;
 }
 
 export interface ToolCallDescriptor {
@@ -219,6 +225,8 @@ export type GuardOutcome<T> = GuardOutcomeCore<T>
      */
     commit_label?: import('./cas-attestation.js').CommitLabel;
     commit_evidence_reason?: 'commit_evidence_missing';
+    /** cr.monitor.attest.v1 token. Present only when monitoringAttestation was configured on a CWM arm. */
+    monitoring_attestation?: string;
   };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.

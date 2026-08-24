@@ -109,6 +109,19 @@ export {
   ackBytes,
   DEFAULT_MONITORING_SINK_TIMEOUT_MS,
 } from './monitoring-delivery.js';
+export {
+  tryIssueMonitoringAttestation,
+  kidFromMonitoringAttestation,
+  monitorAttestSigningInput,
+  receiptDigestOfToken,
+  MONITOR_ATTEST_VERSION,
+  MONITOR_ATTEST_SIGNING_PREFIX,
+  MONITOR_ATTEST_ENVELOPE_TAG,
+} from './monitoring-attestation.js';
+export type {
+  MonitoringAttestationConfig,
+  MonitoringAttestationSigner,
+} from './monitoring-attestation.js';
 export type {
   MonitoringDelivery,
   MonitoringDeliveryStatus,

@@ -322,6 +322,11 @@ export type WithCodeRiftsInput = {
    * Default absent — no verification attempted, CAS evidence stays host_claimed (no penalty).
    */
   executorAttestation?: GuardConfig['executorAttestation'];
+  /**
+   * Opt-in CWM monitoring attestation. Forwarded onto GuardConfig.
+   * `{ kid, signer }` — host sign(bytes), never a raw key. Absent = today's CWM (no token).
+   */
+  monitoringAttestation?: GuardConfig['monitoringAttestation'];
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -790,6 +795,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.executorAttestation !== undefined) {
     guard.executorAttestation = input.executorAttestation;
+  }
+  if (input.monitoringAttestation !== undefined) {
+    guard.monitoringAttestation = input.monitoringAttestation;
   }
   const strict = isEnforcingStrict(input);
   if (strict) {

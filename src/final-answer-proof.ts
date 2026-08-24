@@ -18,6 +18,7 @@
 import type { GuardExecutionProof, ExecutionResultHash } from './execution-proof.js';
 import { EXECUTION_PROOF_SPEC } from './execution-proof.js';
 import { formatMonitoringDeliveryLine } from './monitoring-delivery.js';
+import { kidFromMonitoringAttestation } from './monitoring-attestation.js';
 
 export type FinalAnswerProofFormat = 'markdown' | 'plain';
 
@@ -279,10 +280,16 @@ export function renderFinalAnswerProof(
   const mdv = proof.monitoring_delivery;
   if (mdv && typeof mdv === 'object' && typeof mdv.status === 'string') {
     lines.push(h2('Monitoring delivery'));
-    lines.push(bullet(formatMonitoringDeliveryLine(mdv)));
+    const attestedKid = kidFromMonitoringAttestation(proof.monitoring_attestation);
+    lines.push(bullet(formatMonitoringDeliveryLine(mdv, attestedKid)));
     lines.push(bullet(
       'delivered_acked means the sink returned an ack — it does NOT mean a human saw the event.',
     ));
+    if (attestedKid) {
+      lines.push(bullet(
+        'attested means a holder of the monitoring key observed this delivery status — not that a human read the alert, and not that the sink is configured for the right audience.',
+      ));
+    }
     lines.push('');
   }
 

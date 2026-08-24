@@ -140,6 +140,8 @@ export type GuardExecutionProof = {
    */
   commit_label?: import('./cas-attestation.js').CommitLabel;
   commit_evidence_reason?: 'commit_evidence_missing';
+  /** cr.monitor.attest.v1 token (observation). Present when the host signed a CWM delivery. */
+  monitoring_attestation?: string;
   /**
    * S6 auto-recheck trail (observation). Present when the wrap-layer loop ran.
    * Additive; not a preimage field. Final outcome is the last decision.
@@ -177,6 +179,7 @@ export type ProofBuildInput = {
   /** ENFORCING_STRICT only — omit on non-strict (byte-identical proofs). */
   commitLabel?: import('./cas-attestation.js').CommitLabel;
   commitEvidenceReason?: 'commit_evidence_missing';
+  monitoringAttestation?: string;
   /** S6 trail passthrough (observation). */
   recheckTrail?: ReadonlyArray<{
     attempt: number;
@@ -368,6 +371,9 @@ export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof
     if (input.commitLabel === 'authorized_not_committed' && input.commitEvidenceReason === 'commit_evidence_missing') {
       proof.commit_evidence_reason = 'commit_evidence_missing';
     }
+  }
+  if (typeof input.monitoringAttestation === 'string' && input.monitoringAttestation.length > 0) {
+    proof.monitoring_attestation = input.monitoringAttestation;
   }
   if (Array.isArray(input.recheckTrail) && input.recheckTrail.length > 0) {
     proof.recheck_trail = Object.freeze(input.recheckTrail.map((e) => Object.freeze({ ...e })));

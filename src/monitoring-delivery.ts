@@ -314,7 +314,16 @@ export async function deliverMonitoring(args: {
 }
 
 /** Proof/renderer one-liner. Honesty sentence is appended by the renderer, not here. */
-export function formatMonitoringDeliveryLine(d: MonitoringDelivery): string {
+export function formatMonitoringDeliveryLine(d: MonitoringDelivery, attestedKid?: string | null): string {
+  if (attestedKid) {
+    if (d.status === 'sent_unacked') return `monitoring: sent, not acked (attested kid ${attestedKid})`;
+    if (d.status === 'not_delivered') {
+      return d.reason
+        ? `monitoring: NOT delivered (${d.reason}; attested kid ${attestedKid})`
+        : `monitoring: NOT delivered (attested kid ${attestedKid})`;
+    }
+    return `monitoring: delivered (attested kid ${attestedKid})`;
+  }
   if (d.status === 'sent_unacked') return 'monitoring: sent, not acked';
   if (d.status === 'not_delivered') {
     return d.reason ? `monitoring: NOT delivered (${d.reason})` : 'monitoring: NOT delivered';

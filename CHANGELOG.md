@@ -1,5 +1,20 @@
 # Changelog
 
+## 9.2.0
+
+### Added
+
+- **B2/1 `cr.monitor.attest.v1`.** Opt-in `monitoringAttestation: { kid, signer }`.
+  `signer(bytes)` is a host-provided Ed25519 sign callback — **never a raw key in
+  config**. When configured and a CWM arm ran, the outcome/proof carry
+  `monitoring_attestation` (the token). The token states the measured
+  `delivery_status` (`delivered_acked` | `sent_unacked` | `not_delivered`).
+  Proof line upgrades to `monitoring: delivered (attested kid …)`.
+  Honesty: proves a holder of the monitoring key observed this delivery
+  status; does **not** prove a human read the alert; does **not** prove the
+  sink is configured for the right audience. Observation-side; no preimage
+  change. Absent config → CWM outcome byte-identical to 9.1.0.
+
 ## 9.1.0
 
 ### Added
