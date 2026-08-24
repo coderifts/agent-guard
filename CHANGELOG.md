@@ -1,5 +1,43 @@
 # Changelog
 
+## 9.0.0
+
+**Breaking (major-worthy).** External audit 2026-08-24: `deployGate` treated a
+caller-supplied `receipt.currently_authorized: true` as authentic authorization
+(`deploy-gate.ts` previously `if (receipt.currently_authorized !== true)
+deny('receipt_not_authorized')`). The CLI 4.4.0 round closed that for *its*
+call path by verifying before calling the guard; **any other host** could still
+hand the guard a forged view. Silently accepting forged views is not an
+acceptable alternative.
+
+### Breaking
+- **A bare `currently_authorized: true` (no TOKEN, no provenance) is DENY**
+  with reason **`unverified_receipt_view`**. That is not
+  `receipt_not_authorized` — "you didn't prove it" ≠ "verification says no".
+- **VERIFIED-VIEW** is accepted only when the object carries the
+  guard-defined marker `view_spec: 'deploy-receipt-view.v1'` **and**
+  `verified: true` (same idiom as `proof_spec` / `attestation_spec`). Use
+  `asVerifiedDeployReceiptView(view, verify_status)`.
+- **TOKEN mode (recommended):** pass `{ token, decision_result, registry |
+  pinnedKeyPem }`. The guard verifies locally (Ed25519, kid window, body-hash,
+  ID104 expiry leeway). No HTTP — SDK 3.4.0 `client.verifyReceipt` is
+  I/O and cannot run inside this pure function.
+- Outcome gains observation `verification: { mode, verify_status }`
+  (`token` | `verified_view` | `unverified` | `none`). Not a preimage field.
+- New deny reasons: `unverified_receipt_view`, `invalid_signature`, `expired`,
+  `unknown_key`, `retired_key`.
+
+### Callers that must update
+- **coderifts CLI `deploy-gate` (4.4.0)** — passes a *computed* view **without**
+  `view_spec`. Follow-up **4.4.1: TOKEN mode** (`token` + keys). Interim:
+  stamp `asVerifiedDeployReceiptView` on the computed view. Do not ship
+  guard 9.0.0 against CLI 4.4.0 without that.
+- In-tree: `bindDeploy`, deploy-gate matrix, pentad deployGate fixtures,
+  `inescapable-fail-closed` (clones the matrix). Merge-gate is unchanged.
+
+### Not a preimage change
+`verification` is observation-only.
+
 ## 8.5.0
 
 ### Added

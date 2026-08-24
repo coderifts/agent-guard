@@ -306,11 +306,19 @@ export type {
 } from './merge-gate.js';
 
 // deploy-gate (#8) — the PURE deploy authorization decision. No I/O; pipeline enforcement is input.
-export { deployGate } from './deploy-gate.js';
-export type {
-  DeployGateInput, DeployGateDecision, DeployReceiptView, DeployRequiredContext,
-  DeployEnforcementState, DeployTarget, DeployGateReason,
+export {
+  deployGate,
+  asVerifiedDeployReceiptView,
+  isVerifiedDeployReceiptView,
+  DEPLOY_RECEIPT_VIEW_SPEC,
 } from './deploy-gate.js';
+export type {
+  DeployGateInput, DeployGateDecision, DeployReceiptView, VerifiedDeployReceiptView,
+  DeployRequiredContext, DeployEnforcementState, DeployTarget, DeployGateReason,
+  DeployTokenReceipt, DeployVerificationObservation, DeployVerificationMode,
+} from './deploy-gate.js';
+export { verifyDeployReceiptToken } from './deploy-receipt-token.js';
+export type { DeployTokenVerifyResult, DeployTokenVerifyStatus } from './deploy-receipt-token.js';
 // bindDeploy — pure deploy-TIME caller over deployGate (host asserts env; pipeline action not observed).
 export { bindDeploy, DEPLOY_REPAIRABLE_REASONS } from './deploy-bind.js';
 export type {

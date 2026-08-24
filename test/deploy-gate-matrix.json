@@ -2,8 +2,8 @@
   "meta": {
     "version": "deploy-gate-matrix/1.0-PROPOSAL",
     "date": "2026-07-29",
-    "companion_spec": "deploy-gate-SPEC.md §1",
-    "scope": "PURE deployGate only — no CD/GitHub IO",
+    "companion_spec": "deploy-gate-SPEC.md \u00a71",
+    "scope": "PURE deployGate only \u2014 no CD/GitHub IO",
     "defaults": {
       "operation": "deploy",
       "require_bound_environment": true,
@@ -12,12 +12,12 @@
       "allowPending": false
     },
     "count": 16,
-    "validation_rule": "INVALID if merge receipt succeeds; if staging receipt authorizes prod; if stale artifact succeeds; if inescapable_deploy true without ENFORCING∧¬bypass; if null receipt succeeds"
+    "validation_rule": "INVALID if merge receipt succeeds; if staging receipt authorizes prod; if stale artifact succeeds; if inescapable_deploy true without ENFORCING\u2227\u00acbypass; if null receipt succeeds"
   },
   "rows": [
     {
       "id": "DG-001",
-      "title": "THE ONE: valid deploy ALLOW for target env+artifact + ENFORCING + no bypass → success + inescapable_deploy",
+      "title": "THE ONE: valid deploy ALLOW for target env+artifact + ENFORCING + no bypass \u2192 success + inescapable_deploy",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -34,7 +34,10 @@
           "verdict_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
           "body_hash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
           "target_id": "svc:payments-api",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
           "operation": "deploy",
@@ -55,11 +58,11 @@
         "enforcement_state": "ENFORCING",
         "inescapable_deploy": true
       },
-      "derivation": "All binds match; D8 claim true — ONLY row with inescapable_deploy true"
+      "derivation": "All binds match; D8 claim true \u2014 ONLY row with inescapable_deploy true"
     },
     {
       "id": "DG-002",
-      "title": "T7 core: MERGE receipt used for deploy → operation_mismatch",
+      "title": "T7 core: MERGE receipt used for deploy \u2192 operation_mismatch",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -72,10 +75,16 @@
           "operation": "merge",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -85,11 +94,11 @@
         "enforcement_state": "ENFORCING",
         "inescapable_deploy": false
       },
-      "derivation": "D1 T7 merge ≠ deploy"
+      "derivation": "D1 T7 merge \u2260 deploy"
     },
     {
       "id": "DG-003",
-      "title": "STAGING receipt for PRODUCTION deploy → env_mismatch",
+      "title": "STAGING receipt for PRODUCTION deploy \u2192 env_mismatch",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -102,10 +111,16 @@
           "operation": "deploy",
           "bound_environment": "staging",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -118,7 +133,7 @@
     },
     {
       "id": "DG-004",
-      "title": "Old receipt for newer artifact → stale_artifact",
+      "title": "Old receipt for newer artifact \u2192 stale_artifact",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -131,10 +146,16 @@
           "operation": "deploy",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -147,7 +168,7 @@
     },
     {
       "id": "DG-005",
-      "title": "BLOCK deploy receipt → decision_not_allow",
+      "title": "BLOCK deploy receipt \u2192 decision_not_allow",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -160,10 +181,16 @@
           "operation": "deploy",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -176,7 +203,7 @@
     },
     {
       "id": "DG-006",
-      "title": "No receipt — fail-closed",
+      "title": "No receipt \u2014 fail-closed",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -184,7 +211,10 @@
         },
         "receipt": null,
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         },
         "allowPending": false
       },
@@ -198,7 +228,7 @@
     },
     {
       "id": "DG-007",
-      "title": "No receipt + allowPending → pending",
+      "title": "No receipt + allowPending \u2192 pending",
       "input": {
         "deployTarget": {
           "environment": "staging",
@@ -206,7 +236,10 @@
         },
         "receipt": null,
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         },
         "allowPending": true
       },
@@ -234,10 +267,16 @@
           "operation": "deploy",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_EXPIRED"
         },
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -264,10 +303,16 @@
           "operation": "deploy",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_EXPIRED"
         },
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -280,7 +325,7 @@
     },
     {
       "id": "DG-010",
-      "title": "Missing operation on receipt → operation_mismatch (fail-closed)",
+      "title": "Missing operation on receipt \u2192 operation_mismatch (fail-closed)",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -292,10 +337,16 @@
           "execution_action": "CONTINUE",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -304,7 +355,7 @@
         "reason": "operation_mismatch",
         "inescapable_deploy": false
       },
-      "derivation": "§1.4 absent operation cannot authorize deploy"
+      "derivation": "\u00a71.4 absent operation cannot authorize deploy"
     },
     {
       "id": "DG-011",
@@ -322,11 +373,17 @@
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "verdict_fingerprint": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
           "expected_fingerprint": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -339,7 +396,7 @@
     },
     {
       "id": "DG-012",
-      "title": "Good deploy receipt but enforcement ABSENT — success signal, inescapable_deploy false",
+      "title": "Good deploy receipt but enforcement ABSENT \u2014 success signal, inescapable_deploy false",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -352,7 +409,10 @@
           "operation": "deploy",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
           "enforcement": {
@@ -373,7 +433,7 @@
     },
     {
       "id": "DG-013",
-      "title": "Good receipt + ADVISORY pipeline — inescapable_deploy false",
+      "title": "Good receipt + ADVISORY pipeline \u2014 inescapable_deploy false",
       "input": {
         "deployTarget": {
           "environment": "staging",
@@ -386,7 +446,10 @@
           "operation": "deploy",
           "bound_environment": "staging",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
           "enforcement": {
@@ -406,7 +469,7 @@
     },
     {
       "id": "DG-014",
-      "title": "ENFORCING but bypass_possible — success, inescapable_deploy false",
+      "title": "ENFORCING but bypass_possible \u2014 success, inescapable_deploy false",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -419,7 +482,10 @@
           "operation": "deploy",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
           "enforcement": {
@@ -440,7 +506,7 @@
     },
     {
       "id": "DG-015",
-      "title": "REQUIRE_APPROVAL — not allow-class for deploy",
+      "title": "REQUIRE_APPROVAL \u2014 not allow-class for deploy",
       "input": {
         "deployTarget": {
           "environment": "production",
@@ -453,10 +519,16 @@
           "operation": "deploy",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -482,10 +554,16 @@
           "operation": "deploy",
           "bound_environment": "production",
           "bound_artifact_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "signature_valid": true
+          "signature_valid": true,
+          "view_spec": "deploy-receipt-view.v1",
+          "verified": true,
+          "verify_status": "VERIFIED_CURRENT"
         },
         "requiredContext": {
-          "enforcement": { "enforcement": "ENFORCING", "bypass_possible": false }
+          "enforcement": {
+            "enforcement": "ENFORCING",
+            "bypass_possible": false
+          }
         }
       },
       "expected": {
@@ -495,13 +573,13 @@
         "enforcement_state": "ENFORCING",
         "inescapable_deploy": false
       },
-      "derivation": "normEnv lowercase succeeds (deploy_allowed); no expected_fingerprint → inescapable_deploy false (fail-closed, cannot assert)"
+      "derivation": "normEnv lowercase succeeds (deploy_allowed); no expected_fingerprint \u2192 inescapable_deploy false (fail-closed, cannot assert)"
     }
   ],
   "validation_checklist": [
-    "DG-001 only row with inescapable_deploy true (ENFORCING ∧ ¬bypass ∧ fingerprint rebound)",
-    "DG-002 merge → operation_mismatch",
-    "DG-003 staging→prod env_mismatch",
+    "DG-001 only row with inescapable_deploy true (ENFORCING \u2227 \u00acbypass \u2227 fingerprint rebound)",
+    "DG-002 merge \u2192 operation_mismatch",
+    "DG-003 staging\u2192prod env_mismatch",
     "DG-004 stale_artifact",
     "DG-006 no receipt never success",
     "DG-012/013/014 good receipt but inescapable_deploy false",

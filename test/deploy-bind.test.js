@@ -7,13 +7,13 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { bindDeploy, deployGate } = require('../dist/cjs/index.js');
+const { bindDeploy, deployGate, asVerifiedDeployReceiptView } = require('../dist/cjs/index.js');
 
 const ART_A = 'sha256:' + 'a'.repeat(64);
 const ART_B = 'sha256:' + 'b'.repeat(64);
 
 function baseReceipt(over = {}) {
-  return {
+  return asVerifiedDeployReceiptView({
     currently_authorized: true,
     decision: 'ALLOW',
     execution_action: 'CONTINUE',
@@ -25,7 +25,7 @@ function baseReceipt(over = {}) {
     target_id: 'svc:payments-api',
     signature_valid: true,
     ...over,
-  };
+  });
 }
 
 function enforcing() {

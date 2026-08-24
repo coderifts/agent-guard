@@ -11,9 +11,9 @@
  *      signed evidence; the deploy target's environment string is not verified by us.
  *      A host can claim "staging" while deploying to production. The output says so.
  *
- * This module performs NO I/O, does NOT re-verify receipts, and does NOT act on a
- * pipeline. pipeline_action is always 'not_observed'. inescapable_deploy still comes
- * only from deployGate (ENFORCING ∧ ¬bypass) — never flipped here.
+ * TOKEN mode: bindDeploy forwards `token` to deployGate, which verifies locally
+ * (no HTTP). VERIFIED-VIEW must carry the guard-defined view_spec. pipeline_action
+ * is always 'not_observed'. inescapable_deploy still comes only from deployGate.
  *
  * External note: coderifts-app CLI `deploy-gate` historically inlined a similar bind
  * (deployBind). That is a consumer; this is the package-local pure entry hosts should
@@ -28,6 +28,7 @@ import {
   type DeployReceiptView,
   type DeployTarget,
   type GateStatusState,
+  type DeployTokenReceipt,
 } from './deploy-gate.js';
 
 /** Reasons a fresh re-preflight for this { env, artifact } can repair. */
@@ -40,6 +41,11 @@ const REPAIRABLE: ReadonlySet<DeployGateReason> = new Set([
   'body_hash_mismatch',
   'no_receipt',
   'inputs_incomplete',
+  'unverified_receipt_view',
+  'invalid_signature',
+  'expired',
+  'unknown_key',
+  'retired_key',
 ]);
 
 /**
@@ -66,10 +72,12 @@ export type BindDeployInput = {
   service?: string;
   pipeline_run_id?: string;
   /**
-   * Finished receipt VIEW (fields already produced + lifecycle-evaluated elsewhere).
-   * This function does not verify signatures or re-issue receipts. null → no_receipt.
+   * VERIFIED-VIEW (must carry view_spec) or null. TOKEN mode: pass `token` instead.
+   * A bare currently_authorized boolean is denied as unverified_receipt_view.
    */
-  receipt: DeployReceiptView | null;
+  receipt?: DeployReceiptView | null;
+  /** TOKEN mode: signed chain_receipt + registry | pinnedKeyPem. Guard verifies. */
+  token?: DeployTokenReceipt;
   /**
    * Host-observed pipeline enforcement (CD config / step policy). Same role as
    * ProtectionState for merge — an input, not a package discovery.
@@ -182,6 +190,7 @@ export function bindDeploy(input: BindDeployInput): BindDeployResult {
   const gate = deployGate({
     deployTarget,
     receipt: input.receipt,
+    token: input.token,
     requiredContext,
     ...(input.allowPending != null ? { allowPending: input.allowPending } : {}),
     ...(input.allowWarnDeploy != null ? { allowWarnDeploy: input.allowWarnDeploy } : {}),

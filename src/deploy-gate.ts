@@ -4,9 +4,12 @@
  * receipt and the observed pipeline-enforcement state?"
  *
  * Same shape as the merge gate, different operation. It is a PURE function — NO I/O, NO CD-API call
- * (pipeline enforcement is an INPUT, observed by the host and passed in). It does NOT re-decide: it
- * reads only the finished receipt fields — the deterministic verdict stays the server's (D7). Same
- * inputs → same output (D9).
+ * (pipeline enforcement is an INPUT, observed by the host and passed in). TOKEN mode verifies a
+ * chain-receipt locally (Ed25519 + registry/pinned PEM; no HTTP). VERIFIED-VIEW mode accepts a
+ * host-attributed view ONLY with the guard-defined provenance marker. A bare
+ * `currently_authorized: true` is not proof (P0 / external audit 2026-08-24). Same
+ * inputs → same output (D9). Observation `verification.{mode,verify_status}` is recorded on the
+ * outcome; it does not enter any fingerprint preimage.
  *
  * The three deploy-specific binds are the whole point: T7 (a MERGE — or operation-less — receipt can
  * never deploy), environment binding (a staging ALLOW never authorizes production), and artifact
@@ -20,10 +23,22 @@
  */
 
 import type { GateStatusState, EnforcementState } from './merge-gate.js';
+import {
+  verifyDeployReceiptToken,
+  type DeployTokenReceipt,
+} from './deploy-receipt-token.js';
 
 export type { GateStatusState, EnforcementState } from './merge-gate.js';
+export type { DeployTokenReceipt } from './deploy-receipt-token.js';
 
-/** The 14 deploy-gate reason codes (§1.1 + change-set residual). Success uses allow_current_deploy;
+/**
+ * Guard-defined VERIFIED-VIEW provenance marker (same idiom as `proof_spec` /
+ * `attestation_spec`). A host that already verified (CLI, etc.) MUST set this —
+ * `currently_authorized: true` alone is untrusted input.
+ */
+export const DEPLOY_RECEIPT_VIEW_SPEC = 'deploy-receipt-view.v1' as const;
+
+/** Deploy-gate reason codes (§1.1 + change-set residual + 9.0.0 verification). Success uses allow_current_deploy;
  *  enforcement_not_configured / bypass_open / change_set_not_rebound name honesty residuals on an
  *  otherwise-green check; fingerprint_mismatch is a hard failure (not a residual). */
 export type DeployGateReason =
@@ -46,7 +61,17 @@ export type DeployGateReason =
    * fingerprint_mismatch (hard failure when a re-bind WAS requested and disagreed).
    * deploy_allowed may stay true.
    */
-  | 'change_set_not_rebound';
+  | 'change_set_not_rebound'
+  /**
+   * Caller handed a receipt view with currently_authorized (or bounds) but no TOKEN and no
+   * guard-defined view_spec provenance. Distinct from receipt_not_authorized: "you didn't prove
+   * it" ≠ "verification says no".
+   */
+  | 'unverified_receipt_view'
+  | 'invalid_signature'
+  | 'expired'
+  | 'unknown_key'
+  | 'retired_key';
 
 /** What is being deployed — all fields are INPUTS (the pure function performs no discovery). */
 export type DeployTarget = {
@@ -73,7 +98,47 @@ export type DeployReceiptView = {
   body_hash?: string;
   target_id?: string;
   signature_valid?: boolean;
+  /**
+   * VERIFIED-VIEW provenance. Must equal DEPLOY_RECEIPT_VIEW_SPEC together with
+   * `verified: true` or the gate denies unverified_receipt_view.
+   */
+  view_spec?: string;
+  verified?: boolean;
+  verify_status?: string;
 };
+
+/** VERIFIED-VIEW: host-attributed, guard-defined marker required. */
+export type VerifiedDeployReceiptView = DeployReceiptView & {
+  view_spec: typeof DEPLOY_RECEIPT_VIEW_SPEC;
+  verified: true;
+  verify_status: string;
+};
+
+export type DeployVerificationMode = 'token' | 'verified_view' | 'unverified' | 'none';
+
+export type DeployVerificationObservation = {
+  mode: DeployVerificationMode;
+  verify_status: string | null;
+};
+
+/** Stamp a computed view so deployGate will accept it as VERIFIED-VIEW (not TOKEN). */
+export function asVerifiedDeployReceiptView(
+  view: DeployReceiptView,
+  verify_status = 'VERIFIED_CURRENT',
+): VerifiedDeployReceiptView {
+  return {
+    ...view,
+    view_spec: DEPLOY_RECEIPT_VIEW_SPEC,
+    verified: true,
+    verify_status,
+  };
+}
+
+export function isVerifiedDeployReceiptView(r: DeployReceiptView | null | undefined): r is VerifiedDeployReceiptView {
+  return !!r
+    && r.view_spec === DEPLOY_RECEIPT_VIEW_SPEC
+    && r.verified === true;
+}
 
 /** Pipeline-enforcement observation (from the host's CD-config read — the pure gate consumes it). */
 export type DeployEnforcementState = {
@@ -101,7 +166,13 @@ export type DeployRequiredContext = {
 
 export type DeployGateInput = {
   deployTarget: DeployTarget;
-  receipt: DeployReceiptView | null;
+  /**
+   * VERIFIED-VIEW (or null). A bare currently_authorized boolean is untrusted.
+   * TOKEN mode uses `token` instead (recommended).
+   */
+  receipt?: DeployReceiptView | VerifiedDeployReceiptView | null;
+  /** TOKEN mode: signed chain_receipt + registry | pinnedKeyPem. Guard verifies locally. */
+  token?: DeployTokenReceipt;
   requiredContext: DeployRequiredContext;
   /** Incomplete/no-receipt → pending when true, else failure (default false). */
   allowPending?: boolean;
@@ -135,6 +206,10 @@ export type DeployGateDecision = {
     bound_artifact_id: string | null;
     operation: string | null;
   };
+  /**
+   * Observation: which input mode ran and the verify_status. Not a preimage field.
+   */
+  verification: DeployVerificationObservation;
 };
 
 // ── helpers (pure) ────────────────────────────────────────────────────────────────────────────────
@@ -189,19 +264,22 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
   const allowPending = input.allowPending ?? rc.allowPending ?? false;
   const allowWarnDeploy = input.allowWarnDeploy ?? rc.allowWarnDeploy ?? false;
   const allowPrefix = input.allowPrefixCompare ?? rc.allowPrefixCompare ?? false;
-  const receipt = input.receipt;
 
-  const detail = {
+  let verification: DeployVerificationObservation = { mode: 'none', verify_status: null };
+  let receipt: DeployReceiptView | null | undefined = input.receipt;
+
+  const detailOf = (r: DeployReceiptView | null | undefined) => ({
     environment: norm(target.environment),
     artifact_id: norm(target.artifact_id),
-    bound_environment: receipt && receipt.bound_environment != null ? norm(receipt.bound_environment) : null,
-    bound_artifact_id: receipt && receipt.bound_artifact_id != null ? norm(receipt.bound_artifact_id) : null,
-    operation: receipt && receipt.operation != null ? String(receipt.operation) : null,
-  };
+    bound_environment: r && r.bound_environment != null ? norm(r.bound_environment) : null,
+    bound_artifact_id: r && r.bound_artifact_id != null ? norm(r.bound_artifact_id) : null,
+    operation: r && r.operation != null ? String(r.operation) : null,
+  });
   const deny = (state: GateStatusState, reason: DeployGateReason): DeployGateDecision => ({
     deploy_allowed: false, state, reason, enforcement_state, inescapable_deploy: false,
     residuals: [],
-    detail,
+    detail: detailOf(receipt),
+    verification,
   });
 
   // 0) incomplete target → pending/failure (fail-closed on missing evaluation input).
@@ -209,11 +287,42 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
     || !target.artifact_id || String(target.artifact_id).trim() === '') {
     return deny(allowPending ? 'pending' : 'failure', 'inputs_incomplete');
   }
-  // 1) no receipt → fail-closed (D4).
+
+  // TOKEN mode (recommended): guard verifies locally. Wins over a sibling receipt view.
+  const tokenInput = input.token;
+  if (tokenInput && typeof tokenInput.token === 'string' && tokenInput.token.length > 0) {
+    const tv = verifyDeployReceiptToken(tokenInput, {
+      operation: opRequired,
+      environment: target.environment,
+      artifact_id: target.artifact_id,
+    });
+    verification = { mode: 'token', verify_status: tv.status };
+    if (tv.denyReason) {
+      receipt = tv.view;
+      return deny('failure', tv.denyReason as DeployGateReason);
+    }
+    receipt = tv.view;
+  } else if (receipt === null || receipt === undefined) {
+    // 1) no receipt and no token → fail-closed (D4).
+    return deny(allowPending ? 'pending' : 'failure', 'no_receipt');
+  } else if (isVerifiedDeployReceiptView(receipt)) {
+    verification = {
+      mode: 'verified_view',
+      verify_status: typeof receipt.verify_status === 'string' ? receipt.verify_status : null,
+    };
+  } else {
+    // Bare currently_authorized (or any view without the guard-defined marker).
+    verification = { mode: 'unverified', verify_status: null };
+    return deny('failure', 'unverified_receipt_view');
+  }
+
   if (receipt === null || receipt === undefined) {
     return deny(allowPending ? 'pending' : 'failure', 'no_receipt');
   }
+
   // 2) lifecycle authorization — a valid signature alone is NOT sufficient (D5).
+  //    In TOKEN mode currently_authorized was COMPUTED; in VERIFIED-VIEW it is host-attributed
+  //    behind view_spec (not a sneaked boolean).
   if (receipt.currently_authorized !== true) {
     return deny('failure', 'receipt_not_authorized');
   }
@@ -284,6 +393,7 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
     inescapable_deploy,
     residuals,
     ...(residual ? { residual } : {}),
-    detail,
+    detail: detailOf(receipt),
+    verification,
   };
 }

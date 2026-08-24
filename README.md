@@ -570,30 +570,46 @@ honest, so the composition hands the caller the piece it owns and stops.
 
 #### `deployGate` and deploy-time `bindDeploy`
 
-`deployGate` is the pure decision. **`bindDeploy`** is the pure **caller** at the moment of
-deploying: the host supplies `{ environment, artifact_id, receipt, pipeline_enforcement }`; the
-package composes `deployGate` and returns a decision. No I/O, no receipt re-verify, no CD call.
+`deployGate` is the pure decision. **`bindDeploy`** is the pure **caller** at the
+moment of deploying. Two **explicit, non-guessable** receipt input modes (9.0.0;
+P0 / audit 2026-08-24):
 
-Same shape as the merge gate (`gateDecision` is pure; GitHub enforces outside us). Deploy differs:
-there is no PR status check to hang on, and **the environment name is a host assertion** — the
-receipt’s `bound_environment` is signed evidence; the target environment string is not. A host can
-claim `staging` while deploying to production; the package cannot tell. The result always reports
-`environment.provenance: 'host_asserted'` (never `verified`).
+**(a) TOKEN mode (recommended).** Pass the signed chain_receipt token plus
+`{ registry | pinnedKeyPem }` and the decision envelope. The guard verifies
+**locally** (Ed25519, kid / retired window, body-hash, ID104 leeway). No
+HTTP — SDK 3.4.0 `client.verifyReceipt` is I/O and is not used here.
+
+**(b) VERIFIED-VIEW mode.** Pass `{ view_spec: 'deploy-receipt-view.v1',
+verified: true, verify_status, currently_authorized, bounds… }` produced by a
+verification the host attributes. Stamp with `asVerifiedDeployReceiptView`.
+The marker is the same idiom as `proof_spec` / `attestation_spec`.
+
+A bare `{ currently_authorized: true }` with **no** `view_spec` and **no**
+token is DENY `unverified_receipt_view` — not `receipt_not_authorized`.
+
+`g.verification = { mode, verify_status }` is observation (not a preimage).
+The environment name remains a **host assertion**
+(`environment.provenance: 'host_asserted'`).
 
 ```typescript
-import { bindDeploy } from '@coderifts/agent-guard';
+import { bindDeploy, asVerifiedDeployReceiptView, deployGate } from '@coderifts/agent-guard';
 
+// TOKEN (recommended)
+const g = deployGate({
+  deployTarget: { environment: 'production', artifact_id: digest },
+  token: { token, decision_result, registry }, // or pinnedKeyPem
+  requiredContext: { operation: 'deploy', enforcement: { enforcement: 'ENFORCING', bypass_possible: false } },
+});
+// g.verification.mode === 'token'
+
+// VERIFIED-VIEW (host already verified)
 const r = bindDeploy({
   environment: { name: 'production', provenance: 'host_asserted' },
   artifact_id: digest,
-  receipt: receiptView, // finished view — not re-verified here
+  receipt: asVerifiedDeployReceiptView(computedView, 'VERIFIED_CURRENT'),
   pipeline_enforcement: { enforcement: 'ENFORCING', bypass_possible: false },
 });
-// r.decision_allows_deploy  — pure decision only
-// r.pipeline_action         — always 'not_observed' (we did not block or run the pipeline)
-// r.environment.provenance  — always 'host_asserted'
-// r.inescapable_deploy      — only true under ENFORCING ∧ ¬bypass (from the gate, not a host flag)
-if (!r.decision_allows_deploy) process.exit(1); // host pipeline chooses to honour
+if (!r.decision_allows_deploy) process.exit(1);
 ```
 
 #### `deployGate` is also the publish / register gate
@@ -606,24 +622,19 @@ verdict, enforcement residual). Prefer **`bindDeploy`** at the live step; raw `d
 for hosts that already build the full input.
 
 ```typescript
-import { deployGate } from '@coderifts/agent-guard';
+import { deployGate, asVerifiedDeployReceiptView } from '@coderifts/agent-guard';
 
-// npm publish — same gate, operation label 'publish'
 const g = deployGate({
   deployTarget: {
     environment: 'npm',
     artifact_id: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   },
-  // Receipt view: server receipt must have been issued for operation 'publish' (T7 match).
-  // bound_environment / bound_artifact_id are NOT server-emitted signed fields — the caller
-  // supplies them on this view alongside the token (deploy-gate's "view of the finished receipt").
-  receipt,
+  receipt: asVerifiedDeployReceiptView(publishView, 'VERIFIED_CURRENT'),
   requiredContext: {
     operation: 'publish',
     enforcement: { enforcement: 'ENFORCING', bypass_possible: false },
   },
 });
-// g.deploy_allowed — decision flag (name is historical; see caveat)
 ```
 
 MCP **register** is the same shape: set `operation: 'register'` and put the **manifest digest** in
