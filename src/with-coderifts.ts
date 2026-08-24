@@ -327,6 +327,11 @@ export type WithCodeRiftsInput = {
    * `{ kid, signer }` — host sign(bytes), never a raw key. Absent = today's CWM (no token).
    */
   monitoringAttestation?: GuardConfig['monitoringAttestation'];
+  /**
+   * Optional host system-prompt / instruction text. Forwarded onto GuardConfig.
+   * Observation only (policy_presence). Absent = field omitted on the outcome.
+   */
+  systemPrompt?: string;
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -798,6 +803,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.monitoringAttestation !== undefined) {
     guard.monitoringAttestation = input.monitoringAttestation;
+  }
+  if (input.systemPrompt !== undefined) {
+    guard.systemPrompt = input.systemPrompt;
   }
   const strict = isEnforcingStrict(input);
   if (strict) {

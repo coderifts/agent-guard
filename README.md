@@ -327,7 +327,7 @@ const toolMessage = bindOpenAIGuardOutcome(outcome, { tool_call_id: toolCall.id 
 **not** claim product-level inescapability the core does not:
 
 ```typescript
-import { withCodeRiftsOpenAI } from '@coderifts/agent-guard';
+import { withCodeRiftsOpenAI, withPolicy, CODERIFTS_POLICY } from '@coderifts/agent-guard';
 
 const {
   tools,                 // OpenAI: [{ type:'function', function:{ name, description?, parameters } }]
@@ -337,7 +337,7 @@ const {
   receipt_thread,
 } = withCodeRiftsOpenAI({ tools: rawTools, client, operation: 'merge' });
 
-// openai.chat.completions.create({ model, messages, tools })
+// openai.chat.completions.create({ model, messages: withPolicy(messages), tools })
 // Host boundary: only `tools` / `protected_tools` enter the model loop — raw tools stay out.
 ```
 
@@ -361,7 +361,7 @@ Tool-results use **`bindOpenAIGuardOutcome`** the same way as OpenAI.
 unflattened — composition may remain incomplete:
 
 ```typescript
-import { withCodeRiftsAnthropic } from '@coderifts/agent-guard';
+import { withCodeRiftsAnthropic, withPolicy } from '@coderifts/agent-guard';
 
 const {
   tools,                 // Anthropic: [{ name, description?, input_schema }]
@@ -371,7 +371,7 @@ const {
   receipt_thread,
 } = withCodeRiftsAnthropic({ tools: rawTools, client, operation: 'merge' });
 
-// anthropic.messages.create({ model, messages, tools, max_tokens })
+// anthropic.messages.create({ model, system: withPolicy(yourPrompt), messages, tools, max_tokens })
 // Host boundary: only `tools` / `protected_tools` enter the model loop — raw tools stay out.
 ```
 
@@ -400,6 +400,7 @@ const {
 //   tool(d.func, { name: d.name, description: d.description, schema: d.schema }),
 // );
 // const toolNode = new ToolNode(lcTools); // StateGraph … .addNode('tools', toolNode)
+// system: withPolicy(yourPrompt)  — adapters do not see the outbound request
 // Host boundary: only `tools` / `protected_tools` enter the graph — raw tools stay out.
 ```
 
@@ -420,11 +421,38 @@ const {
   receipt_thread,
 } = withCodeRiftsGemini({ tools: rawTools, client, operation: 'merge' });
 
-// model.generateContent({ contents, tools })
+// model.generateContent({ systemInstruction: withPolicy(yourPrompt), contents, tools })
 // Host boundary: only `tools` / `protected_tools` enter the model loop — raw tools stay out.
 ```
 
 See also `examples/gemini-adapter.mjs` (not published in the npm tarball).
+
+### Policy delivery
+
+The four adapters (`withCodeRiftsOpenAI` / Anthropic / Gemini / LangGraph, and
+the `bind*GuardOutcome` helpers) are **result-shapers**. They convert guarded
+tools and bind proof onto the **tool result**. They never see the outbound
+`messages` / `system` field, so they cannot auto-inject into the request. File-based
+hosts (Claude / Cursor / Copilot / Gemini) load the rule file automatically; a
+developer assembling their own system prompt must put the text in.
+
+```typescript
+import { CODERIFTS_POLICY, withPolicy } from '@coderifts/agent-guard';
+
+const yourPrompt = 'You are a coding agent.';
+const content = `${yourPrompt}\n\n${CODERIFTS_POLICY}`;
+
+// one-line helper (idempotent; never mutates the caller):
+const messages = withPolicy([{ role: 'system', content: yourPrompt }, { role: 'user', content: '…' }]);
+```
+
+Three layers:
+
+1. **`withPolicy`** — append if the ONE-operation marker is not already present. `injectPolicy: false` skips.
+2. **`CODERIFTS_POLICY`** — one import, one interpolation. Vendored from the app canonical rule; drift-gated.
+3. **`systemPrompt` on the guard config** — last net. Supply the prompt you sent the model. Marker found → `policy_presence: "detected"` (silent). Marker absent → `"absent"` + a once-per-process warn. Nothing supplied → field omitted (`unknown`, no warn, outcome byte-identical). Observation only — never a verdict input, nothing in any preimage.
+
+This proves the **text is present**, not that the model read or obeyed it.
 
 **Why `operation` is mandatory (no default).** Receipts bind to an operation and `merge` is not
 `deploy`, so a silent default would evaluate a deployment under merge semantics. `operation` is the

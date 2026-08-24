@@ -139,6 +139,15 @@ export interface GuardConfig {
    * Absent → today's CWM outcome is byte-identical (no field). Observation-side only.
    */
   monitoringAttestation?: import('./monitoring-attestation.js').MonitoringAttestationConfig;
+  /**
+   * Optional host system-prompt / instruction text. Observation only — never a verdict
+   * input, never a preimage field.
+   *
+   * - supplied + policy marker found → outcome.policy_presence = 'detected' (silent)
+   * - supplied + marker absent → 'absent' + a once-per-process warn
+   * - not supplied → field omitted (semantically 'unknown'; no warn; byte-identical)
+   */
+  systemPrompt?: string;
 }
 
 export interface ToolCallDescriptor {
@@ -227,6 +236,12 @@ export type GuardOutcome<T> = GuardOutcomeCore<T>
     commit_evidence_reason?: 'commit_evidence_missing';
     /** cr.monitor.attest.v1 token. Present only when monitoringAttestation was configured on a CWM arm. */
     monitoring_attestation?: string;
+    /**
+     * Observation only: whether the host-supplied systemPrompt contains the
+     * canonical policy marker. Omitted when systemPrompt was not supplied
+     * (unknown; byte-identical to previous outcomes). Never a verdict input.
+     */
+    policy_presence?: import('./policy.js').PolicyPresence;
   };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.

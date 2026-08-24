@@ -23,6 +23,22 @@
  */
 
 export { guardToolCall } from './guard.js';
+export {
+  CODERIFTS_POLICY,
+  POLICY_MARKER,
+  POLICY_ABSENT_WARN,
+  withPolicy,
+  policyPresenceOf,
+  detectPolicyPresence,
+  observePolicyPresence,
+  warnPolicyAbsentOnce,
+  resetPolicyWarnForTests,
+} from './policy.js';
+export type {
+  PolicyPresence,
+  PolicyMessage,
+  WithPolicyOptions,
+} from './policy.js';
 export { builtinDetector, DETECTOR_VERSION } from './detector.js';
 // P0 receipt-substitution fix: client-side receipt→envelope binding (mirrors server §106).
 export { bindReceiptToEnvelope, computeBodyHash, canonicalJson } from './receipt-binding.js';

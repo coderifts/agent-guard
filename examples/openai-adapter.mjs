@@ -75,7 +75,13 @@ const {
   operation: 'merge', // REQUIRED — no default
 });
 
-// Host would then: openai.chat.completions.create({ model, messages, tools })
+// Host would then:
+//   import { withPolicy, CODERIFTS_POLICY } from '@coderifts/agent-guard';
+//   const yourPrompt = 'You are a coding agent.';
+//   openai.chat.completions.create({
+//     model, tools,
+//     messages: withPolicy([{ role: 'system', content: `${yourPrompt}\n\n${CODERIFTS_POLICY}` }]),
+//   });
 // and dispatch tool_calls via protected_tools by name (never re-register rawTools).
 
 // ── Demo print (offline) ──────────────────────────────────────────────────────

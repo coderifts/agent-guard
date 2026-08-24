@@ -49,6 +49,8 @@ import {
   type MonitoringDelivery,
 } from './monitoring-delivery.js';
 import { tryIssueMonitoringAttestation } from './monitoring-attestation.js';
+import { observePolicyPresence } from './policy.js';
+import type { PolicyPresence } from './policy.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();
@@ -220,7 +222,14 @@ async function runUnenforced<T>(
     return finishExecuted(config, base, freshness, conditional_write, redacted, undefined, monitoring_delivery, monitoring_attestation);
   }
 }
+function attachPolicyPresence<T>(outcome: GuardOutcome<T>, config: GuardConfig): GuardOutcome<T> {
+  if (config.systemPrompt == null) return outcome;
+  const policy_presence: PolicyPresence = observePolicyPresence(config.systemPrompt);
+  return { ...outcome, policy_presence };
+}
+
 function blocked<T>(
+  config: GuardConfig,
   verdict: GuardVerdict,
   preflighted: boolean,
   freshness: FreshnessBasis,
@@ -232,7 +241,7 @@ function blocked<T>(
     status: 'not_observed', observed_at: iso(), host_attestation: 'absent',
   };
   const base = { executionAttempted: false as const, executed: false as const, enforced: false as const, verdict, preflighted };
-  return {
+  const out = {
     ...base,
     proof: buildExecutionProof({
       ...base,
@@ -246,7 +255,8 @@ function blocked<T>(
     commit_observation,
     ...(monitoring_delivery ? { monitoring_delivery } : {}),
     ...(monitoring_attestation ? { monitoring_attestation } : {}),
-  };
+  } as GuardOutcome<T>;
+  return attachPolicyPresence(out, config);
 }
 
 async function finishExecuted<T>(
@@ -313,7 +323,7 @@ async function finishExecuted<T>(
       buildCasAttestation(proof, result, casOpts);
     } catch { /* label already set; never throw */ }
   }
-  return {
+  const out = {
     ...base,
     proof,
     freshness,
@@ -329,6 +339,7 @@ async function finishExecuted<T>(
         : {}),
     } : {}),
   } as GuardOutcome<T>;
+  return attachPolicyPresence(out, config);
 }
 
 function preflightBeforeByIdFrom(arts: Artifact[] | undefined): Record<string, string> {
@@ -507,7 +518,7 @@ export async function guardToolCall<T>(
     const v = unavailableVerdict({ cause: 'MISSING_ARTIFACT_CONTENT', failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
     const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
-    return blocked(v, false, basis, cw);
+    return blocked(config, v, false, basis, cw);
   }
 
   // config validation: lkg policy requires an LkgStore.
@@ -546,7 +557,7 @@ export async function guardToolCall<T>(
     if (pf.integrity) {
       emit(config, { type: 'breaker_tripped', at: iso(), cause: pf.cause });
       const v = unavailableVerdict({ cause: pf.cause as IntegrityCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-      return blocked(v, false, basis, cw);
+      return blocked(config, v, false, basis, cw);
     }
     // availability
     const availCause = pf.cause as AvailabilityCause;
@@ -566,7 +577,7 @@ export async function guardToolCall<T>(
     }
     if (breakerTripped(config)) emit(config, { type: 'breaker_tripped', at: iso(), cause: availCause });
     const v = unavailableVerdict({ cause: availCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-    return blocked(v, false, basis, cw);
+    return blocked(config, v, false, basis, cw);
   }
 
   // We have a response. Read the decision (envelope-first) and verify the receipt.
@@ -631,8 +642,8 @@ export async function guardToolCall<T>(
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
     const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
     return gate.decision === 'BLOCK'
-      ? blocked({ kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis, cw)
-      : blocked({ kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis, cw);
+      ? blocked(config, { kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis, cw)
+      : blocked(config, { kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis, cw);
   }
   const kind = gate.kind; // 'ALLOW' | 'MONITOR' — allow-class, safe, non-degraded, artifact-bound.
 
@@ -851,7 +862,7 @@ function closedIntegrity<T>(
   const v = unavailableVerdict({ cause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
   const { basis } = freshnessFor(config, redacted, fctx, arts);
   const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
-  return blocked(v, false, basis, cw, monitoring_delivery, monitoring_attestation);
+  return blocked(config, v, false, basis, cw, monitoring_delivery, monitoring_attestation);
 }
 
 function isExpired(envelope: DecisionResultEnvelope): boolean {

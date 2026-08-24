@@ -1,5 +1,33 @@
 # Changelog
 
+## 9.3.0
+
+### Added
+
+- **Policy delivery (three layers).** File-based hosts load the agent-host
+  rule automatically; a developer assembling their own system prompt got
+  nothing. This wave ships the text where we can, exports it, and detects
+  its absence as a last net.
+
+  1. **`withPolicy(prompt)` / `withPolicy(messages)`** — the four provider
+     adapters (`bind*GuardOutcome`) are **result-shapers**; they never see
+     the outbound request. Layer 1 is therefore a one-line helper the host
+     calls, not a request interceptor we do not have. Idempotent (marker
+     detected → no second append). `injectPolicy: false` opt-out. Never
+     mutates the caller's object/array in place.
+  2. **`CODERIFTS_POLICY`** — canonical policy body vendored from the app
+     `getCanonicalRuleText()`. Drift-gated byte-equal to the app (missing
+     checkout fails loud). Marker
+     `A receipt authorizes ONE operation: a merge receipt does not authorize a deploy.`
+     (present in all six generated host formats).
+  3. **`policy_presence`** on the outcome (`detected` | `absent`; omitted
+     when the host did not supply `systemPrompt` — semantically `unknown`,
+     byte-identical to 9.2.0). Observation only; never a verdict input;
+     nothing in any preimage. Absent marker → once-per-process warn.
+
+Honesty: this proves the TEXT is present, not that the model read or
+obeyed it.
+
 ## 9.2.0
 
 ### Added
