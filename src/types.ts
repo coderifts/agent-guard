@@ -148,6 +148,12 @@ export interface GuardConfig {
    * - not supplied → field omitted (semantically 'unknown'; no warn; byte-identical)
    */
   systemPrompt?: string;
+  /**
+   * Composition-scoped coverage observer (withCodeRifts). Observation only —
+   * never a verdict input, never a preimage field. Absent → no coverage_observed
+   * on the outcome/proof (byte-identical to 9.4.0 for direct guardToolCall).
+   */
+  coverageObserver?: import('./coverage-observed.js').CoverageObserver;
 }
 
 export interface ToolCallDescriptor {
@@ -242,6 +248,11 @@ export type GuardOutcome<T> = GuardOutcomeCore<T>
      * (unknown; byte-identical to previous outcomes). Never a verdict input.
      */
     policy_presence?: import('./policy.js').PolicyPresence;
+    /**
+     * Observed tool-traffic coverage for this withCodeRifts run. Omitted when no
+     * observer is wired (direct guardToolCall). Observation only; not a preimage.
+     */
+    coverage_observed?: import('./coverage-observed.js').CoverageObserved;
   };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.

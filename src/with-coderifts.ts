@@ -21,8 +21,9 @@
  * Discriminant is an EXPLICIT TAG (`kind: 'settled_call'` plus route/terminal), never the absence of
  * a field. On the GUARDED+RETURNED arm, `outcome` is non-optional. Observation is NOT enforcement —
  * it does not change COMPOSITION_CALL_POLICY_COMPLETE, coverage, residuals, or whether any tool runs.
- * The package holds NO counters and computes NO ratios at runtime; pure fold helpers are optional
- * host-side tools (see foldTableSettledCalls / guardedFractionAmongRoutes).
+ * Settled-call observation holds NO ratios at runtime; pure fold helpers remain optional
+ * host-side tools (see foldTableSettledCalls / guardedFractionAmongRoutes). Dispatch counts live
+ * on `coverage_observed` (Half A always; Half B only when the host reports).
  *
  * TELEMETRY GAPS (honest boundaries — read before claiming "every mutation was checked"):
  *   - onEvent does NOT emit a dedicated event for BLOCK or REQUIRE_APPROVAL; after preflight_result
@@ -79,6 +80,8 @@ import type {
   ToolMutationClass,
 } from './tool-registry.js';
 import type { GuardConfig, GuardEvent, GuardOutcome } from './types.js';
+import { createCoverageObserver } from './coverage-observed.js';
+import type { CoverageObserver } from './coverage-observed.js';
 
 /** Registry config fields callers may forward untouched (S1/S2 do not re-declare them). */
 export type WithCodeRiftsRegistryConfig = {
@@ -345,6 +348,12 @@ export type CompositionAssurance = {
    * Never implies inescapable_runtime.
    */
   freshness_resolver_wired: boolean;
+  /**
+   * Live classification of observed tool traffic vs the returned table.
+   * UNKNOWN_OUTSIDE_SCOPE until the host reports dispatches (Half B).
+   * Not COMPLETE — COMPLETE on registry_report is table-truth, not agent-truth.
+   */
+  readonly observed_class: import('./coverage-observed.js').CoverageObservedClass;
 };
 
 export type WithCodeRiftsResult = {
@@ -358,6 +367,11 @@ export type WithCodeRiftsResult = {
    * stay empty / skip as disabled. NOT product-truth chain evidence.
    */
   receipt_thread: ReceiptThreadHandle;
+  /**
+   * Observed coverage for THIS withCodeRifts instance (the run). Half A always;
+   * Half B via reportToolDispatch. Not a process-wide session.
+   */
+  coverage_observed: import('./coverage-observed.js').CoverageObservedHandle;
   /** Carried through untouched from input when present (no resolution behaviour in S1/S2). */
   repository?: string;
 };
@@ -653,6 +667,28 @@ function createReceiptCursor(enabled: boolean): ReceiptCursorState {
 }
 
 /**
+ * Outermost wrap: count every execute() through the returned table (Half A).
+ * Records before inner execute so BLOCK/throw still count as dispatched.
+ * Observation only — does not change the inner result.
+ */
+function wrapForCoverageObserved(tool: ProtectedTool, observer: CoverageObserver): ProtectedTool {
+  const innerExecute = tool.execute;
+  const shell: ProtectedTool = {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    meta: tool.meta,
+    _coderifts: tool._coderifts,
+    execute: async (args: unknown) => {
+      observer.recordGoverned(tool.name);
+      return innerExecute(args);
+    },
+  };
+  if (!Object.isFrozen(shell._coderifts)) Object.freeze(shell._coderifts);
+  return Object.freeze(shell);
+}
+
+/**
  * Wrap a GUARDED tool so the composition can begin/end the cursor around the call and advance
  * from the GuardOutcome the frozen path returns. Does not change guardToolCall's signature.
  */
@@ -744,7 +780,8 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
 
   // Guard config: client + operation always; onEvent + monitoringSinkWired forwarded UNCHANGED when
   // provided (no second try/catch layer — frozen emit already swallows sync throws).
-  const guard: GuardConfig = { client: input.client, operation: input.operation };
+  const coverageObserver = createCoverageObserver();
+  const guard: GuardConfig = { client: input.client, operation: input.operation, coverageObserver };
   if (input.onEvent !== undefined) {
     guard.onEvent = input.onEvent;
   }
@@ -830,6 +867,7 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   // swallowed. That is the real contract: the composition does not re-guard what the registry
   // already fails closed on.
   const { tools, report } = guardToolRegistry(input.tools, config);
+  coverageObserver.setTableNames(tools.map((t) => t.name));
 
   // S2 requireCoverage — abort if the REGISTRY-level coverage is weaker than required. This is not a
   // weakening-specific rule: BYPASSED (from a forced downgrade under failOnUnguardedMutator:false) is
@@ -880,12 +918,17 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
 
   // 'PARTIAL' from the existing EnforcementCoverage union — never 'COMPLETE' while inescapable_runtime
   // is false (that combination would contradict the registry's own formula). UNCHANGED by S2 / observation.
+  // observed_class is LIVE (Half A/B) — not construction-time COMPLETE. Registry COMPLETE is table-truth.
   const composition_assurance: CompositionAssurance = {
     coverage: 'PARTIAL',
     inescapable_runtime: compositionInescapableRuntime,
-    residuals,
+    residuals: Object.freeze(residuals.slice()) as string[],
     freshness_resolver_wired,
+    get observed_class() {
+      return coverageObserver.snapshot().class;
+    },
   };
+  Object.freeze(composition_assurance);
 
   // Settled-call observation + receipt cursor: registry returns FROZEN ProtectedTool objects.
   // We build NEW shells (cannot reassign execute). Layering from inside out:
@@ -905,11 +948,14 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
     toolsOut = Object.freeze(toolsOut) as ProtectedTool[];
   }
 
+  toolsOut = Object.freeze(toolsOut.map((t) => wrapForCoverageObserved(t, coverageObserver))) as ProtectedTool[];
+
   const result: WithCodeRiftsResult = {
     tools: toolsOut,
     registry_report: report,
     composition_assurance,
     receipt_thread: receiptCursor.handle,
+    coverage_observed: coverageObserver.handle,
   };
   if (input.repository !== undefined) result.repository = input.repository;
   return result;

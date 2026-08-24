@@ -1,5 +1,51 @@
 # Changelog
 
+## 9.5.0
+
+Source: 7-AI panel — the largest real gain from a pre-execution attachment is
+**measured coverage**, not blocking, and it does not depend on the hook being
+deny-capable. Demonstrated in code on three frameworks (LangGraph, OpenAI
+Agents, Anthropic SDK): the guard could emit registry `COMPLETE` and
+`inescapable_runtime: true` **while an ungoverned tool rewrote the spec**.
+That flag is true of our own table; it was being read as a claim about the
+agent. This release reports what the guard **measured** about tool traffic.
+
+### Changed
+
+- **Claim narrowing (deliberate).** `composition_assurance.coverage` stays
+  `PARTIAL` and `inescapable_runtime` stays `false` (byte-identical to 9.4.0).
+  Registry `coverage: COMPLETE` / `claim.inescapable_runtime: true` remains
+  **table-truth** for `requireCoverage` consumers — every mutator in the
+  returned table is wrapped — and is **not** a claim that the agent cannot
+  invoke a tool outside that table. The new live field is
+  `composition_assurance.observed_class`. Direct `guardToolCall` without a
+  composition observer is byte-identical to 9.4.0 (no `coverage_observed` on
+  the outcome/proof). Observation only; nothing in any preimage.
+
+### Added
+
+- **Half A (always).** `coverage_observed: { governed_calls, tools }` counts
+  every `execute()` through the returned table. Run scope = one
+  `withCodeRifts` instance (same lifetime as `receipt_thread`; there is no
+  process-wide session — this is the smallest honest run).
+- **Half B (optional host report).** `reportToolDispatch({ name, at? })` and
+  `reportToolDispatchBatch`. `at` is accepted for host convenience and **not
+  retained** (the snapshot is counts, not a trail). A valid `{ name }` or an
+  actual array (including `[]`) marks Half B supplied; a rejected argument
+  (string, null, non-array) does **not**. When supplied: snapshot gains
+  `total_calls`, `ungoverned_calls`, `ungoverned_tools[]`. When **not**
+  supplied: those fields are **omitted, never zero** (absence ≠ zero).
+- **Classes.** `UNKNOWN_OUTSIDE_SCOPE` (Half B absent — not COMPLETE);
+  `INCOMPLETE_OBSERVED` (Half B present, ungoverned_calls > 0, names listed);
+  `COMPLETE_OBSERVED` (Half B present, ungoverned_calls === 0).
+- **Proof / T3 line.** `Coverage (observed)` prints e.g.
+  `governed 9/12 dispatched calls; 3 outside the guarded table: patch_file, raw_write, shell`
+  or
+  `governed 9 calls; traffic outside the guarded table not observable from here`.
+- **Signed coverage statement (`cr.coverage.attest.v1`).** Follow-up, not in
+  this release — issuing a quotable token needs kid + host signer + envelope
+  like `cr.monitor.attest.v1`, which is not a small addition.
+
 ## 9.4.0
 
 Source: N-6 host series — three adoption blockers, all in the guard.

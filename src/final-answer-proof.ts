@@ -19,6 +19,7 @@ import type { GuardExecutionProof, ExecutionResultHash } from './execution-proof
 import { EXECUTION_PROOF_SPEC } from './execution-proof.js';
 import { formatMonitoringDeliveryLine } from './monitoring-delivery.js';
 import { kidFromMonitoringAttestation } from './monitoring-attestation.js';
+import { formatCoverageObservedLine } from './coverage-observed.js';
 
 export type FinalAnswerProofFormat = 'markdown' | 'plain';
 
@@ -290,6 +291,14 @@ export function renderFinalAnswerProof(
         'attested means a holder of the monitoring key observed this delivery status — not that a human read the alert, and not that the sink is configured for the right audience.',
       ));
     }
+    lines.push('');
+  }
+
+  const cov = proof.coverage_observed;
+  if (cov && typeof cov === 'object' && typeof cov.class === 'string') {
+    lines.push(h2('Coverage (observed)'));
+    lines.push(bullet(formatCoverageObservedLine(cov)));
+    lines.push(bullet(`class: ${cov.class}`));
     lines.push('');
   }
 

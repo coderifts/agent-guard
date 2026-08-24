@@ -23,6 +23,7 @@ import type { GuardVerdict } from './types.js';
 import type { CommitObservation } from './commit-observation.js';
 import type { MonitoringDelivery } from './monitoring-delivery.js';
 import type { CasEvidence } from './cas-attestation.js';
+import { freezeCoverageObserved } from './coverage-observed.js';
 
 /** Machine-readable schema id for this block. */
 export const EXECUTION_PROOF_SPEC = 'guard-execution-proof.v1' as const;
@@ -152,6 +153,11 @@ export type GuardExecutionProof = {
     fingerprint: string | null;
     execution_action: string | null;
   }>;
+  /**
+   * Observed tool-traffic coverage (withCodeRifts run). Observation only; omitted
+   * when no observer is wired. Not a preimage field.
+   */
+  coverage_observed?: import('./coverage-observed.js').CoverageObserved;
 };
 
 export type ProofBuildInput = {
@@ -187,6 +193,8 @@ export type ProofBuildInput = {
     fingerprint: string | null;
     execution_action: string | null;
   }>;
+  /** Coverage snapshot (observation). Omit when no observer. */
+  coverageObserved?: import('./coverage-observed.js').CoverageObserved;
 };
 
 const LIMITS: GuardExecutionProof['limits'] = Object.freeze({
@@ -377,6 +385,9 @@ export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof
   }
   if (Array.isArray(input.recheckTrail) && input.recheckTrail.length > 0) {
     proof.recheck_trail = Object.freeze(input.recheckTrail.map((e) => Object.freeze({ ...e })));
+  }
+  if (input.coverageObserved && typeof input.coverageObserved === 'object') {
+    proof.coverage_observed = freezeCoverageObserved(input.coverageObserved);
   }
 
   return freezeProof(proof);

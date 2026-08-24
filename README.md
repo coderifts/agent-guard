@@ -466,11 +466,14 @@ different questions. Captured output from a real call against the current build 
 mutating tools):
 
 ```jsonc
-// composition_assurance — shown WHOLE:
+// composition_assurance — shown WHOLE (coverage / inescapable_runtime / residuals
+// are byte-identical to 9.4.0; observed_class is the live measured class):
 {
   "coverage": "PARTIAL",
   "inescapable_runtime": false,
-  "residuals": ["composition_call_policy_incomplete"]
+  "residuals": ["composition_call_policy_incomplete"],
+  "freshness_resolver_wired": false,
+  "observed_class": "UNKNOWN_OUTSIDE_SCOPE"
 }
 
 // registry_report — abbreviated (… marks fields elided here, NOT trimmed to read cleaner):
@@ -485,8 +488,10 @@ mutating tools):
 ```
 
 - **`registry_report`** is the truth about the tool table that was wrapped. It may legitimately say
-  `COMPLETE` with `inescapable_runtime: true` — every mutator wrapped, none reachable raw.
-  `withCodeRifts` passes it through **untouched**.
+  `COMPLETE` with `inescapable_runtime: true` — every mutator wrapped, none reachable raw **in that
+  table**. `withCodeRifts` passes it through **untouched**. That is **not** a claim that the agent
+  cannot invoke a tool outside the table (demonstrated on LangGraph, OpenAI Agents, and the
+  Anthropic SDK).
 - **`composition_assurance`** is the narrower, product-level statement — what `withCodeRifts` itself
   claims. Today it reports `PARTIAL` with `inescapable_runtime: false` and the residual
   `composition_call_policy_incomplete`, because **composition-call-policy completeness**
@@ -496,8 +501,19 @@ mutating tools):
   What still blocks the product-level claim includes a **freshness-safe prior for write-style calls**
   (path + new content only) wired into enforce, among other policy gates — carry-forward alone does
   not flip this residual off.
+- **`observed_class` / `coverage_observed` (9.5.0) — what was MEASURED this run**, not what was
+  assumed at registration. The run is one `withCodeRifts` instance (same lifetime as
+  `receipt_thread`). Half A always counts `execute()` through the returned table
+  (`governed_calls`, `tools`). Half B is optional: the host reports the total dispatch stream it
+  saw (`reportToolDispatch` / `reportToolDispatchBatch`, e.g. from AgentHooks / `onToolStart`).
+  When Half B is supplied, the snapshot gains `total_calls`, `ungoverned_calls`, `ungoverned_tools`
+  and the class is `INCOMPLETE_OBSERVED` (names outside the table) or `COMPLETE_OBSERVED` (host
+  reported, none outside). When Half B is **absent**, those fields are **omitted** (never zero) and
+  the class is `UNKNOWN_OUTSIDE_SCOPE` — **not** `COMPLETE`. Direct `guardToolCall` without a
+  composition observer has no `coverage_observed` field (byte-identical to 9.4.0). Observation
+  only; nothing in any preimage.
 - **This is deliberate, not a defect.** The composition will not claim runtime inescapability it cannot
-  yet deliver.
+  yet deliver, and it will not read table-wrapping as agent-inescapability.
 
 Reconciling with the `guardToolRegistry` note above (`coverage === 'COMPLETE' ⇒ no mutator is reachable
 raw`): that claim is exactly what `registry_report` states, and it **remains true** — `withCodeRifts`

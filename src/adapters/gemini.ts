@@ -35,6 +35,7 @@ import type {
   CompositionAssurance,
   ReceiptThreadHandle,
 } from '../with-coderifts.js';
+import type { CoverageObservedHandle } from '../coverage-observed.js';
 import type { ProtectedTool, RegistryCoverageReport } from '../tool-registry.js';
 import type { GuardOutcome, GuardExecutionProof } from '../types.js';
 import { attachProofToAgentResponse } from '../final-answer-proof.js';
@@ -95,6 +96,8 @@ export type WithCodeRiftsGeminiResult = {
   composition_assurance: CompositionAssurance;
   /** Per-composition receipt cursor — NOT product-truth chain evidence. */
   receipt_thread: ReceiptThreadHandle;
+  /** Observed coverage for this withCodeRifts run. Half A always; Half B via reportToolDispatch. */
+  coverage_observed: CoverageObservedHandle;
   repository?: string;
 };
 
@@ -170,6 +173,7 @@ export function geminiToolAdapter(result: WithCodeRiftsResult): WithCodeRiftsGem
     registry_report: result.registry_report,
     composition_assurance: result.composition_assurance,
     receipt_thread: result.receipt_thread,
+    coverage_observed: result.coverage_observed,
   };
   if (result.repository !== undefined) {
     out.repository = result.repository;

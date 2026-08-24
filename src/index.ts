@@ -413,6 +413,23 @@ export type {
   ReceiptThreadHandle, ReceiptCursorSkipReason,
 } from './with-coderifts.js';
 
+// Coverage attestation — measured tool traffic (Half A always; Half B host-reported, optional).
+export {
+  createCoverageObserver,
+  freezeCoverageObserved,
+  formatCoverageObservedLine,
+} from './coverage-observed.js';
+export type {
+  CoverageObservedClass,
+  CoverageDispatch,
+  CoverageObserved,
+  CoverageObservedUnknown,
+  CoverageObservedIncomplete,
+  CoverageObservedComplete,
+  CoverageObservedHandle,
+  CoverageObserver,
+} from './coverage-observed.js';
+
 // ID632 slice 1 — thin OpenAI tool-calling adapter over withCodeRifts (reference adapter).
 // Shape converter only; assurance objects pass through untouched.
 // ID827 phase 1 — bindOpenAIGuardOutcome (Option B proof binder; additive, guard@6.1).

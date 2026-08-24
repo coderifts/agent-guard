@@ -25,6 +25,7 @@ import {
   EXECUTION_STATE_UNMEASURABLE_NOTE,
 } from './execution-time-fingerprint.js';
 import { buildExecutionProof } from './execution-proof.js';
+import { freezeCoverageObserved, type CoverageObserved } from './coverage-observed.js';
 import {
   buildFreshnessBasis,
   isWriteStyleCall,
@@ -228,6 +229,15 @@ function attachPolicyPresence<T>(outcome: GuardOutcome<T>, config: GuardConfig):
   return { ...outcome, policy_presence };
 }
 
+function coverageSnap(config: GuardConfig): { coverageObserved?: CoverageObserved } {
+  if (!config.coverageObserver) return {};
+  return { coverageObserved: freezeCoverageObserved(config.coverageObserver.snapshot()) };
+}
+
+function coverageOutcomeFieldsFrom(s: { coverageObserved?: CoverageObserved }): { coverage_observed?: CoverageObserved } {
+  return s.coverageObserved ? { coverage_observed: s.coverageObserved } : {};
+}
+
 function blocked<T>(
   config: GuardConfig,
   verdict: GuardVerdict,
@@ -241,6 +251,7 @@ function blocked<T>(
     status: 'not_observed', observed_at: iso(), host_attestation: 'absent',
   };
   const base = { executionAttempted: false as const, executed: false as const, enforced: false as const, verdict, preflighted };
+  const cov = coverageSnap(config);
   const out = {
     ...base,
     proof: buildExecutionProof({
@@ -249,12 +260,14 @@ function blocked<T>(
       commitObservation: commit_observation,
       monitoringDelivery: monitoring_delivery,
       ...(monitoring_attestation ? { monitoringAttestation: monitoring_attestation } : {}),
+      ...cov,
     }),
     freshness,
     conditional_write,
     commit_observation,
     ...(monitoring_delivery ? { monitoring_delivery } : {}),
     ...(monitoring_attestation ? { monitoring_attestation } : {}),
+    ...coverageOutcomeFieldsFrom(cov),
   } as GuardOutcome<T>;
   return attachPolicyPresence(out, config);
 }
@@ -306,6 +319,7 @@ async function finishExecuted<T>(
   const strictObs = config.profile === 'ENFORCING_STRICT'
     ? strictCommitObservation(result, cas_evidence, casOpts)
     : null;
+  const cov = coverageSnap(config);
   const proof = buildExecutionProof({
     ...base,
     conditionalWriteBasis: conditional_write,
@@ -317,6 +331,7 @@ async function finishExecuted<T>(
       commitLabel: strictObs.commit_label,
       commitEvidenceReason: strictObs.commit_evidence_reason,
     } : {}),
+    ...cov,
   });
   if (result !== undefined && isExecuteIfUnchangedOutcome(result)) {
     try {
@@ -338,6 +353,7 @@ async function finishExecuted<T>(
         ? { commit_evidence_reason: strictObs.commit_evidence_reason }
         : {}),
     } : {}),
+    ...coverageOutcomeFieldsFrom(cov),
   } as GuardOutcome<T>;
   return attachPolicyPresence(out, config);
 }

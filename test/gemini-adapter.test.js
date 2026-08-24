@@ -102,6 +102,9 @@ describe('withCodeRiftsGemini — thin Gemini adapter (ID632)', () => {
     assert.deepEqual(r.registry_report, core.registry_report);
     assert.equal(typeof r.receipt_thread, 'object');
     assert.equal(typeof r.receipt_thread.enabled, 'boolean');
+    assert.equal(typeof r.coverage_observed.snapshot, 'function');
+    assert.equal(typeof r.coverage_observed.reportToolDispatch, 'function');
+    assert.equal(r.composition_assurance.observed_class, 'UNKNOWN_OUTSIDE_SCOPE');
 
     assert.equal(r.registry_report.coverage, 'COMPLETE');
     assert.equal(r.composition_assurance.coverage, 'PARTIAL');
@@ -119,6 +122,7 @@ describe('withCodeRiftsGemini — thin Gemini adapter (ID632)', () => {
     assert.deepEqual(viaAdapter.tools, viaOneShot.tools);
     assert.deepEqual(viaAdapter.composition_assurance, viaOneShot.composition_assurance);
     assert.deepEqual(viaAdapter.registry_report, viaOneShot.registry_report);
+    assert.equal(viaAdapter.coverage_observed, core.coverage_observed);
   });
 
   it('5. protectedToolToFunctionDeclaration / toGeminiTools: empty schema when inputSchema missing', () => {
