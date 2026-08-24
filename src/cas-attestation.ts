@@ -128,7 +128,58 @@ export type EvaluateCasEvidenceOpts = {
   registry?: ExecutorKeyRegistry | null;
   grant?: string | null;
   receipt_digest?: string | null;
+  grant_fields?: {
+    jti?: string;
+    scope_hash?: string;
+    state_nonce?: string;
+    receipt_digest?: string;
+  } | null;
+  /** Strict-only tightening of derived.authorized_and_committed. Absent = 9.0.0 formula. */
+  profile?: 'ENFORCING_STRICT';
 };
+
+/** Existing CasAttestation.derived name and its honest sibling — not a parallel taxonomy. */
+export type CommitLabel = 'authorized_and_committed' | 'authorized_not_committed';
+export const COMMIT_EVIDENCE_MISSING = 'commit_evidence_missing' as const;
+
+export type StrictCommitObservation = {
+  commit_label: CommitLabel;
+  commit_evidence_reason?: typeof COMMIT_EVIDENCE_MISSING;
+};
+
+function bindingIntendedSupplied(outcome: unknown, opts: EvaluateCasEvidenceOpts): boolean {
+  const from = intendedFromOutcome(outcome);
+  if (opts.grant && String(opts.grant).length > 0) return true;
+  if (from.grant && String(from.grant).length > 0) return true;
+  if (opts.receipt_digest && String(opts.receipt_digest).length > 0) return true;
+  if (from.receipt_digest && String(from.receipt_digest).length > 0) return true;
+  const gf = opts.grant_fields;
+  if (gf && (gf.jti || gf.scope_hash || gf.receipt_digest)) return true;
+  return false;
+}
+
+/**
+ * ENFORCING_STRICT success name. authorized_and_committed only when the evidence class is
+ * executor_attested AND a kernel binding (grant jti / scope_hash / receipt_digest) was supplied
+ * so the attestation actually cross-checked this outcome. Otherwise authorized_not_committed
+ * with reason commit_evidence_missing. Observation-side — does not change enforced.
+ */
+export function strictCommitObservation(
+  outcome: unknown,
+  evidence: CasEvidence | undefined,
+  opts: EvaluateCasEvidenceOpts = {},
+): StrictCommitObservation {
+  const crossChecked = evidence != null
+    && evidence.class === 'executor_attested'
+    && bindingIntendedSupplied(outcome, opts);
+  if (crossChecked) {
+    return { commit_label: 'authorized_and_committed' };
+  }
+  return {
+    commit_label: 'authorized_not_committed',
+    commit_evidence_reason: COMMIT_EVIDENCE_MISSING,
+  };
+}
 
 const ABSENT_EVIDENCE: CasEvidence = Object.freeze({
   class: 'absent',
@@ -192,6 +243,7 @@ export function evaluateCasEvidence(
   const fromOutcome = intendedFromOutcome(outcome);
   const grant = opts.grant || fromOutcome.grant || null;
   const receipt_digest = opts.receipt_digest || fromOutcome.receipt_digest || null;
+  const grant_fields = opts.grant_fields || null;
 
   if (!registry || !Array.isArray(registry.keys)) {
     return hostClaimed(null, null, null);
@@ -200,9 +252,14 @@ export function evaluateCasEvidence(
     return hostClaimed(null, null, null);
   }
 
-  const intended: { grant?: string; receipt_digest?: string } = {};
+  const intended: {
+    grant?: string;
+    receipt_digest?: string;
+    grant_fields?: NonNullable<EvaluateCasEvidenceOpts['grant_fields']>;
+  } = {};
   if (grant) intended.grant = grant;
   if (receipt_digest) intended.receipt_digest = receipt_digest;
+  if (grant_fields) intended.grant_fields = grant_fields;
   const wantsIntended = Object.keys(intended).length > 0;
 
   let verified;
@@ -323,7 +380,15 @@ export function buildCasAttestation(
   const write_ran = cas.write_ran === true;
   const stale_during_commit = cas.status === 'committed_stale_detected';
   const refused = cas.status === 'refused';
-  const authorized_and_committed = receipt_verified && cas.status === 'committed';
+  const cas_evidence = evaluateCasEvidence(outcome, opts);
+  let authorized_and_committed = receipt_verified && cas.status === 'committed';
+  // ENFORCING_STRICT: the existing derived name now requires executor_attested + kernel
+  // cross-check. Non-strict keeps the 9.0.0 formula (receipt verified + clean commit).
+  if (opts.profile === 'ENFORCING_STRICT') {
+    const obs = strictCommitObservation(outcome, cas_evidence, opts);
+    authorized_and_committed = authorized_and_committed
+      && obs.commit_label === 'authorized_and_committed';
+  }
 
   const attestation: CasAttestation = {
     attestation_spec: CAS_ATTESTATION_SPEC,
@@ -341,7 +406,7 @@ export function buildCasAttestation(
       stale_during_commit,
       refused,
     }),
-    cas_evidence: evaluateCasEvidence(outcome, opts),
+    cas_evidence,
     limits: LIMITS,
   };
 

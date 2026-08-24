@@ -133,6 +133,14 @@ export type GuardExecutionProof = {
    */
   cas_evidence?: CasEvidence;
   /**
+   * ENFORCING_STRICT only (P0-3). Observation-side success name from the existing
+   * CasAttestation.derived vocabulary. Absent on non-strict proofs (byte-identical to 9.0.0).
+   * authorized_and_committed requires cas_evidence.class === executor_attested AND a kernel
+   * grant/receipt cross-check. enforced remains the pre-write fact.
+   */
+  commit_label?: import('./cas-attestation.js').CommitLabel;
+  commit_evidence_reason?: 'commit_evidence_missing';
+  /**
    * S6 auto-recheck trail (observation). Present when the wrap-layer loop ran.
    * Additive; not a preimage field. Final outcome is the last decision.
    */
@@ -166,6 +174,9 @@ export type ProofBuildInput = {
   monitoringDelivery?: MonitoringDelivery;
   /** S2-F2a R3 CAS evidence (observation). */
   casEvidence?: CasEvidence;
+  /** ENFORCING_STRICT only — omit on non-strict (byte-identical proofs). */
+  commitLabel?: import('./cas-attestation.js').CommitLabel;
+  commitEvidenceReason?: 'commit_evidence_missing';
   /** S6 trail passthrough (observation). */
   recheckTrail?: ReadonlyArray<{
     attempt: number;
@@ -351,6 +362,12 @@ export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof
   }
   if (input.casEvidence && typeof input.casEvidence === 'object') {
     proof.cas_evidence = Object.freeze({ ...input.casEvidence });
+  }
+  if (input.commitLabel === 'authorized_and_committed' || input.commitLabel === 'authorized_not_committed') {
+    proof.commit_label = input.commitLabel;
+    if (input.commitLabel === 'authorized_not_committed' && input.commitEvidenceReason === 'commit_evidence_missing') {
+      proof.commit_evidence_reason = 'commit_evidence_missing';
+    }
   }
   if (Array.isArray(input.recheckTrail) && input.recheckTrail.length > 0) {
     proof.recheck_trail = Object.freeze(input.recheckTrail.map((e) => Object.freeze({ ...e })));

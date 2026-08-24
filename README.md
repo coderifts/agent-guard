@@ -257,7 +257,10 @@ Honesty (do not over-claim):
 - **CAS / conditional write** is a **host assertion** (`conditional_write: true` on the write).
   This package never writes and cannot verify the swap. `requireConditionalWrite` refuses
   `enforced: true` when the host does not report it. No atomic CAS at commit; T3 observes the
-  result after the write (not atomic).
+  result after the write (not atomic). Under `ENFORCING_STRICT`, `enforced` remains that
+  pre-write fact; the final success name is `authorized_and_committed` only when
+  `cas_evidence` is `executor_attested` and the attestation cross-checks grant/receipt —
+  otherwise `authorized_not_committed` (`commit_evidence_missing`).
 - Host-invoked raw tools outside the returned table remain invisible
   (`calls_outside_guarded_path_invisible`). `composition_assurance.inescapable_runtime` stays false.
 

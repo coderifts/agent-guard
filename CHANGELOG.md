@@ -1,5 +1,26 @@
 # Changelog
 
+## 9.1.0
+
+### Added
+
+- **P0-3 (audit): `ENFORCING_STRICT` success name requires executor attestation.**
+  `enforced` is a pre-write fact and is unchanged. Under `profile: 'ENFORCING_STRICT'`
+  only, an allow-class outcome is labelled `authorized_and_committed` (the existing
+  `CasAttestation.derived` name) **only when** `cas_evidence.class ===
+  "executor_attested"` **and** the attestation cross-checks the outcome's grant/receipt
+  (`jti` + `scope_hash` + `receipt_digest`, kernel `verifyExecutionAttestation`).
+  Otherwise the strict outcome is `authorized_not_committed` with visible reason
+  `commit_evidence_missing`. Proof/T3: `authorized; commit not proven (no executor
+  attestation)`. A lying/unbound attestation stays `host_claimed` (9.0.0 principle)
+  and never upgrades the strict label. Observation-side; no preimage change.
+
+### Unchanged
+
+- **Non-strict profiles are byte-identical to 9.0.0** (no `commit_label`, banner
+  stays `ENFORCED`, `derived.authorized_and_committed` stays receipt-verified +
+  clean commit even on `host_claimed`).
+
 ## 9.0.0
 
 **Breaking (major-worthy).** External audit 2026-08-24: `deployGate` treated a

@@ -211,7 +211,15 @@ type GuardOutcomeCore<T> =
 export type GuardOutcome<T> = GuardOutcomeCore<T>
   & import('./auto-recheck.js').RecheckObservation
   & import('./auto-derive.js').AutoDeriveObservation
-  & { cas_evidence?: import('./cas-attestation.js').CasEvidence };
+  & { cas_evidence?: import('./cas-attestation.js').CasEvidence }
+  & {
+    /**
+     * ENFORCING_STRICT only (P0-3). Existing CasAttestation.derived names.
+     * Absent on non-strict outcomes so those stay byte-identical to 9.0.0.
+     */
+    commit_label?: import('./cas-attestation.js').CommitLabel;
+    commit_evidence_reason?: 'commit_evidence_missing';
+  };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
 // proof is always present and is guard-produced (not caller-writable).

@@ -53,6 +53,8 @@ export type AttachProofToAgentResponseOptions = RenderFinalAnswerProofOptions & 
 export type FinalAnswerProofBanner =
   | 'ENFORCED'
   | 'AUTHORIZED'
+  | 'AUTHORIZED_AND_COMMITTED'
+  | 'AUTHORIZED_NOT_COMMITTED'
   | 'NOT_AUTHORIZED'
   | 'NOT_EVALUATED_SKIPPED'
   | 'PREFLIGHTED_NOT_AUTHORIZED'
@@ -64,6 +66,10 @@ export type FinalAnswerProofBanner =
  */
 export function deriveProofBanner(proof: GuardExecutionProof): FinalAnswerProofBanner {
   if (!proof || typeof proof !== 'object') return 'NO_PREFLIGHT';
+  // ENFORCING_STRICT observation: enforced is a PRE-WRITE fact; the final success
+  // name is the existing CasAttestation.derived vocabulary when present.
+  if (proof.commit_label === 'authorized_and_committed') return 'AUTHORIZED_AND_COMMITTED';
+  if (proof.commit_label === 'authorized_not_committed') return 'AUTHORIZED_NOT_COMMITTED';
   // null is SKIPPED / not evaluated — never a pass (whether or not preflight ran).
   if (proof.currently_authorized === null) {
     return 'NOT_EVALUATED_SKIPPED';
@@ -80,6 +86,10 @@ function bannerHeadline(banner: FinalAnswerProofBanner): string {
   switch (banner) {
     case 'ENFORCED':
       return 'ENFORCED — receipt verified; call ran on the guarded path';
+    case 'AUTHORIZED_AND_COMMITTED':
+      return 'AUTHORIZED AND COMMITTED — executor-attested CAS (grant/receipt cross-checked)';
+    case 'AUTHORIZED_NOT_COMMITTED':
+      return 'authorized; commit not proven (no executor attestation)';
     case 'AUTHORIZED':
       return 'AUTHORIZED — receipt verified for this scope (not a claim of full host protection)';
     case 'NOT_AUTHORIZED':
@@ -238,7 +248,15 @@ export function renderFinalAnswerProof(
     if (co.expected_fp) lines.push(bullet(`expected_fp: ${co.expected_fp}`));
     if (co.token) lines.push(bullet(`token: ${co.token}`));
     const ce = proof.cas_evidence;
-    if (ce && ce.class === 'executor_attested') {
+    if (proof.commit_label === 'authorized_not_committed') {
+      lines.push(bullet('authorized; commit not proven (no executor attestation)'));
+      if (proof.commit_evidence_reason) {
+        lines.push(bullet(`reason: ${proof.commit_evidence_reason}`));
+      }
+      lines.push(bullet(
+        'Observed at T3, not atomic: another writer may act between write and observation; token-only adapters compare version token not content; host attestation is a host claim layered on the measurement.',
+      ));
+    } else if (ce && ce.class === 'executor_attested') {
       const kid = ce.executor_kid != null ? ce.executor_kid : '…';
       const st = ce.attest_status != null ? ce.attest_status : 'ATTEST_VALID';
       lines.push(bullet(`committed — executor-attested (${st}, kid ${kid})`));

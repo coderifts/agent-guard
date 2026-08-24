@@ -37,7 +37,12 @@ import {
   type ConditionalWriteCallContext,
 } from './conditional-write.js';
 import { observeCommit, type CommitObservation } from './commit-observation.js';
-import { buildCasAttestation, evaluateCasEvidence, isExecuteIfUnchangedOutcome } from './cas-attestation.js';
+import {
+  buildCasAttestation,
+  evaluateCasEvidence,
+  isExecuteIfUnchangedOutcome,
+  strictCommitObservation,
+} from './cas-attestation.js';
 import {
   deliverMonitoring,
   monitoringDeliveryFailClosed,
@@ -274,23 +279,30 @@ async function finishExecuted<T>(
       token: commit_observation.token,
     });
   }
+  const casOpts = {
+    registry: config.executorAttestation && config.executorAttestation.registry,
+    ...(config.profile === 'ENFORCING_STRICT' ? { profile: 'ENFORCING_STRICT' as const } : {}),
+  };
   const cas_evidence = result !== undefined
-    ? evaluateCasEvidence(result, {
-      registry: config.executorAttestation && config.executorAttestation.registry,
-    })
+    ? evaluateCasEvidence(result, casOpts)
     : undefined;
+  const strictObs = config.profile === 'ENFORCING_STRICT'
+    ? strictCommitObservation(result, cas_evidence, casOpts)
+    : null;
   const proof = buildExecutionProof({
     ...base,
     conditionalWriteBasis: conditional_write,
     commitObservation: commit_observation,
     monitoringDelivery: monitoring_delivery,
     ...(cas_evidence ? { casEvidence: cas_evidence } : {}),
+    ...(strictObs ? {
+      commitLabel: strictObs.commit_label,
+      commitEvidenceReason: strictObs.commit_evidence_reason,
+    } : {}),
   });
   if (result !== undefined && isExecuteIfUnchangedOutcome(result)) {
     try {
-      buildCasAttestation(proof, result, {
-        registry: config.executorAttestation && config.executorAttestation.registry,
-      });
+      buildCasAttestation(proof, result, casOpts);
     } catch { /* label already set; never throw */ }
   }
   return {
@@ -301,6 +313,12 @@ async function finishExecuted<T>(
     commit_observation,
     ...(monitoring_delivery ? { monitoring_delivery } : {}),
     ...(cas_evidence ? { cas_evidence } : {}),
+    ...(strictObs ? {
+      commit_label: strictObs.commit_label,
+      ...(strictObs.commit_evidence_reason
+        ? { commit_evidence_reason: strictObs.commit_evidence_reason }
+        : {}),
+    } : {}),
   } as GuardOutcome<T>;
 }
 

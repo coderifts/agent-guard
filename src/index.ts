@@ -248,7 +248,9 @@ export {
   isExecuteIfUnchangedOutcome,
   evaluateCasEvidence,
   extractExecutorAttestationToken,
+  strictCommitObservation,
   CAS_ATTESTATION_SPEC,
+  COMMIT_EVIDENCE_MISSING,
 } from './cas-attestation.js';
 export type {
   CasAttestation,
@@ -258,6 +260,8 @@ export type {
   CasEvidenceClass,
   ExecutorAttestationConfig,
   EvaluateCasEvidenceOpts,
+  CommitLabel,
+  StrictCommitObservation,
 } from './cas-attestation.js';
 
 // Remediation-loop attestation — BLOCK remediation_transaction + ALLOW proof (+ optional CAS).
