@@ -32,6 +32,11 @@ import type {
 import type { ProtectedTool, RegistryCoverageReport } from '../tool-registry.js';
 import type { GuardOutcome } from '../types.js';
 import { attachProofToAgentResponse } from '../final-answer-proof.js';
+import {
+  formatGateRefusalBody,
+  formatGuardError,
+  verdictKind,
+} from '../gate-refusal.js';
 
 /**
  * Anthropic Messages API `tools[]` element (tool_use definition).
@@ -205,10 +210,7 @@ export function bindAnthropicGuardOutcome<T>(
   if (outcome.executed === true) {
     body = serialize(outcome.result);
   } else if (outcome.executionAttempted === false) {
-    const kind = verdictKind(outcome);
-    body =
-      `CodeRifts gate did not permit execution (verdict: ${kind}). `
-      + 'No tool result was produced.';
+    body = formatGateRefusalBody(outcome);
   } else {
     const err = 'error' in outcome ? outcome.error : undefined;
     const kind = verdictKind(outcome);
@@ -225,20 +227,4 @@ export function bindAnthropicGuardOutcome<T>(
     content,
   };
   return block as ProofBoundAnthropicToolResult;
-}
-
-function verdictKind(outcome: GuardOutcome<unknown>): string {
-  return outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
-    ? String((outcome.verdict as { kind: string }).kind)
-    : 'UNKNOWN';
-}
-
-function formatGuardError(err: unknown): string {
-  if (err instanceof Error) return err.message || err.name || 'Error';
-  if (typeof err === 'string') return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
 }

@@ -457,6 +457,9 @@ export {
   langGraphToolAdapter,
   toLangGraphTools,
   protectedToolToLangGraph,
+  bindLangGraphTools,
+  isLangGraphReactAgentTool,
+  LangGraphToolsNotStructuredError,
   bindLangGraphGuardOutcome,
   defaultSerializeLangGraphToolResult,
 } from './adapters/langgraph.js';
@@ -467,6 +470,16 @@ export type {
   ProofBoundLangGraphToolMessage,
   BindLangGraphGuardOutcomeArgs,
 } from './adapters/langgraph.js';
+export {
+  formatGateRefusalBody,
+  freshnessRefusalTeaching,
+  FRESHNESS_RESOLVER_FIX,
+} from './gate-refusal.js';
+export {
+  inferFsPathFromArgs,
+  inferFullFileWriteContent,
+  wrapWriteWithFsCas,
+} from './cas-adapters/fs-default-wire.js';
 
 // ID632 slice 4 — thin Google Gemini function-calling adapter (functionDeclarations wrapper).
 // ID827 phase 2 — bindGeminiGuardOutcome (Option B proof binder; object response; additive, guard@6.1).

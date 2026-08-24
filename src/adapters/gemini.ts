@@ -38,6 +38,11 @@ import type {
 import type { ProtectedTool, RegistryCoverageReport } from '../tool-registry.js';
 import type { GuardOutcome, GuardExecutionProof } from '../types.js';
 import { attachProofToAgentResponse } from '../final-answer-proof.js';
+import {
+  formatGateRefusalBody,
+  formatGuardError,
+  verdictKind,
+} from '../gate-refusal.js';
 
 /**
  * One Gemini function declaration (inside functionDeclarations[]).
@@ -251,12 +256,7 @@ export function bindGeminiGuardOutcome<T>(
   if (outcome.executed === true) {
     base = { result: serialize(outcome.result) };
   } else if (outcome.executionAttempted === false) {
-    const kind = verdictKind(outcome);
-    base = {
-      gate_message:
-        `CodeRifts gate did not permit execution (verdict: ${kind}). `
-        + 'No tool result was produced.',
-    };
+    base = { gate_message: formatGateRefusalBody(outcome) };
   } else {
     const err = 'error' in outcome ? outcome.error : undefined;
     const kind = verdictKind(outcome);
@@ -281,20 +281,4 @@ export function bindGeminiGuardOutcome<T>(
     },
   };
   return part as ProofBoundGeminiFunctionResponse;
-}
-
-function verdictKind(outcome: GuardOutcome<unknown>): string {
-  return outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
-    ? String((outcome.verdict as { kind: string }).kind)
-    : 'UNKNOWN';
-}
-
-function formatGuardError(err: unknown): string {
-  if (err instanceof Error) return err.message || err.name || 'Error';
-  if (typeof err === 'string') return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
 }

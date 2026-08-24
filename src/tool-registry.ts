@@ -24,6 +24,7 @@ import { collectFreshnessCallContext } from './freshness.js';
 import { runAutoRecheckLoop, normalizeAutoRecheck } from './auto-recheck.js';
 import { normalizeAutoDerive, runAutoDerive, attachDerivation } from './auto-derive.js';
 import type { AutoDeriveObservation } from './auto-derive.js';
+import { wrapWriteWithFsCas } from './cas-adapters/fs-default-wire.js';
 
 // ── public types (§1.1) ─────────────────────────────────────────────────────────────────────────
 export type ToolMutationClass =
@@ -321,8 +322,10 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
         resolvePriorContent: guardCfg.resolvePriorContent,
       });
       const fctx = await refreshContext(call);
-      const factory = async (_envelope: DecisionResultEnvelope | null, redacted: ToolCallDescriptor) =>
-        rawExecute(redacted ? redacted.arguments : args);
+      const factory = async (_envelope: DecisionResultEnvelope | null, redacted: ToolCallDescriptor) => {
+        const rawArgs = redacted ? redacted.arguments : args;
+        return wrapWriteWithFsCas(rawArgs, () => rawExecute(rawArgs));
+      };
       const outcome = normalizeAutoRecheck(guardCfg.autoRecheck)
         ? await runAutoRecheckLoop({
           call,

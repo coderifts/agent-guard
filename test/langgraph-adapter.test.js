@@ -25,6 +25,9 @@ const {
   langGraphToolAdapter,
   toLangGraphTools,
   protectedToolToLangGraph,
+  bindLangGraphTools,
+  isLangGraphReactAgentTool,
+  LangGraphToolsNotStructuredError,
   withCodeRifts,
 } = require('../dist/cjs/index.js');
 
@@ -69,11 +72,13 @@ describe('withCodeRiftsLangGraph — thin LangGraph adapter (ID632)', () => {
     assert.equal(r.tools.length, 2);
     for (const t of r.tools) {
       assert.equal(typeof t.name, 'string');
+      assert.equal(typeof t.description, 'string');
       assert.equal(typeof t.schema, 'object');
       assert.ok(t.schema !== null);
       assert.equal(typeof t.func, 'function');
       assert.equal(typeof t.invoke, 'function');
       assert.equal(t.func, t.invoke, 'func and invoke are the same guarded execute');
+      assert.equal(t.lc_runnable, true);
       // Not OpenAI/Anthropic wrappers
       assert.equal('type' in t, false);
       assert.equal('function' in t, false);
@@ -141,6 +146,8 @@ describe('withCodeRiftsLangGraph — thin LangGraph adapter (ID632)', () => {
     };
     const d = protectedToolToLangGraph(bare);
     assert.equal(d.name, 'noop');
+    assert.equal(d.description, 'noop');
+    assert.equal(d.lc_runnable, true);
     assert.equal(d.schema.type, 'object');
     assert.deepEqual(d.schema.properties, {});
     assert.equal(typeof d.func, 'function');
@@ -196,6 +203,57 @@ describe('withCodeRiftsLangGraph — thin LangGraph adapter (ID632)', () => {
     assert.doesNotMatch(src, /from\s+['"]langgraph/);
     assert.doesNotMatch(src, /require\s*\(\s*['"]@?langchain/);
     assert.doesNotMatch(src, /require\s*\(\s*['"]langgraph/);
+  });
+});
+
+/**
+ * Measured createReactAgent ToolNode behaviour: tools that fail the StructuredTool /
+ * isRunnable check are dropped; lookup then returns a model-visible
+ * `Error: Tool "<name>" not found.` — the N-6 silent failure. This must never
+ * happen for withCodeRiftsLangGraph().tools.
+ */
+function fakeToolNodeLookup(tools, name) {
+  const byName = Object.create(null);
+  for (const t of tools) {
+    if (isLangGraphReactAgentTool(t)) byName[t.name] = t;
+  }
+  if (!byName[name]) return `Error: Tool "${name}" not found.`;
+  return byName[name];
+}
+
+describe('withCodeRiftsLangGraph — createReactAgent shape (N-6 silent-failure regression)', () => {
+  it('tools pass isLangGraphReactAgentTool (name/description/schema/invoke/lc_runnable)', () => {
+    const r = withCodeRiftsLangGraph({
+      tools: rawTools(),
+      client: STUB_CLIENT,
+      operation: 'merge',
+    });
+    for (const t of r.tools) {
+      assert.equal(isLangGraphReactAgentTool(t), true, t.name);
+    }
+  });
+
+  it('ToolNode-style lookup finds edit_file — never a model-visible Tool not found', () => {
+    const r = withCodeRiftsLangGraph({
+      tools: rawTools(),
+      client: STUB_CLIENT,
+      operation: 'merge',
+    });
+    const found = fakeToolNodeLookup(r.tools, 'edit_file');
+    assert.notEqual(typeof found, 'string');
+    assert.equal(found.name, 'edit_file');
+    assert.doesNotMatch(String(found), /Tool not found/i);
+  });
+
+  it('bindLangGraphTools throws LangGraphToolsNotStructuredError on a plain callable', () => {
+    const plain = { name: 'edit_file', schema: {}, func: async () => 1, invoke: async () => 1 };
+    assert.throws(
+      () => bindLangGraphTools([plain]),
+      (err) => err instanceof LangGraphToolsNotStructuredError
+        && /createReactAgent/i.test(err.message)
+        && /tool\(\)/i.test(err.message)
+        && /bindLangGraphTools/i.test(err.message),
+    );
   });
 });
 

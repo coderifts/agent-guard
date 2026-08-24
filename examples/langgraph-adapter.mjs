@@ -66,7 +66,7 @@ const rawTools = [
 
 // One call: raw tools + client + operation → LangGraph descriptors + honest assurance.
 const {
-  tools,                 // plain descriptors { name, description?, schema, func, invoke }
+  tools,                 // StructuredTool-compatible { name, description, schema, func, invoke, lc_runnable }
   protected_tools,       // guarded tools (same set)
   registry_report,       // registry's own truth
   composition_assurance, // product-level (narrower) — do NOT flatten away

@@ -377,29 +377,30 @@ const {
 
 See also `examples/anthropic-adapter.mjs` (not published in the npm tarball).
 
-**LangChain / LangGraph (ID632 slice 3).** Same thin pattern; emits **dependency-free** plain
-descriptors the host can hand to LangChain `tool()` / LangGraph `ToolNode` / `bind_tools`. This
-package does **not** depend on langchain or langgraph — the host owns those imports. Assurance
-still unflattened:
+**LangChain / LangGraph (ID632 slice 3).** Same thin pattern; emits **dependency-free**
+StructuredTool-compatible descriptors (`name`, `description`, `schema`, `func`/`invoke`,
+`lc_runnable: true`) that `createReactAgent` / `ToolNode` can consume. Measured against
+`@langchain/langgraph` `createReactAgent` (`tools: ToolNode | (StructuredToolInterface |
+DynamicTool | RunnableToolLike)[]` — 0.2.74 d.ts; current npm 1.4.12). This package does
+**not** depend on langchain or langgraph. A tool that would still fail that check throws
+`LangGraphToolsNotStructuredError` (wrap with `tool()` from `@langchain/core/tools`) — never a
+model-visible `"Tool not found"`. Assurance still unflattened:
 
 ```typescript
 import { withCodeRiftsLangGraph } from '@coderifts/agent-guard';
 // host-owned (not a dependency of this package):
-// import { tool } from '@langchain/core/tools';
-// import { ToolNode } from '@langchain/langgraph/prebuilt';
+// import { createReactAgent } from '@langchain/langgraph/prebuilt';
 
 const {
-  tools,                 // [{ name, description?, schema, func, invoke }] — guarded execute bound
+  tools,                 // createReactAgent-consumable; guarded execute bound
   protected_tools,
   registry_report,
   composition_assurance, // still may be incomplete (inescapable_runtime:false) — do not drop
   receipt_thread,
 } = withCodeRiftsLangGraph({ tools: rawTools, client, operation: 'merge' });
 
-// const lcTools = tools.map((d) =>
-//   tool(d.func, { name: d.name, description: d.description, schema: d.schema }),
-// );
-// const toolNode = new ToolNode(lcTools); // StateGraph … .addNode('tools', toolNode)
+// const agent = createReactAgent({ llm, tools });
+// optional still-supported wrap: tool(d.func, { name: d.name, description: d.description, schema: d.schema })
 // system: withPolicy(yourPrompt)  — adapters do not see the outbound request
 // Host boundary: only `tools` / `protected_tools` enter the graph — raw tools stay out.
 ```

@@ -13,10 +13,18 @@
  * owns the framework import and wires descriptors into tool() / ToolNode /
  * bind_tools / StateGraph themselves.
  *
- * Descriptor shape (dependency-free plain object):
- *   { name, description?, schema, func, invoke }
+ * Descriptor shape (dependency-free, StructuredTool-compatible for createReactAgent):
+ *   { name, description, schema, func, invoke, lc_runnable: true }
+ *   Measured against @langchain/langgraph createReactAgent tools:
+ *     ToolNode | (StructuredToolInterface | DynamicTool | RunnableToolLike)[]
+ *     (@langchain/langgraph@0.2.74 d.ts; current npm 1.4.12). Runtime isRunnable
+ *     requires lc_runnable === true; ToolNode drops non-matching tools and the
+ *     model sees "Tool not found" — NEVER return that silent shape.
  *   - schema  = JSON Schema from ProtectedTool.inputSchema (or empty object schema)
  *   - func / invoke = the GUARDED execute (same function reference) — never the raw tool
+ *   - description always set (fallback to name) — StructuredToolInterface requires it
+ * NO hard @langchain/* dependency: duck-type the measured surface. If a tool would
+ * still fail that check, throw LangGraphToolsNotStructuredError (named, with the fix).
  *
  * Honesty (do not "upgrade" assurance):
  *   - composition_assurance is passed through EXACTLY as the core reported it
@@ -43,6 +51,11 @@ import type {
 import type { ProtectedTool, RegistryCoverageReport } from '../tool-registry.js';
 import type { GuardOutcome } from '../types.js';
 import { attachProofToAgentResponse } from '../final-answer-proof.js';
+import {
+  formatGateRefusalBody,
+  formatGuardError,
+  verdictKind,
+} from '../gate-refusal.js';
 
 /**
  * Framework-agnostic LangChain/LangGraph tool descriptor (no package import).
@@ -55,7 +68,8 @@ import { attachProofToAgentResponse } from '../final-answer-proof.js';
  */
 export type LangGraphToolDescriptor = {
   name: string;
-  description?: string;
+  /** Always set (fallback to name). StructuredToolInterface requires description. */
+  description: string;
   /** JSON Schema for tool args (LangChain `schema` / StructuredTool args). */
   schema: Record<string, unknown>;
   /**
@@ -65,10 +79,47 @@ export type LangGraphToolDescriptor = {
   func: (args: unknown) => Promise<unknown>;
   /**
    * Alias of `func` for invoke-style APIs (StructuredTool.invoke / ToolNode).
-   * Same guarded execute reference as `func`.
+   * Same guarded execute reference as `func`. Runnable.invoke also accepts a config arg.
    */
-  invoke: (args: unknown) => Promise<unknown>;
+  invoke: (args: unknown, _config?: unknown) => Promise<unknown>;
+  /**
+   * Measured isRunnable / isStructuredTool check (@langchain/core).
+   * Without this, createReactAgent's ToolNode drops the tool → model-visible "Tool not found".
+   */
+  lc_runnable: true;
 };
+
+/**
+ * Named error — thrown instead of returning tools createReactAgent would silently drop.
+ * Never a model-visible "Tool not found".
+ */
+export class LangGraphToolsNotStructuredError extends Error {
+  constructor(message?: string) {
+    super(
+      message
+      ?? 'withCodeRiftsLangGraph() tools are not StructuredTool-compatible for createReactAgent. '
+        + 'createReactAgent (@langchain/langgraph) requires StructuredToolInterface | DynamicTool | '
+        + 'RunnableToolLike (name, description, schema, invoke, lc_runnable). '
+        + 'Fix: wrap with tool() from @langchain/core/tools — see README (LangChain / LangGraph).',
+    );
+    this.name = 'LangGraphToolsNotStructuredError';
+  }
+}
+
+/**
+ * True iff `t` matches the measured createReactAgent tool surface
+ * (StructuredToolInterface | DynamicTool | RunnableToolLike).
+ */
+export function isLangGraphReactAgentTool(t: unknown): t is LangGraphToolDescriptor {
+  if (!t || typeof t !== 'object') return false;
+  const o = t as Record<string, unknown>;
+  return typeof o.name === 'string' && o.name.length > 0
+    && typeof o.description === 'string'
+    && o.schema != null && typeof o.schema === 'object' && !Array.isArray(o.schema)
+    && typeof o.invoke === 'function'
+    && typeof o.func === 'function'
+    && o.lc_runnable === true;
+}
 
 /**
  * Result of withCodeRiftsLangGraph — descriptors + core assurance, unflattened.
@@ -117,16 +168,26 @@ export function protectedToolToLangGraph(tool: ProtectedTool): LangGraphToolDesc
       : { ...EMPTY_SCHEMA };
 
   // Guarded execute only — never a raw unwrapped executor.
-  const guarded = (args: unknown) => Promise.resolve(tool.execute(args));
+  const guarded = (args: unknown, _config?: unknown) =>
+    Promise.resolve().then(() => tool.execute(args));
+
+  const description = tool.description != null && tool.description !== ''
+    ? tool.description
+    : tool.name;
 
   const out: LangGraphToolDescriptor = {
     name: tool.name,
+    description,
     schema,
     func: guarded,
     invoke: guarded,
+    lc_runnable: true,
   };
-  if (tool.description != null && tool.description !== '') {
-    out.description = tool.description;
+  if (!isLangGraphReactAgentTool(out)) {
+    throw new LangGraphToolsNotStructuredError(
+      `protectedToolToLangGraph(${JSON.stringify(tool.name)}): tool is not createReactAgent-consumable. `
+      + 'Fix: wrap with tool() from @langchain/core/tools — see README (LangChain / LangGraph).',
+    );
   }
   return out;
 }
@@ -136,14 +197,35 @@ export function protectedToolToLangGraph(tool: ProtectedTool): LangGraphToolDesc
  * Does NOT call the guard — pure map over an already-protected list.
  */
 export function toLangGraphTools(protectedTools: readonly ProtectedTool[]): LangGraphToolDescriptor[] {
-  return protectedTools.map(protectedToolToLangGraph);
+  return bindLangGraphTools(protectedTools.map(protectedToolToLangGraph));
+}
+
+/**
+ * Assert (and return) tools that createReactAgent can consume.
+ * Throws LangGraphToolsNotStructuredError — never a silent "Tool not found".
+ */
+export function bindLangGraphTools(
+  tools: readonly unknown[],
+): LangGraphToolDescriptor[] {
+  const out: LangGraphToolDescriptor[] = [];
+  for (const t of tools) {
+    if (!isLangGraphReactAgentTool(t)) {
+      const n = t && typeof t === 'object' && 'name' in t ? String((t as { name?: unknown }).name) : '?';
+      throw new LangGraphToolsNotStructuredError(
+        `bindLangGraphTools: ${JSON.stringify(n)} is not StructuredTool-compatible for createReactAgent. `
+        + 'Fix: wrap with tool() from @langchain/core/tools — see README (LangChain / LangGraph).',
+      );
+    }
+    out.push(t);
+  }
+  return out;
 }
 
 /**
  * Build LangGraph/LangChain-ready guarded tool descriptors from raw tools + client + operation.
  *
  * Calls withCodeRifts internally (guard logic stays in the core). Returns:
- *   - `tools` — plain descriptors { name, description?, schema, func, invoke }
+ *   - `tools` — StructuredTool-compatible descriptors { name, description, schema, func, invoke, lc_runnable }
  *   - `protected_tools` — same guarded tools
  *   - assurance objects from the core, passed through untouched
  *
@@ -240,10 +322,7 @@ export function bindLangGraphGuardOutcome<T>(
   if (outcome.executed === true) {
     body = serialize(outcome.result);
   } else if (outcome.executionAttempted === false) {
-    const kind = verdictKind(outcome);
-    body =
-      `CodeRifts gate did not permit execution (verdict: ${kind}). `
-      + 'No tool result was produced.';
+    body = formatGateRefusalBody(outcome);
   } else {
     const err = 'error' in outcome ? outcome.error : undefined;
     const kind = verdictKind(outcome);
@@ -264,18 +343,4 @@ export function bindLangGraphGuardOutcome<T>(
   return msg as ProofBoundLangGraphToolMessage;
 }
 
-function verdictKind(outcome: GuardOutcome<unknown>): string {
-  return outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
-    ? String((outcome.verdict as { kind: string }).kind)
-    : 'UNKNOWN';
-}
 
-function formatGuardError(err: unknown): string {
-  if (err instanceof Error) return err.message || err.name || 'Error';
-  if (typeof err === 'string') return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
-}

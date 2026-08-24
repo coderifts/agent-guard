@@ -32,6 +32,11 @@ import type {
 import type { ProtectedTool, RegistryCoverageReport } from '../tool-registry.js';
 import type { GuardOutcome } from '../types.js';
 import { attachProofToAgentResponse } from '../final-answer-proof.js';
+import {
+  formatGateRefusalBody,
+  formatGuardError,
+  verdictKind,
+} from '../gate-refusal.js';
 
 /**
  * OpenAI chat.completions `tools[]` element (function tool).
@@ -228,19 +233,12 @@ export function bindOpenAIGuardOutcome<T>(
     body = serialize(outcome.result);
   } else if (outcome.executionAttempted === false) {
     // Blocked before factory — no result; never fabricate one.
-    const kind = outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
-      ? String((outcome.verdict as { kind: string }).kind)
-      : 'UNKNOWN';
-    body =
-      `CodeRifts gate did not permit execution (verdict: ${kind}). `
-      + 'No tool result was produced.';
+    body = formatGateRefusalBody(outcome);
   } else {
     // executionAttempted && !executed → factory threw; error is present.
     const err = 'error' in outcome ? outcome.error : undefined;
     const errText = formatGuardError(err);
-    const kind = outcome.verdict && typeof outcome.verdict === 'object' && 'kind' in outcome.verdict
-      ? String((outcome.verdict as { kind: string }).kind)
-      : 'UNKNOWN';
+    const kind = verdictKind(outcome);
     body =
       `Tool execution failed after gate decision (verdict: ${kind}): ${errText}`;
   }
@@ -257,14 +255,4 @@ export function bindOpenAIGuardOutcome<T>(
     content,
   };
   return msg as ProofBoundOpenAIToolMessage;
-}
-
-function formatGuardError(err: unknown): string {
-  if (err instanceof Error) return err.message || err.name || 'Error';
-  if (typeof err === 'string') return err;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return String(err);
-  }
 }

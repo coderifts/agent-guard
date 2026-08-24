@@ -1,5 +1,43 @@
 # Changelog
 
+## 9.4.0
+
+Source: N-6 host series — three adoption blockers, all in the guard.
+
+### Fixed
+
+- **LangGraph tools shape (N-6 host #4, silent).** `withCodeRiftsLangGraph().tools`
+  returned plain `{ name, schema, func, invoke }` callables. `createReactAgent`
+  (`@langchain/langgraph`, measured 0.2.74 d.ts / current npm 1.4.12) requires
+  `StructuredToolInterface | DynamicTool | RunnableToolLike` — ToolNode drops
+  non-matching tools and the model sees **"Tool not found"** instead of a crash.
+  Descriptors now duck-type that surface (`description` always set, `lc_runnable:
+  true`, `invoke`) **without a hard `@langchain/*` dependency** (optional wrap
+  would have been a peer import; duck-type is enough for the measured
+  `isRunnable`/`isStructuredTool` check and keeps hosts who still call
+  `tool(d.func, …)` working). If a tool would still fail that check,
+  `LangGraphToolsNotStructuredError` is thrown with the fix (`wrap with tool()`
+  from `@langchain/core/tools`). `bindLangGraphTools` is the duck-type assert,
+  not a langchain wrap. Never silent.
+
+- **First-run freshness teaching (N-6).** Fail-closed is unchanged
+  (`FRESHNESS_REQUIRED` / `FRESHNESS_FAILED` still halt before a governance
+  verdict). The binder-visible error now names the cause and the one-line fix
+  using existing vocabulary: `resolvePriorContent` / `createFsPriorContentResolver()`
+  on `withCodeRifts` / `GuardConfig`. BLOCK/APPROVAL refusal prefix is
+  byte-identical to 9.3.0.
+
+### Added
+
+- **FS CAS default-wire (S1 remainder).** When tool args carry an unambiguous
+  fs `path` **and** a full-file body (`contents` / Write-style `content`),
+  mutators run `writeFileIfUnchanged` (the FS adapter) instead of an
+  unconditional host write. Edit fragments (`old_string`/`new_string`) and
+  path-only mutators stay 9.3.0 (host execute, no invented `committed`
+  envelope). If the host already returns an `ExecuteIfUnchangedOutcome`, it
+  is passed through. API, DB, and registry adapters stay opt-in. No preimage
+  change.
+
 ## 9.3.0
 
 ### Added
