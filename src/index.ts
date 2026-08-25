@@ -413,6 +413,16 @@ export type {
   ReceiptThreadHandle, ReceiptCursorSkipReason,
 } from './with-coderifts.js';
 
+export {
+  isExecutionGrantEnabled,
+  readExecutionGrantToken,
+} from './execution-grant.js';
+export type {
+  ExecutionGrantConfig,
+  ExecutionGrantObservation,
+  ExecutionGrantCallContext,
+} from './execution-grant.js';
+
 // Coverage attestation — measured tool traffic (Half A always; Half B host-reported, optional).
 export {
   createCoverageObserver,

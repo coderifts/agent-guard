@@ -154,6 +154,14 @@ export interface GuardConfig {
    * on the outcome/proof (byte-identical to 9.4.0 for direct guardToolCall).
    */
   coverageObserver?: import('./coverage-observed.js').CoverageObserver;
+  /**
+   * Native execution-grant request (9.6.0). Default OFF (absent → byte-identical to 9.5.0).
+   * When `{ enabled: true }`, THIS call's authorize carries include_execution_grant:true
+   * and, if resolveStateNonce is supplied, that call's state_nonce. The grant token is
+   * scoped to the invocation (3rd factory argument) — never a process-global last grant.
+   * Observation-only on the outcome (`requested` / `arrived`); not a verdict/preimage field.
+   */
+  executionGrant?: import('./execution-grant.js').ExecutionGrantConfig;
 }
 
 export interface ToolCallDescriptor {
@@ -169,7 +177,17 @@ export interface ToolCallDescriptor {
 // D1 — the mutating work is created ONLY after the verdict, by the factory.
 // A pre-constructed (eager) promise cannot be smuggled in: the factory is
 // invoked by the guard after preflight, and only when the action permits.
-export type ExecuteFactory<T> = (envelope: DecisionResultEnvelope | null, redactedCall: ToolCallDescriptor) => Promise<T>;
+/**
+ * Optional per-invocation execution context. 3rd factory argument — existing 2-arg
+ * factories stay valid (JS extra args are ignored). Carries THIS call's grant only.
+ */
+export type ExecutionGrantCallContext = import('./execution-grant.js').ExecutionGrantCallContext;
+
+export type ExecuteFactory<T> = (
+  envelope: DecisionResultEnvelope | null,
+  redactedCall: ToolCallDescriptor,
+  execution?: ExecutionGrantCallContext,
+) => Promise<T>;
 
 // D3/D6 — executed + enforced discriminate every path; errors are captured.
 // ApprovedVerdict: only a receipt-verified live ALLOW/MONITOR can carry enforced:true.
@@ -253,6 +271,13 @@ export type GuardOutcome<T> = GuardOutcomeCore<T>
      * observer is wired (direct guardToolCall). Observation only; not a preimage.
      */
     coverage_observed?: import('./coverage-observed.js').CoverageObserved;
+    /**
+     * Observation only (9.6.0). Present when executionGrant.enabled was true on THIS
+     * authorize. Booleans only — the token is not recorded here (it is passed to the
+     * factory). Omitted when the grant path was off (byte-identical to 9.5.0).
+     * Not a verdict input; not a preimage field.
+     */
+    execution_grant?: import('./execution-grant.js').ExecutionGrantObservation;
   };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.
@@ -309,6 +334,9 @@ export type IntegrityCause =
   | 'CONDITIONAL_WRITE_REQUIRED' // write-style + requireConditionalWrite but host report is false or not_reported
   | 'EXECUTION_STATE_DRIFT'      // ID842: T2 current artifacts crbundle.v1 fingerprint ≠ receipt-authorized fingerprint
   | 'EXECUTION_STATE_UNMEASURABLE' // T2 cannot assert (missing authorized fingerprint or missing artifacts) — not silent ALLOW
+  | 'EXECUTION_GRANT_NONCE_UNRESOLVABLE' // executionGrant.resolveStateNonce threw or returned a non-string
+  | 'EXECUTION_GRANT_MISSING'    // grant requested on allow-class authorize but execution_grant absent on the body
+  | 'SIGNER_UNAVAILABLE'         // authorize 503 / code SIGNER_UNAVAILABLE while a grant was requested — never proceed grant-less
 export type UnavailableCause = AvailabilityCause | IntegrityCause;
 
 // D-detector — fail-safe + versioned (the trust core; the Grok corpus of 68

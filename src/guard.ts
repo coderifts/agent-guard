@@ -52,6 +52,14 @@ import {
 import { tryIssueMonitoringAttestation } from './monitoring-attestation.js';
 import { observePolicyPresence } from './policy.js';
 import type { PolicyPresence } from './policy.js';
+import {
+  isExecutionGrantEnabled,
+  isSignerUnavailableError,
+  readExecutionGrantToken,
+  resolveStateNonceForCall,
+  type ExecutionGrantCallContext,
+  type ExecutionGrantObservation,
+} from './execution-grant.js';
 
 // Per-config breaker state (time-window; not consecutive).
 const breakers = new WeakMap<GuardConfig, { fails: number[] }>();
@@ -98,7 +106,15 @@ function breakerTripped(config: GuardConfig): boolean {
   return s.fails.length >= (config.maxUnavailablePerWindow ?? 3);
 }
 
-function classifyError(err: unknown, config: GuardConfig): { cause: UnavailableCause; integrity: boolean } {
+function requestAsksForGrant(request: unknown): boolean {
+  return !!(
+    request
+    && typeof request === 'object'
+    && (request as { include_execution_grant?: unknown }).include_execution_grant === true
+  );
+}
+
+function classifyError(err: unknown, config: GuardConfig, grantRequested = false): { cause: UnavailableCause; integrity: boolean } {
   const e = err as { name?: string; status?: number; code?: string; message?: string; body?: { status?: number } } | undefined;
   const name = e?.name;
   const status = e?.status ?? e?.body?.status;
@@ -107,6 +123,11 @@ function classifyError(err: unknown, config: GuardConfig): { cause: UnavailableC
   if (status === 413) return { cause: 'PAYLOAD_TOO_LARGE', integrity: true };
   if (status === 422) return { cause: 'REQUEST_REJECTED', integrity: true };
   if (status === 400 || status === 401 || status === 409) return { cause: 'REQUEST_REJECTED', integrity: true };
+  // SIGNER_UNAVAILABLE is grant-path only. Gating keeps grant-OFF 5xx as SERVER_ERROR (9.5.0).
+  // Naked 503 while THIS request asked for a grant is the signer-off class, not availability.
+  if (grantRequested && (isSignerUnavailableError(err) || status === 503)) {
+    return { cause: 'SIGNER_UNAVAILABLE', integrity: true };
+  }
   if (typeof status === 'number' && status >= 500) return { cause: 'SERVER_ERROR', integrity: false };
   if (name === 'TypeError' || /fetch failed|network|ENOTFOUND|ECONNREFUSED|EAI_AGAIN/i.test(String(e?.message))) return { cause: 'NETWORK', integrity: false };
   if (name === 'ApiError') return { cause: 'SERVER_ERROR', integrity: false };
@@ -137,7 +158,7 @@ async function preflightWithRetry(config: GuardConfig, request: unknown): Promis
       const response = await withTimeout((config.client as unknown as { authorizeChangeSet(r: unknown): Promise<unknown> }).authorizeChangeSet(request), Math.min(timeoutMs, remaining));
       return { ok: true, response };
     } catch (err) {
-      last = classifyError(err, config);
+      last = classifyError(err, config, requestAsksForGrant(request));
       if (last.integrity) return { ok: false, ...last }; // integrity: never retry
     }
   }
@@ -188,16 +209,20 @@ async function runEnforced<T>(
   conditional_write: ConditionalWriteBasis,
   monitoring_delivery?: MonitoringDelivery,
   monitoring_attestation?: string,
+  grantCtx?: ExecutionGrantCallContext,
+  grantObs?: ExecutionGrantObservation,
 ): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso(), action: approved.action, decisionId: approved.envelope.decision_id });
   try {
-    const result = await factory(approved.envelope, redacted);
+    const result = grantCtx
+      ? await factory(approved.envelope, redacted, grantCtx)
+      : await factory(approved.envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: true as const, result, verdict: approved, preflighted: true as const };
-    return finishExecuted(config, base, freshness, conditional_write, redacted, result, monitoring_delivery, monitoring_attestation);
+    return finishExecuted(config, base, freshness, conditional_write, redacted, result, monitoring_delivery, monitoring_attestation, grantObs);
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso(), action: approved.action });
     const base = { executionAttempted: true as const, executed: false as const, enforced: true as const, error, verdict: approved, preflighted: true as const };
-    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined, monitoring_delivery, monitoring_attestation);
+    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined, monitoring_delivery, monitoring_attestation, grantObs);
   }
 }
 async function runUnenforced<T>(
@@ -211,16 +236,20 @@ async function runUnenforced<T>(
   conditional_write: ConditionalWriteBasis,
   monitoring_delivery?: MonitoringDelivery,
   monitoring_attestation?: string,
+  grantCtx?: ExecutionGrantCallContext,
+  grantObs?: ExecutionGrantObservation,
 ): Promise<GuardOutcome<T>> {
   emit(config, { type: 'execution_started', at: iso() });
   try {
-    const result = await factory(envelope, redacted);
+    const result = grantCtx
+      ? await factory(envelope, redacted, grantCtx)
+      : await factory(envelope, redacted);
     const base = { executionAttempted: true as const, executed: true as const, enforced: false as const, result, verdict, preflighted };
-    return finishExecuted(config, base, freshness, conditional_write, redacted, result, monitoring_delivery, monitoring_attestation);
+    return finishExecuted(config, base, freshness, conditional_write, redacted, result, monitoring_delivery, monitoring_attestation, grantObs);
   } catch (error) {
     emit(config, { type: 'factory_error', at: iso() });
     const base = { executionAttempted: true as const, executed: false as const, enforced: false as const, error, verdict, preflighted };
-    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined, monitoring_delivery, monitoring_attestation);
+    return finishExecuted(config, base, freshness, conditional_write, redacted, undefined, monitoring_delivery, monitoring_attestation, grantObs);
   }
 }
 function attachPolicyPresence<T>(outcome: GuardOutcome<T>, config: GuardConfig): GuardOutcome<T> {
@@ -246,6 +275,7 @@ function blocked<T>(
   conditional_write: ConditionalWriteBasis,
   monitoring_delivery?: MonitoringDelivery,
   monitoring_attestation?: string,
+  grantObs?: ExecutionGrantObservation,
 ): GuardOutcome<T> {
   const commit_observation: CommitObservation = {
     status: 'not_observed', observed_at: iso(), host_attestation: 'absent',
@@ -268,6 +298,7 @@ function blocked<T>(
     ...(monitoring_delivery ? { monitoring_delivery } : {}),
     ...(monitoring_attestation ? { monitoring_attestation } : {}),
     ...coverageOutcomeFieldsFrom(cov),
+    ...(grantObs ? { execution_grant: grantObs } : {}),
   } as GuardOutcome<T>;
   return attachPolicyPresence(out, config);
 }
@@ -281,6 +312,7 @@ async function finishExecuted<T>(
   result: unknown,
   monitoring_delivery?: MonitoringDelivery,
   monitoring_attestation?: string,
+  grantObs?: ExecutionGrantObservation,
 ): Promise<GuardOutcome<T>> {
   const enabled = config.requireCommitObservation !== false;
   const commit_observation = await observeCommit({
@@ -354,6 +386,7 @@ async function finishExecuted<T>(
         : {}),
     } : {}),
     ...coverageOutcomeFieldsFrom(cov),
+    ...(grantObs ? { execution_grant: grantObs } : {}),
   } as GuardOutcome<T>;
   return attachPolicyPresence(out, config);
 }
@@ -547,18 +580,44 @@ export async function guardToolCall<T>(
   // previous_receipt: host-supplied only (GuardConfig.previousReceipt). Never hardcoded-undefined
   // forever — when the host provides a prior token (string or getter), thread it so the issuer can
   // hash it into the signed `prev` slot. The guard does not retain or advance the value.
-  const request = {
+  //
+  // executionGrant (9.6.0): per-invocation locals — never stored on GuardConfig (shared across
+  // overlapping calls). Default OFF is this object without include_execution_grant (9.5.0 shape).
+  const request: {
+    artifacts: Artifact[];
+    context: { operation: string; environment?: string; audience?: string };
+    previous_receipt: string | undefined;
+    idempotency_key: string | undefined;
+    include_execution_grant?: true;
+    state_nonce?: string;
+  } = {
     artifacts: detection.artifacts,
     context: { operation: config.operation ?? 'tool_call', environment: config.environment, audience: config.audience },
     previous_receipt: resolvePreviousReceipt(config),
     idempotency_key: undefined as string | undefined,
   };
 
+  let grantObs: ExecutionGrantObservation | undefined;
+  let grantForCall: string | null = null;
+  if (isExecutionGrantEnabled(config)) {
+    grantObs = { requested: true, arrived: false };
+    const nonceRes = await resolveStateNonceForCall(config, redacted, detection.artifacts);
+    if (!nonceRes.ok) {
+      breakerRecord(config);
+      return closedIntegrity(
+        config, 'EXECUTION_GRANT_NONCE_UNRESOLVABLE', failPolicy, fctx, cwctx, redacted, detection.artifacts,
+        undefined, undefined, grantObs,
+      );
+    }
+    request.include_execution_grant = true;
+    if (nonceRes.nonce) request.state_nonce = nonceRes.nonce;
+  }
+
   // request-attributable payload cap => PAYLOAD_TOO_LARGE (integrity) => closed.
   const cap = config.maxPayloadBytes ?? 1_000_000;
   if (Buffer.byteLength(JSON.stringify(request), 'utf8') > cap) {
     breakerRecord(config);
-    return closedIntegrity(config, 'PAYLOAD_TOO_LARGE', failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'PAYLOAD_TOO_LARGE', failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
 
   emit(config, { type: 'preflight_start', at: iso() });
@@ -573,14 +632,21 @@ export async function guardToolCall<T>(
     if (pf.integrity) {
       emit(config, { type: 'breaker_tripped', at: iso(), cause: pf.cause });
       const v = unavailableVerdict({ cause: pf.cause as IntegrityCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-      return blocked(config, v, false, basis, cw);
+      return blocked(config, v, false, basis, cw, undefined, undefined, grantObs);
     }
     // availability
     const availCause = pf.cause as AvailabilityCause;
+    // A grant was requested for THIS call: never OPEN_PASSTHROUGH / LKG-execute without a token.
+    // failPolicy 'open' remains the 9.5.0 opt-in only when the grant path is off.
+    if (grantObs && grantObs.requested) {
+      if (breakerTripped(config)) emit(config, { type: 'breaker_tripped', at: iso(), cause: availCause });
+      const v = unavailableVerdict({ cause: availCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
+      return blocked(config, v, false, basis, cw, undefined, undefined, grantObs);
+    }
     if (failPolicy === 'open' && !breakerTripped(config)) {
       emit(config, { type: 'preflight_unavailable', at: iso(), cause: availCause, action: 'CONTINUE' });
       const v = unavailableVerdict({ cause: availCause, failPolicy: 'open', resolution: 'OPEN_PASSTHROUGH', action: 'CONTINUE' }, count);
-      return runUnenforced(config, executeFactory, null, v, false, redacted, basis, cw);
+      return runUnenforced(config, executeFactory, null, v, false, redacted, basis, cw, undefined, undefined, undefined, grantObs);
     }
     if (failPolicy === 'lkg') {
       const lkg = await tryLkg(config, inputFp);
@@ -593,7 +659,7 @@ export async function guardToolCall<T>(
     }
     if (breakerTripped(config)) emit(config, { type: 'breaker_tripped', at: iso(), cause: availCause });
     const v = unavailableVerdict({ cause: availCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-    return blocked(config, v, false, basis, cw);
+    return blocked(config, v, false, basis, cw, undefined, undefined, grantObs);
   }
 
   // We have a response. Read the decision (envelope-first) and verify the receipt.
@@ -601,24 +667,24 @@ export async function guardToolCall<T>(
   // PRESENT but unrecognised action — halt with its own code before any decision map or reconcile.
   if (rd.reason === 'EXECUTION_ACTION_UNRECOGNISED') {
     breakerRecord(config);
-    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
   // Missing EA on v2 / non-legacy-1.0 — reuse closedIntegrity halt arm, cause UNREADABLE_DECISION.
   // executed:false, enforced:false (blocked()). Never remap to CONTINUE.
   if (rd.reason === 'UNREADABLE_DECISION') {
     breakerRecord(config);
-    return closedIntegrity(config, 'UNREADABLE_DECISION', failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'UNREADABLE_DECISION', failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
   if (!rd.envelope) {
     // Known action but no envelope => integrity => closed.
     breakerRecord(config);
-    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
   const envelope = rd.envelope;
   // Past unrecognised early-return: action is a closed ExecutionAction (or we treat non-closed as integrity).
   if (!isClosedAction(rd.executionAction)) {
     breakerRecord(config);
-    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'EXECUTION_ACTION_UNRECOGNISED', failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
   const closedAction: ExecutionAction = rd.executionAction;
 
@@ -637,7 +703,7 @@ export async function guardToolCall<T>(
   // signature. Both trip the breaker and STOP — the guard NEVER executes off an unbound receipt.
   if (config.verifyReceipts !== false && !receiptVerified && envelope.receipt?.token) {
     breakerRecord(config);
-    return closedIntegrity(config, bindResult.cause ?? 'RECEIPT_UNVERIFIED', failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, bindResult.cause ?? 'RECEIPT_UNVERIFIED', failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
 
   // ── Client-side authorization gate (P0-b/c): mirror §106/§111/§115 before honoring any action. ──
@@ -651,22 +717,39 @@ export async function guardToolCall<T>(
   const gate = evaluateEnvelope(pf.response, envelope as unknown as Record<string, unknown>, closedAction, detection.artifacts);
   if (gate.verdict === 'fail-closed') {
     breakerRecord(config);
-    return closedIntegrity(config, gate.cause, failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, gate.cause, failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
   if (gate.verdict === 'block-strict') {
     // A real (or stricter-reconciled) BLOCK / REQUIRE_APPROVAL — clean block; the factory never runs.
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
     const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
     return gate.decision === 'BLOCK'
-      ? blocked(config, { kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis, cw)
-      : blocked(config, { kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis, cw);
+      ? blocked(config, { kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis, cw, undefined, undefined, grantObs)
+      : blocked(config, { kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis, cw, undefined, undefined, grantObs);
   }
   const kind = gate.kind; // 'ALLOW' | 'MONITOR' — allow-class, safe, non-degraded, artifact-bound.
+
+  // Native grant: allow-class authorize that requested a grant must RECEIVE one.
+  // BLOCK/RA never mint a grant — missing token there is not EXECUTION_GRANT_MISSING.
+  if (grantObs && grantObs.requested) {
+    grantForCall = readExecutionGrantToken(pf.response);
+    grantObs = { requested: true, arrived: !!grantForCall };
+    if (!grantForCall) {
+      breakerRecord(config);
+      return closedIntegrity(
+        config, 'EXECUTION_GRANT_MISSING', failPolicy, fctx, cwctx, redacted, detection.artifacts,
+        undefined, undefined, grantObs,
+      );
+    }
+  }
+  const grantCtx: ExecutionGrantCallContext | undefined = grantObs
+    ? { execution_grant: grantForCall }
+    : undefined;
 
   // An expired decision cannot be honored fresh => closed (integrity: wrong-time state).
   if (expired) {
     breakerRecord(config);
-    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, 'SCHEMA_INVALID', failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
 
   // MONITOR gate: host must ASSERT monitoring is wired (monitoringSinkWired === true) AND supply
@@ -721,7 +804,7 @@ export async function guardToolCall<T>(
       breakerRecord(config);
       return closedIntegrity(
         config, 'MONITORING_UNWIRED', failPolicy, fctx, cwctx, redacted, detection.artifacts,
-        monitoringDelivery, monitoringAttestation,
+        monitoringDelivery, monitoringAttestation, grantObs,
       );
     }
   }
@@ -732,14 +815,14 @@ export async function guardToolCall<T>(
   );
   if (freshBlock === 'FRESHNESS_REQUIRED' || freshBlock === 'FRESHNESS_FAILED') {
     breakerRecord(config);
-    return closedIntegrity(config, freshBlock, failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, freshBlock, failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
 
   // Conditional-write re-check immediately before enforced execution (same conjunct class as freshness).
   const { basis: cwBasis, blockCause: cwBlock } = conditionalWriteFor(config, redacted, cwctx);
   if (cwBlock === 'CONDITIONAL_WRITE_REQUIRED') {
     breakerRecord(config);
-    return closedIntegrity(config, cwBlock, failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    return closedIntegrity(config, cwBlock, failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
   }
 
   // observeOnly is an EXPLICIT report-only opt-in: execute but never enforce (the one sanctioned
@@ -749,7 +832,7 @@ export async function guardToolCall<T>(
     const verdict: GuardVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
-    return runUnenforced(config, executeFactory, envelope, verdict, true, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation);
+    return runUnenforced(config, executeFactory, envelope, verdict, true, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation, grantCtx, grantObs);
   }
 
   // Advisory CWM (sink WAS wired): delivery failed but failPolicy/observeOnly said not to block.
@@ -758,7 +841,7 @@ export async function guardToolCall<T>(
   if (kind === 'MONITOR' && sinkWired && monitoringDelivery && monitoringDelivery.status === 'not_delivered') {
     const degraded: GuardVerdict = { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
     return runUnenforced(
-      config, executeFactory, envelope, degraded, true, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation,
+      config, executeFactory, envelope, degraded, true, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation, grantCtx, grantObs,
     );
   }
 
@@ -790,7 +873,7 @@ export async function guardToolCall<T>(
         ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
         : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
       return runUnenforced(
-        config, executeFactory, envelope, offVerdict, true, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation,
+        config, executeFactory, envelope, offVerdict, true, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation, grantCtx, grantObs,
       );
     }
     const et = checkExecutionTimeFingerprint({
@@ -813,6 +896,9 @@ export async function guardToolCall<T>(
           cwctx,
           redacted,
           detection.artifacts,
+          undefined,
+          undefined,
+          grantObs,
         );
       }
       // warn opt-down: emit, then run unenforced — a measured mismatch is not an enforced run.
@@ -840,13 +926,13 @@ export async function guardToolCall<T>(
         ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified }
         : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified };
       return runUnenforced(
-        config, executeFactory, envelope, warnVerdict, true, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation,
+        config, executeFactory, envelope, warnVerdict, true, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation, grantCtx, grantObs,
       );
     }
     const approved: ApprovedVerdict = kind === 'ALLOW'
       ? { kind: 'ALLOW', action: 'CONTINUE', envelope, receiptVerified: true }
       : { kind: 'MONITOR', action: 'CONTINUE_WITH_MONITORING', envelope, receiptVerified: true };
-    return runEnforced(config, executeFactory, approved, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation);
+    return runEnforced(config, executeFactory, approved, redacted, freshBasis, cwBasis, monitoringDelivery, monitoringAttestation, grantCtx, grantObs);
   }
   breakerRecord(config);
   return closedIntegrity(
@@ -859,6 +945,7 @@ export async function guardToolCall<T>(
     detection.artifacts,
     monitoringDelivery,
     monitoringAttestation,
+    grantObs,
   );
 }
 
@@ -872,13 +959,14 @@ function closedIntegrity<T>(
   arts?: Artifact[],
   monitoring_delivery?: MonitoringDelivery,
   monitoring_attestation?: string,
+  grantObs?: ExecutionGrantObservation,
 ): GuardOutcome<T> {
   const count = (breakers.get(config)?.fails.length) ?? 1;
   emit(config, { type: 'breaker_tripped', at: iso(), cause });
   const v = unavailableVerdict({ cause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
   const { basis } = freshnessFor(config, redacted, fctx, arts);
   const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
-  return blocked(config, v, false, basis, cw, monitoring_delivery, monitoring_attestation);
+  return blocked(config, v, false, basis, cw, monitoring_delivery, monitoring_attestation, grantObs);
 }
 
 function isExpired(envelope: DecisionResultEnvelope): boolean {

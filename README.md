@@ -250,6 +250,41 @@ const { tools, registry_report, composition_assurance, receipt_thread } = withCo
 // register ONLY `tools`. Receipt carry-forward is default-on (`receipt_thread`).
 ```
 
+### Native execution grant (`executionGrant`, 9.6.0)
+
+`withCodeRifts` 9.5.0 could not request a grant: its authorize sent four
+fields and the factory received `decision_result`, so a top-level
+`execution_grant` was dropped. The interim app-side wrap
+(`withExecutionGrantClient` / `takeGrant()`) worked but was **last-authorize**
+— overlapping tool calls could hand a tool the wrong grant.
+
+9.6.0 closes that natively. Default **OFF** (absent config is byte-identical
+to 9.5.0). A host on 9.6.0 does **not** need `withExecutionGrantClient`.
+
+```typescript
+const { tools } = withCodeRifts({
+  tools: rawTools, // execute(args, { execution_grant }) — 2nd arg is THIS call's grant
+  client,
+  operation: 'merge',
+  executionGrant: {
+    enabled: true,
+    // Optional. Return the ATOMIC nonce for THIS call (customer executor
+    // state-challenge). A throw fails the call closed
+    // (EXECUTION_GRANT_NONCE_UNRESOLVABLE) — never a grant-less proceed.
+    resolveStateNonce: async ({ artifactId, toolName, args }) =>
+      challengeNonceFor(artifactId),
+  },
+});
+```
+
+`guardToolCall` factory 3rd argument is the same `{ execution_grant }` object,
+scoped to that invocation. Allow-class authorize that requested a grant and
+does not receive one fails closed (`EXECUTION_GRANT_MISSING` /
+`SIGNER_UNAVAILABLE`). After a grant was requested, `failPolicy: 'open'`
+does not OPEN_PASSTHROUGH grant-less — the call fails closed with the
+server's reason. The outcome records `{ requested, arrived }` only —
+not the token. Not a verdict input; not a preimage field.
+
 Honesty (do not over-claim):
 
 - **Freshness** is ACTIVE only because STRICT sets `requireFreshness` **and** you supplied

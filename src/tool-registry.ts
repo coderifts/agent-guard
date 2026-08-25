@@ -40,7 +40,10 @@ export type RawTool = {
   name: string;
   description?: string;
   inputSchema?: unknown;
-  execute: (args: unknown) => Promise<unknown> | unknown;
+  execute: (
+    args: unknown,
+    execution?: import('./types.js').ExecutionGrantCallContext,
+  ) => Promise<unknown> | unknown;
   mutationClass?: ToolMutationClass;
   meta?: Record<string, unknown>;
 };
@@ -322,9 +325,15 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
         resolvePriorContent: guardCfg.resolvePriorContent,
       });
       const fctx = await refreshContext(call);
-      const factory = async (_envelope: DecisionResultEnvelope | null, redacted: ToolCallDescriptor) => {
+      const factory = async (
+        _envelope: DecisionResultEnvelope | null,
+        redacted: ToolCallDescriptor,
+        execution?: import('./types.js').ExecutionGrantCallContext,
+      ) => {
         const rawArgs = redacted ? redacted.arguments : args;
-        return wrapWriteWithFsCas(rawArgs, () => rawExecute(rawArgs));
+        return wrapWriteWithFsCas(rawArgs, () => (
+          execution ? rawExecute(rawArgs, execution) : rawExecute(rawArgs)
+        ));
       };
       const outcome = normalizeAutoRecheck(guardCfg.autoRecheck)
         ? await runAutoRecheckLoop({

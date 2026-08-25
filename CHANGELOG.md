@@ -1,5 +1,41 @@
 # Changelog
 
+## 9.6.0
+
+Native execution grant on `withCodeRifts` / `guardToolCall`. The 9.5.0
+host-wrap (`withExecutionGrantClient` / `takeGrant()`) is no longer needed
+once a host is on 9.6.0: that wrap was last-authorize (racy under overlapping
+tool calls). The grant is now scoped to the invocation that authorized it.
+
+### Added
+
+- **`executionGrant: { enabled: true, resolveStateNonce? }`** on
+  `withCodeRifts` / `GuardConfig`. Default **OFF** (absent → byte-identical
+  to 9.5.0). When enabled, THIS call's authorize carries
+  `include_execution_grant: true` and, if `resolveStateNonce` is supplied,
+  the `state_nonce` it returns for that call (ATOMIC profile).
+- The factory's optional 3rd argument is `{ execution_grant }` for THIS
+  call. `RawTool.execute` may take the same object as a 2nd argument
+  (existing 1-arg execute functions ignore it).
+- Outcome observation `{ requested, arrived }` on `outcome.execution_grant`
+  when the path was on. The token is not recorded on the outcome.
+- Fail-closed named causes: `EXECUTION_GRANT_NONCE_UNRESOLVABLE` (resolver
+  throw), `EXECUTION_GRANT_MISSING` (allow-class 200 with no grant),
+  `SIGNER_UNAVAILABLE` (503 / `code: SIGNER_UNAVAILABLE`, including a
+  naked 503 on a grant-requesting authorize). After a grant was requested
+  for THIS call, `failPolicy: 'open'` / LKG cannot execute grant-less —
+  the call fails closed with the server's reason. Grant-OFF `open` is
+  unchanged (9.5.0).
+
+### Unchanged
+
+- Grant flags are not a verdict input and are not in any fingerprint
+  preimage.
+- BLOCK / REQUIRE_APPROVAL still do not require a grant (the server does
+  not mint one on deny-class).
+- App-side `withExecutionGrantClient` remains valid for hosts still on
+  9.5.0; it is unnecessary on 9.6.0.
+
 ## 9.5.0
 
 Source: 7-AI panel — the largest real gain from a pre-execution attachment is

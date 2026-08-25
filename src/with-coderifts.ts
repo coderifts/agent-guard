@@ -335,6 +335,12 @@ export type WithCodeRiftsInput = {
    * Observation only (policy_presence). Absent = field omitted on the outcome.
    */
   systemPrompt?: string;
+  /**
+   * Native execution grant (9.6.0). Default OFF (absent → 9.5.0 byte-identical).
+   * Forwarded onto GuardConfig.executionGrant. `{ enabled: true }` makes THIS
+   * call's authorize request a grant; resolveStateNonce is per-call ATOMIC nonce.
+   */
+  executionGrant?: GuardConfig['executionGrant'];
 };
 
 /** The narrower product-level statement, computed separately from the registry's own report. */
@@ -843,6 +849,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.systemPrompt !== undefined) {
     guard.systemPrompt = input.systemPrompt;
+  }
+  if (input.executionGrant !== undefined) {
+    guard.executionGrant = input.executionGrant;
   }
   const strict = isEnforcingStrict(input);
   if (strict) {
