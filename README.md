@@ -174,17 +174,22 @@ When `withCodeRifts({ executorAttestation: { registry } })` is set and a CAS out
 > binder needed). A custom binder is still required only when the content lives under a different
 > argument name or must be resolved from `filesTouched`/`diff`.
 
-### Guarding the whole tool surface (inescapability)
+### Guarding the whole tool surface (registry scope)
 
-`guardToolCall` guards one call. To make CodeRifts the **only** path a mutating tool can take, wrap
-your entire tool list with [`guardToolRegistry`](#) — it returns the sole tool table the agent may
-see (every mutator wrapped, fail-closed at construction if any would remain raw):
+`guardToolCall` guards one call. [`guardToolRegistry`](#) takes your whole tool list and returns a
+table in which every mutator is wrapped, failing closed at construction if any would remain raw.
+What that buys is a property of **the returned table**, not of the agent: register only this table,
+and no mutator *in it* is reachable raw. Tools the host registers elsewhere are outside the guard —
+see **The two scopes** below for how `registry_report` and `composition_assurance` answer those two
+different questions.
 
 ```typescript
 import { guardToolRegistry } from '@coderifts/agent-guard';
 
 const { tools, coverage } = guardToolRegistry(rawTools, { guard: { client } });
-// register ONLY `tools` with your agent SDK; coverage === 'COMPLETE' ⇒ no mutator is reachable raw.
+// register ONLY `tools`; coverage === 'COMPLETE' ⇒ no mutator IN THIS TABLE is reachable raw.
+// That is table-truth, not a coverage claim about live traffic: for what was actually
+// observed this run, read `composition_assurance.observed_class`.
 ```
 
 ### One-call orchestration with `withCodeRifts` (S1 + S2)
@@ -961,6 +966,15 @@ Pass claim+lifecycle on `withCodeRifts({ …, onEvent, monitoringSinkWired: true
   SKIPPED, observeOnly, or fail-open paths (unrepresentable at compile time).
 - **Integrity failures never fail open** — a bad signature, schema-invalid response, detector/config
   error, or request-attributable rejection (413/422) always resolves closed + trips the breaker.
+
+**The artifact is not the contract.** Every guarantee above keys off a change to a contract *file*.
+An implementation edit under an unchanged spec changes the served behaviour and produces nothing for
+this package to see: the detector does not trigger, no preflight fires, and a clean run means only
+that the artifact did not move. A handler that starts returning `null` for a field the schema still
+marks required, a response that quietly changes shape, an authorization check deleted behind a
+byte-identical OpenAPI file — none of those are contract changes as far as this package is
+concerned, and none of them are caught here. Governing the artifact is not the same as governing the
+behaviour it describes, and this package does not diff served behaviour.
 
 ## Trigger detection
 

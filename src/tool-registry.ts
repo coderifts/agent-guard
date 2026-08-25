@@ -1,9 +1,10 @@
 /**
- * guardToolRegistry — the agent-runtime inescapability layer (guard-tool-registry-SPEC v1.0).
+ * guardToolRegistry — the agent-runtime tool-table boundary (guard-tool-registry-SPEC v1.0).
  *
- * The layer ABOVE the shipped `guardToolCall`: it takes the host's raw tool list and returns the ONLY
- * tool table the agent is allowed to see — every mutating capability wrapped so it cannot execute
- * without entering `guardToolCall`, and construction FAILS CLOSED if a mutator would remain raw.
+ * The layer ABOVE the shipped `guardToolCall`: it takes the host's raw tool list and returns a tool
+ * table in which every mutating capability is wrapped so it cannot execute without entering
+ * `guardToolCall`, and construction FAILS CLOSED if a mutator would remain raw. That is a property
+ * of the returned table — tools the host registers elsewhere are outside it.
  *
  * Scope honesty (enforcement-architecture §1): this secures **Placement A — the agent-host runtime
  * tool boundary ONLY**. It NEVER claims merge (Placement B / sibling #7) or deploy inescapability;
