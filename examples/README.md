@@ -15,6 +15,31 @@ repo. They are **not** a claim that the freshness / TOCTOU story is closed.
 | [`langgraph-adapter.mjs`](./langgraph-adapter.mjs) | **ID632** thin LangChain/LangGraph adapter: plain descriptors `{ name, description?, schema, func, invoke }` (no hard framework dep). Host wires into `tool()` / `ToolNode`. Assurance unflattened. |
 | [`gemini-adapter.mjs`](./gemini-adapter.mjs) | **ID632** thin Google Gemini adapter: `tools: [{ functionDeclarations: [{ name, description?, parameters }] }]`. Assurance unflattened. |
 | [`final-answer-proof.mjs`](./final-answer-proof.mjs) | **ID645** human-readable final-answer proof block: verified/enforced vs skipped (`currently_authorized: null`) side by side; limits always surfaced. |
+| [`langgraph-guard-python/`](./langgraph-guard-python/) | **Python** reference for the same control-flow contract this package enforces in TS: branch on `execution_action`, closed set of four, present-but-unknown halts. Framework nodes for LangGraph / LangChain / AutoGen plus a `@coderifts_guard` decorator. Offline test suite, stdlib only. |
+
+### About `langgraph-guard-python/`
+
+Consolidated in from `coderifts/example-langgraph-guard` (git subtree, history
+preserved). It is here because it is an **example of the same contract**, not a
+second implementation of this package: it is Python, it targets the zero-auth
+`POST /api/v1/demo` endpoint, and it never imports `@coderifts/agent-guard`.
+
+It is the language-mirror of the rule this package enforces, taken verbatim from
+`/.well-known/coderifts.json` → `recommended_usage`:
+
+    branch_on                      = execution_action
+    execution_action               = [CONTINUE, CONTINUE_WITH_MONITORING,
+                                      REQUEST_APPROVAL, STOP]
+    unrecognised_execution_action  = not_permission_fail_closed
+    safe_for_agent                 = not_for_control_flow_use_execution_action
+
+Verified at consolidation time: `python3 langgraph-guard-python/test_execution_action.py`
+→ **10 passed**, offline, standard library only. The `langgraph`/`langchain`
+node files need their frameworks installed to run; the decorator, the evaluator
+and the whole test suite do not.
+
+Like everything else in this directory it is **not** shipped: `package.json` →
+`"files": ["dist", "README.md"]`.
 
 ## Production-grade sibling
 
