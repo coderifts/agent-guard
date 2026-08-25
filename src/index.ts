@@ -558,3 +558,20 @@ export type {
   ExecuteGeminiToolCallArgs,
   ExecuteLangGraphToolCallArgs,
 } from './execute-tool-call.js';
+
+export {
+  TOOLSET_ATTEST_VERSION,
+  TOOLSET_ATTEST_SIGNING_PREFIX,
+  TOOLSET_ATTEST_ENVELOPE_TAG,
+  TOOLSET_ATTEST_STATEMENT,
+  computeToolsetDigest,
+  declarationEntriesFromTools,
+  toolsetAttestSigningInput,
+  tryIssueToolsetAttestation,
+  kidFromToolsetAttestation,
+} from './toolset-attestation.js';
+export type {
+  ToolsetAttestationConfig,
+  ToolsetAttestationSigner,
+  ToolsetDeclarationEntry,
+} from './toolset-attestation.js';
