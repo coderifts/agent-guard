@@ -138,6 +138,18 @@ export type {
   MonitoringAttestationConfig,
   MonitoringAttestationSigner,
 } from './monitoring-attestation.js';
+export {
+  tryIssueCoverageAttestation,
+  kidFromCoverageAttestation,
+  coverageAttestSigningInput,
+  COVERAGE_ATTEST_VERSION,
+  COVERAGE_ATTEST_SIGNING_PREFIX,
+  COVERAGE_ATTEST_ENVELOPE_TAG,
+} from './coverage-attestation.js';
+export type {
+  CoverageAttestationConfig,
+  CoverageAttestationSigner,
+} from './coverage-attestation.js';
 export type {
   MonitoringDelivery,
   MonitoringDeliveryStatus,
