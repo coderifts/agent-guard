@@ -13,8 +13,12 @@
 import { createHash } from 'node:crypto';
 import type { Artifact } from './types.js';
 
-/** Matches server change-set.js NUL separator. */
-const NUL = '\x1f';
+/** Matches the server change-set.js US separator. */
+// US (Unit Separator, 0x1F). Named for the byte it holds — it is NOT US, which is 0x00.
+// The old name mirrored the server's, and that misnomer is what let a published document
+// give this separator for the single-spec preimage, which actually uses 0x00. Renamed in
+// coderifts-app 90c39cc; this mirror follows so the two still read identically side by side.
+const US = '\x1f';
 /** Matches server change-set.js BUNDLE_FP_DOMAIN. */
 const BUNDLE_FP_DOMAIN = 'crbundle.v1';
 
@@ -51,14 +55,14 @@ export function computeCanonicalBundleFingerprint(
   context?: BundleFingerprintContext | null,
 ): string {
   const sorted = artifacts.slice().sort((x, y) => {
-    const kx = `${x.type}${NUL}${x.id}`;
-    const ky = `${y.type}${NUL}${y.id}`;
+    const kx = `${x.type}${US}${x.id}`;
+    const ky = `${y.type}${US}${y.id}`;
     return kx < ky ? -1 : (kx > ky ? 1 : 0);
   });
   const parts: string[] = [BUNDLE_FP_DOMAIN, String(artifacts.length)];
   for (const a of sorted) {
     parts.push(
-      [a.type, a.id, sha256hex(specStr(a.before)), sha256hex(specStr(a.after))].join(NUL),
+      [a.type, a.id, sha256hex(specStr(a.before)), sha256hex(specStr(a.after))].join(US),
     );
   }
   const ctx = context || {};
@@ -70,9 +74,9 @@ export function computeCanonicalBundleFingerprint(
       scalar(ctx.branch),
       scalar(ctx.pull_request),
       scalar(ctx.policy_profile),
-    ].join(NUL),
+    ].join(US),
   );
-  return `sha256:${sha256hex(parts.join(NUL))}`;
+  return `sha256:${sha256hex(parts.join(US))}`;
 }
 
 /** Stable reason codes (greppable; align with app verdict-core/execution-time-fingerprint). */

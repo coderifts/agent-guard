@@ -38,16 +38,20 @@ function isAction(v: unknown): v is Action {
   return v === 'CONTINUE' || v === 'CONTINUE_WITH_MONITORING' || v === 'REQUEST_APPROVAL' || v === 'STOP';
 }
 
-const NUL = '\x1f'; // matches the server's change-set canonical separator
+// US (Unit Separator, 0x1F). Named for the byte it holds — it is NOT US, which is 0x00.
+// The old name mirrored the server's, and that misnomer is what let a published document
+// give this separator for the single-spec preimage, which actually uses 0x00. Renamed in
+// coderifts-app 90c39cc; this mirror follows so the two still read identically side by side.
+const US = '\x1f'; // matches the server's change-set canonical separator
 function sha256hex(s: string): string { return createHash('sha256').update(s).digest('hex'); }
 function specStr(v: unknown): string { return v == null ? '' : (typeof v === 'string' ? v : JSON.stringify(v)); }
 
 /** Local artifact_digest — byte-identical to the server change-set.js algorithm (sorted by type,id). */
 export function computeArtifactDigest(artifacts: Artifact[]): string {
   const preimage = artifacts.slice()
-    .sort((a, b) => (`${a.type}${NUL}${a.id}` < `${b.type}${NUL}${b.id}` ? -1 : 1))
+    .sort((a, b) => (`${a.type}${US}${a.id}` < `${b.type}${US}${b.id}` ? -1 : 1))
     .map((a) => `${sha256hex(specStr(a.before))}${sha256hex(specStr(a.after))}`)
-    .join(NUL);
+    .join(US);
   return `sha256:${sha256hex(preimage)}`;
 }
 
