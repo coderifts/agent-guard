@@ -237,7 +237,8 @@ outside the returned table — residual `calls_outside_guarded_path_invisible`. 
 The `withCodeRifts` example above is the **entry point** (absent profile: freshness and
 conditional-write stay opt-in). For production, lock the fail-closed conjunction with
 `profile: 'ENFORCING_STRICT'` (shipped guard@8.1.0; current package 8.3.0). Construction
-**aborts** if you opt down any locked flag or omit `resolvePriorContent`.
+**aborts** if you opt down any locked flag, omit `resolvePriorContent`, or omit the execution
+chain (`executionGrant: { enabled: true }`, required since 9.8.0).
 
 ```typescript
 import { withCodeRifts } from '@coderifts/agent-guard';
@@ -251,6 +252,11 @@ const { tools, registry_report, composition_assurance, receipt_thread } = withCo
   // bytes for write-style freshness. The composition core does not read the filesystem;
   // the FS token resolver and the T3 commit-observation adapters do (node:fs).
   resolvePriorContent: ({ artifactId }) => readPrior(artifactId),
+  // Required under STRICT since 9.8.0. Without a grant nothing binds the executor to the
+  // authorized change, so a commit can never be proven. Omit `resolveStateNonce` and you get
+  // the BEARER profile — permitted, and recorded as residual
+  // `execution_grant_bearer_no_state_nonce`.
+  executionGrant: { enabled: true, resolveStateNonce: ({ artifactId }) => nonceFor(artifactId) },
 });
 // register ONLY `tools`. Receipt carry-forward is default-on (`receipt_thread`).
 ```

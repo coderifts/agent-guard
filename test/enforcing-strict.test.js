@@ -26,6 +26,10 @@ function strictBase(extra = {}) {
     operation: 'merge',
     profile: 'ENFORCING_STRICT',
     resolvePriorContent: STUB_RESOLVER,
+    // 9.8.0: ENFORCING_STRICT now requires the execution chain. This fixture had no grant, which
+    // is exactly the composition the auditor found building cleanly — updated deliberately, not
+    // to make a red suite green.
+    executionGrant: { enabled: true },
     ...extra,
   };
 }

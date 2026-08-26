@@ -441,6 +441,11 @@ const RESIDUAL_CALLS_OUTSIDE_GUARDED_PATH = 'calls_outside_guarded_path_invisibl
 // S2 weakening-override residuals — derived SOLELY from registry report.warnings (never recomputed).
 const RESIDUAL_FORCED_READONLY = 'composition_forced_readonly_on_heuristic_mutator';
 const RESIDUAL_UNKNOWN_READONLY = 'composition_unknown_treated_as_readonly';
+/**
+ * ENFORCING_STRICT with a grant but no per-call nonce = the BEARER profile. Named, not refused —
+ * see the ATOMIC-vs-BEARER note on assertEnforcingStrictExecutionChain.
+ */
+const RESIDUAL_GRANT_BEARER_NO_STATE_NONCE = 'execution_grant_bearer_no_state_nonce';
 
 /**
  * Coverage strength ordering, strongest → weakest. `requireCoverage` aborts when the registry's ACTUAL
@@ -472,6 +477,66 @@ function isEnforcingStrict(input: WithCodeRiftsInput): boolean {
  * `unknownToolPolicy: 'reject'` is stricter than 'mutating' (unclassified throws) — not a weaken.
  * `'readonly'` hides a possible mutator → conflict.
  */
+/**
+ * ENFORCING_STRICT must mean the EXECUTION CHAIN, not just the guard lock.
+ *
+ * MEASURED 2026-08-26 against shipped 9.7.0: a strict composition built cleanly with
+ * executionGrant absent AND with `enabled: false`. "Strict" therefore locked the guard's own
+ * fail-closed flags while the chain that makes a commit provable was entirely optional — and the
+ * website had to carry a sentence saying so. This makes that sentence unnecessary.
+ *
+ * WHAT STRICT CAN DEMAND AT CONSTRUCTION vs WHAT IT CAN ONLY OBSERVE — the honesty of the profile
+ * is this split, so it is written down rather than blurred:
+ *
+ *   CONSTRUCTION-TIME (config the host supplies; the guard can refuse to build):
+ *     · an execution grant           executionGrant.enabled === true      ← enforced here
+ *     · a per-call state_nonce       executionGrant.resolveStateNonce     ← NOT required; see below
+ *
+ *   OBSERVED AFTERWARDS (facts about the EXECUTOR; the guard can only report what it saw):
+ *     · single-use nonce consumption AT THE EXECUTOR — the executor is a remote party. The guard
+ *       never witnesses consumption; it sees only whether the executor refused. Unenforceable here.
+ *     · scope-hash checking — the grant is bound server-side; the guard cross-checks a returned
+ *       grant binding (cas-attestation.ts:157) but cannot make the executor honour it.
+ *     · executor attestation verifying — cas_evidence: executor_attested, per call.
+ *     · success named authorized_and_committed — already strict-only tightened
+ *       (cas-attestation.ts:162-176); without evidence it degrades to authorized_not_committed.
+ *
+ * Strict demands the former. For the latter it can demand only that the host WIRED the observation,
+ * never that the executor behaved — so this function refuses on config, and the outcome keeps
+ * reporting what it observed.
+ *
+ * ATOMIC vs BEARER — decided, not defaulted. Strict requires a grant; it does NOT require
+ * resolveStateNonce, and records RESIDUAL_GRANT_BEARER_NO_STATE_NONCE when it is absent. Reasons:
+ * (1) a nonce's value is realised entirely at the executor, which the guard cannot observe, so
+ * requiring the config would demand a setting whose effect we cannot verify — the exact
+ * construction-time/observed blur this split exists to prevent; (2) our own shipped text says
+ * "There is no ENFORCING_ATOMIC profile. ENFORCING_STRICT is the guard lock. ATOMIC is a GRANT
+ * profile" (docs/agents-quickstart.md), and making strict require ATOMIC would contradict a
+ * sentence we publish. BEARER is weaker, not broken — so it is named, not refused.
+ *
+ * executorAttestation is likewise NOT required at construction: without a registry a strict
+ * outcome can never reach authorized_and_committed, so the absence already tells the truth in the
+ * outcome rather than needing a second refusal.
+ */
+function enforcingStrictExecutionChainProblems(input: WithCodeRiftsInput): string[] {
+  const grant = input.executionGrant;
+  const enabled = !!(grant && (grant as { enabled?: unknown }).enabled === true);
+  if (enabled) return [];
+  const what = grant === undefined
+    ? 'executionGrant is absent'
+    : 'executionGrant.enabled is not true';
+  return [
+    `ENFORCING_STRICT requires the execution chain, but ${what}. Without a grant the guard `
+    + 'authorizes a change but nothing binds the executor to it, so a commit can never be proven '
+    + '(the outcome stays authorized_not_committed / commit_evidence_missing). Add:\n'
+    + "    executionGrant: { enabled: true }\n"
+    + '  and, for the ATOMIC profile (single-use at the executor), also:\n'
+    + "    executionGrant: { enabled: true, resolveStateNonce: ({ artifactId }) => nonceFor(artifactId) }\n"
+    + '  A grant without resolveStateNonce is the BEARER profile: permitted under strict, and '
+    + `recorded as residual ${RESIDUAL_GRANT_BEARER_NO_STATE_NONCE}.`,
+  ];
+}
+
 function enforcingStrictWeakenFlags(input: WithCodeRiftsInput): string[] {
   const flags: string[] = [];
   if (input.requireCoverage !== undefined) {
@@ -762,6 +827,8 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
     if (typeof input.resolvePriorContent !== 'function') {
       problems.push('ENFORCING_STRICT cannot be weakened: resolvePriorContent conflicts');
     }
+  // The execution chain — strict must mean the chain, not just the guard lock.
+    problems.push(...enforcingStrictExecutionChainProblems(input));
   }
   if (problems.length > 0) {
     throw new Error(
@@ -908,6 +975,14 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (report.warnings.includes('unknown_treated_as_readonly')) {
     residuals.push(RESIDUAL_UNKNOWN_READONLY);
+  }
+  // BEARER: a grant with no per-call nonce. Permitted under strict, named so the reader can see
+  // which grant profile this composition actually runs.
+  {
+    const g = input.executionGrant as { enabled?: unknown; resolveStateNonce?: unknown } | undefined;
+    if (g && g.enabled === true && typeof g.resolveStateNonce !== 'function') {
+      residuals.push(RESIDUAL_GRANT_BEARER_NO_STATE_NONCE);
+    }
   }
   // Freshness resolver: composition-level visibility. Absence is residual NOT_CONFIGURED;
   // presence is a host claim (freshness_resolver_wired), not proof every call was measured.
