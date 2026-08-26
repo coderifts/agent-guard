@@ -1,6 +1,37 @@
 # Changelog
 
-## Unreleased
+## 11.0.1
+
+Identifier rename only. **No preimage byte changed, and no digest moved.**
+
+### Changed
+
+- **The 0x1F separator constant is now named `US` (Unit Separator) instead of `NUL`.**
+  It was never NUL — NUL is 0x00 — and that misnomer was load-bearing: three constants
+  across the server and its mirrors were all called `NUL` while only one of them was,
+  which is how a published document (`RECEIPT_FORMAT.md` §2.0) came to give `\x1f` as the
+  separator for the single-spec preimage, which actually uses `\x00`. Anyone who followed
+  that revision computed a wrong digest. The name is now the measurement.
+
+  Affects `src/execution-time-fingerprint.ts` and `src/enforcement-gate.ts`, following the
+  server rename in `coderifts-app` 90c39cc. These files are kept faithful to the server BY
+  EYE, so a mirror left on the old name would read as drift where there was none.
+
+### Not changed — and this is why it is a patch
+
+- **Every preimage is byte-identical.** Proved per function rather than assumed, by
+  recomputing real vectors before and after: `computeCanonicalBundleFingerprint` and the
+  exported `computeBundleFingerprint` both still return
+  `sha256:049650f2…0443df` for the published `crbundle.v1` vector, and
+  `computeArtifactDigest` still returns `sha256:6ddd4c07…010817`.
+- **Nothing in the public surface names the constant.** Re-verified against this package
+  specifically: none of the 199 exports is a separator, the built `dist` contains the old
+  identifier zero times, and no `.d.ts` declares it. (`RECEIPT_PREV_NULL` is an unrelated
+  receipt-chain constant, not a separator.) A consumer cannot have pinned the old name, so
+  the rename cannot break one.
+
+
+## 11.0.0
 
 `computeBundleFingerprint` returned a WRONG digest and shipped that way in 10.0.0.
 
