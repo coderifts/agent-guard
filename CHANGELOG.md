@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased
+
+`computeBundleFingerprint` returned a WRONG digest and shipped that way in 10.0.0.
+
+### Fixed
+
+- **`computeBundleFingerprint(artifacts, context?)` now matches the server byte for byte.**
+  The 10.0.0 form took only `artifacts` and built its own preimage, omitting two elements the
+  server includes: the artifact **count**, and the entire trailing **context** block
+  (`operation`, `environment`, `repository`, `branch`, `pull_request`, `policy_profile`). On
+  identical inputs it returned `sha256:1a0e7470…` where the server returned `sha256:049650f2…`.
+
+  The effect was worse than an absent verifier: a third party checking a receipt's `fp` against
+  their own change set saw a mismatch and had no way to tell that the verifier, not the receipt,
+  was at fault.
+
+  Root cause was a **second preimage** inside this package. `execution-time-fingerprint.ts`
+  already carried a faithful mirror under the comment *"Do NOT invent a second preimage"*;
+  the exported function was that second preimage. It is now a thin delegation, so the package
+  carries exactly one crbundle.v1 implementation.
+
+### Compatibility — a behaviour break, made deliberately
+
+- The signature gains an optional second parameter, so **existing source keeps compiling**. What
+  changes is the **returned value**: any call that previously produced a digest now produces a
+  different — and correct — one.
+- **Measured, not assumed:** no caller anywhere in our repositories passes one argument. The only
+  references to a one-argument form are the old definition itself and a docstring. There is no
+  correct caller to protect, because the previous return value did not match the server for any
+  request that carried a context.
+- If you pinned a digest produced by 10.0.0's `computeBundleFingerprint`, it was not the server's
+  fingerprint. Recompute it; do not migrate it.
+- `computeCanonicalBundleFingerprint` is unchanged and remains exported. The two now return
+  identical values by construction, and a test asserts that for every fixture case.
+
+### Added
+
+- **`test/exported-bundle-fingerprint-parity.test.js`** — cross-repo parity for the EXPORTED name,
+  against the app's real `change-set.js` producer rather than a frozen hash, and unskippable: a
+  missing app checkout fails the suite instead of passing quietly.
+
+  The existing `crbundle-v1-parity-cross-repo.test.js` opens by saying it keeps
+  *"computeBundleFingerprint / computeCanonicalBundleFingerprint"* from drifting, but only ever
+  imported the canonical one — the exported name was never executed by a parity test. That gap is
+  how the fork survived in plain sight, so the new file tests the export specifically.
+
+
 ## 9.6.0
 
 Native execution grant on `withCodeRifts` / `guardToolCall`. The 9.5.0

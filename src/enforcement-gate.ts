@@ -16,6 +16,10 @@
 
 import { createHash } from 'node:crypto';
 import type { IntegrityCause, Artifact } from './types.js';
+import {
+  computeCanonicalBundleFingerprint,
+  type BundleFingerprintContext,
+} from './execution-time-fingerprint.js';
 
 type Decision = 'ALLOW' | 'WARN' | 'REQUIRE_APPROVAL' | 'BLOCK';
 type Action = 'CONTINUE' | 'CONTINUE_WITH_MONITORING' | 'REQUEST_APPROVAL' | 'STOP';
@@ -47,12 +51,31 @@ export function computeArtifactDigest(artifacts: Artifact[]): string {
   return `sha256:${sha256hex(preimage)}`;
 }
 
-/** Local bundle input_fingerprint — byte-identical to the server change-set.js algorithm. */
-export function computeBundleFingerprint(artifacts: Artifact[]): string {
-  const parts = artifacts.slice()
-    .sort((a, b) => (`${a.type}${NUL}${a.id}` < `${b.type}${NUL}${b.id}` ? -1 : 1))
-    .map((a) => [a.type, a.id, sha256hex(specStr(a.before)), sha256hex(specStr(a.after))].join(NUL));
-  return `sha256:${sha256hex(parts.join(NUL))}`;
+/**
+ * Local crbundle.v1 bundle fingerprint — byte-identical to the server producer
+ * (coderifts-app change-set.js computeBundleFingerprint).
+ *
+ * THIS WAS WRONG AND SHIPPED WRONG. Until now this function took only `artifacts` and built its
+ * OWN preimage, which omitted two elements the server includes: the artifact COUNT, and the whole
+ * trailing context block (operation, environment, repository, branch, pull_request,
+ * policy_profile). On identical inputs it returned sha256:1a0e7470… where the server returned
+ * sha256:049650f2… — so any third party who used it to check a receipt's `fp` against their own
+ * change set got a mismatch, with nothing to tell them the verifier was at fault rather than the
+ * receipt. A verifier that is quietly wrong is worse than one that is honestly absent.
+ *
+ * The root cause was a SECOND PREIMAGE in this package: execution-time-fingerprint.ts already
+ * carried a faithful mirror, under the comment "Do NOT invent a second preimage". This function
+ * was that second preimage. It is now a thin delegation, so the package has exactly one.
+ *
+ * `context` is optional to keep the call signature source-compatible, but omitting it produces a
+ * DIFFERENT (and, for any request that carried a context, still non-matching) digest — the server
+ * folds the context in unconditionally. Pass the same context you sent with the request.
+ */
+export function computeBundleFingerprint(
+  artifacts: Artifact[],
+  context?: BundleFingerprintContext | null,
+): string {
+  return computeCanonicalBundleFingerprint(artifacts, context);
 }
 
 export type GateResult =
