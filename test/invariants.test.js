@@ -87,24 +87,37 @@ describe('#2 CAS adapters contain no shell or network capability', () => {
   });
 });
 
-describe('#4 the atomic profile IS a bag of flags today — the violation, pinned', () => {
-  it('ENFORCING_STRICT is enforced as independently settable flags, not a versioned contract', () => {
-    const wc = codeOnly(readSrc('with-coderifts.ts'));
-    // If this ever becomes a contract, these flag names stop being individually inspected and the
-    // test must be rewritten deliberately — which is the point of pinning the violation.
-    for (const flag of ['requireCoverage', 'requireFreshness', 'requireExecutionStateMatch',
-      'requireConditionalWrite', 'requireCommitObservation']) {
-      assert.ok(wc.includes(flag), `${flag} should still be a separately checked flag today`);
-    }
-    assert.match(INVARIANTS, /## 4\.[\s\S]*?WE DO NOT HOLD THIS TODAY/,
-      'INVARIANTS.md must record #4 as violated while this is true');
+describe('#4 the atomic profile — PARTLY fixed by _V1, and the remainder pinned', () => {
+  // UPDATED 2026-08-27 when ENFORCING_STRICT_V1 shipped. These tests used to pin the ORIGINAL
+  // violation (an unversioned name). That half is fixed and the record says so. What they pin now
+  // is the REMAINDER, because a shipped improvement must not quietly flip a record it did not
+  // fully earn — the entry in INVARIANTS.md still reads as violated, for two stated reasons.
+
+  it('REMAINDER 1: the unsuffixed alias is still an accepted UNVERSIONED public spelling', () => {
+    const wc = readSrc('with-coderifts.ts');
+    assert.match(wc, /export type WithCodeRiftsProfile = 'ENFORCING_STRICT' \| 'ENFORCING_STRICT_V1'/,
+      'both spellings are accepted; the unsuffixed one names a contract without naming its version');
+    // Nothing structural stops a maintainer re-pointing the alias at a future _V2 — only a comment
+    // and a test. Removing the alias in a major is what would close this.
+    assert.match(INVARIANTS, /## 4\.[\s\S]*?STILL VIOLATED, BUT NARROWLY/,
+      'INVARIANTS.md must keep #4 as violated while the alias exists');
   });
 
-  it('the profile name carries NO version, which is the defect 1100 addresses', () => {
-    const wc = readSrc('with-coderifts.ts');
-    assert.match(wc, /export type WithCodeRiftsProfile = 'ENFORCING_STRICT'/);
-    assert.equal(/ENFORCING_STRICT_V\d/.test(wc), false,
-      'if a versioned profile ships, #4 and this test must be revisited together');
+  it('REMAINDER 2: the contract is procedural checks, not a versioned table', () => {
+    const wc = codeOnly(readSrc('with-coderifts.ts'));
+    // _V1 is nine conditions across three code paths, frozen by a test that READS THE SOURCE.
+    // That is drift protection, not a declaration. A real contract would be data both _V1 and a
+    // future _V2 point at.
+    assert.ok(wc.includes('enforcingStrictWeakenFlags'), 'still a flag-scanning function');
+    assert.ok(wc.includes('enforcingStrictExecutionChainProblems'), 'still a separate chain check');
+    assert.equal(/PROFILE_CONTRACTS\s*[:=]|const PROFILES\s*[:=]/.test(wc), false,
+      'if a versioned contract TABLE ships, #4 and this test must be revisited together');
+  });
+
+  it('WHAT WAS FIXED is recorded, not merely dropped', () => {
+    // The rule this entry came from — meaning changing under its own name — cannot recur for _V1.
+    assert.match(INVARIANTS, /## 4\.[\s\S]*?UPDATED 2026-08-27 WHEN `_V1` SHIPPED/);
+    assert.match(INVARIANTS, /## 4\.[\s\S]*?the expensive half is closed, the definitional half is not/);
   });
 });
 

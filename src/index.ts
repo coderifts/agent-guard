@@ -426,6 +426,7 @@ export {
   withCodeRifts,
   foldTableSettledCalls,
   guardedFractionAmongRoutes,
+  PROFILE_ENFORCING_STRICT_V1,
 } from './with-coderifts.js';
 export type {
   WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, WithCodeRiftsProfile, CompositionAssurance,

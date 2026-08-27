@@ -204,8 +204,56 @@ export function guardedFractionAmongRoutes(
   return { kind: 'present', fraction: counts.GUARDED / sum };
 }
 
-/** Opt-in fail-closed lock. Only value today: ENFORCING_STRICT. Absent = today's per-flag defaults. */
-export type WithCodeRiftsProfile = 'ENFORCING_STRICT';
+/**
+ * THE PROFILE IS A VERSIONED CONTRACT, not a bag of flags (roadmap 1100, invariant #4).
+ *
+ * WHAT `_V1` MEANS. It names the NINE conditions this package checks at construction today, frozen
+ * under that name forever: requireCoverage COMPLETE · requireFreshness · requireExecutionStateMatch
+ * · requireConditionalWrite · requireCommitObservation · registry.failOnUnguardedMutator ·
+ * registry.unknownToolPolicy not 'readonly' · a resolvePriorContent resolver · executionGrant.enabled.
+ *
+ * WHY THE SUFFIX, and the argument is this week's own release history. 10.0.0 and 12.0.0 were MAJOR
+ * releases for one reason: the meaning of `ENFORCING_STRICT` changed under its own name — first to
+ * require the execution chain, then the conditional-write gate. A caller who wrote
+ * `profile: 'ENFORCING_STRICT'` in 9.x got a different contract in 12.x without touching a line.
+ * With a version in the name, each of those is a NEW name (`_V2`), every adopter on `_V1` keeps
+ * exactly what they asked for, and the cost of a stricter rule drops to zero for everyone who did
+ * not ask for it. The next tightening MUST be `_V2`; adding a condition to `_V1` reintroduces the
+ * defect this type exists to remove.
+ *
+ * `'ENFORCING_STRICT'` (unsuffixed) is a DEPRECATED ALIAS that resolves to `_V1` and must resolve
+ * to `_V1` forever. Re-pointing it at a future `_V2` would silently move every existing caller,
+ * which is precisely the migration this design refuses.
+ *
+ * THE HONEST LIMIT, and it belongs on the type rather than in a changelog because this is what a
+ * reader of the type is entitled to know:
+ *
+ *   A profile can require CONFIGURATION at construction time. It can NEVER require EXECUTOR
+ *   BEHAVIOUR. Nine checked conditions have verified nine conditions — they have not verified that
+ *   any write was atomic, that a nonce was consumed exactly once, or that a commit happened. Those
+ *   are facts about an executor this package does not run and does not observe. A profile that
+ *   implied otherwise would be the overstatement class we spend most of our time removing.
+ */
+export type WithCodeRiftsProfile = 'ENFORCING_STRICT' | 'ENFORCING_STRICT_V1';
+
+/** The canonical contract name. The unsuffixed alias resolves here and always will. */
+export const PROFILE_ENFORCING_STRICT_V1 = 'ENFORCING_STRICT_V1' as const;
+
+/** Every accepted spelling. Order is documentation: canonical first, deprecated alias second. */
+const ACCEPTED_PROFILES: readonly WithCodeRiftsProfile[] = Object.freeze([
+  'ENFORCING_STRICT_V1', 'ENFORCING_STRICT',
+] as const);
+
+/**
+ * The value carried onto GuardConfig, and it is DELIBERATELY the unsuffixed string.
+ *
+ * Downstream consumers compare `opts.profile === 'ENFORCING_STRICT'` — cas-attestation's strict
+ * commit label, guard.ts, monitoring-delivery, execution-proof. Emitting `_V1` on the wire would
+ * change behaviour in four modules for a rename, which is exactly the "nothing moves" promise this
+ * ships under. The version lives on the INPUT type, where callers read it; the wire value is
+ * unchanged, and byte-identity is asserted in test/profile-v1.test.js.
+ */
+const GUARD_PROFILE_WIRE_VALUE = 'ENFORCING_STRICT' as const;
 
 export type WithCodeRiftsInput = {
   /** Raw tool list handed to the frozen guardToolRegistry (required). */
@@ -219,10 +267,13 @@ export type WithCodeRiftsInput = {
    */
   operation: string;
   /**
-   * Opt-in profile. `ENFORCING_STRICT` locks the fail-closed conjunction (requireCoverage COMPLETE,
+   * Opt-in profile. `ENFORCING_STRICT_V1` locks the fail-closed conjunction (requireCoverage COMPLETE,
    * requireFreshness, requireExecutionStateMatch true, requireConditionalWrite, requireCommitObservation,
-   * failOnUnguardedMutator, unknownToolPolicy mutating) and ABORTS construction on any conflicting opt-down.
+   * failOnUnguardedMutator, unknownToolPolicy mutating) plus a resolvePriorContent resolver and an
+   * enabled execution grant, and ABORTS construction on any conflicting opt-down.
+   * `ENFORCING_STRICT` is a deprecated alias for `_V1` and behaves identically.
    * Absent: today's defaults (freshness/conditional-write remain opt-in). Not weakenable when set.
+   * See WithCodeRiftsProfile for what a profile can and cannot require.
    */
   profile?: WithCodeRiftsProfile;
   /** Optional; carried through untouched. Artifact resolution is a later slice — S1 invents no use for it. */
@@ -468,8 +519,9 @@ function coverageRank(coverage: string): number | undefined {
     : undefined;
 }
 
+/** Both spellings select the same contract — the alias is a spelling, never a second profile. */
 function isEnforcingStrict(input: WithCodeRiftsInput): boolean {
-  return input.profile === 'ENFORCING_STRICT';
+  return input.profile === 'ENFORCING_STRICT' || input.profile === PROFILE_ENFORCING_STRICT_V1;
 }
 
 /**
@@ -815,8 +867,12 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   if (input.requireCoverage !== undefined && coverageRank(input.requireCoverage) === undefined) {
     problems.push(`\`requireCoverage\` must be one of COMPLETE | PARTIAL | BYPASSED | UNKNOWN (got ${JSON.stringify(input.requireCoverage)})`);
   }
-  if (input.profile !== undefined && input.profile !== 'ENFORCING_STRICT') {
-    problems.push(`\`profile\` must be 'ENFORCING_STRICT' when set (got ${JSON.stringify(input.profile)})`);
+  if (input.profile !== undefined && !ACCEPTED_PROFILES.includes(input.profile)) {
+    problems.push(
+      `\`profile\` must be one of ${ACCEPTED_PROFILES.map((p) => `'${p}'`).join(' | ')} when set `
+      + `(got ${JSON.stringify(input.profile)}). 'ENFORCING_STRICT' is a deprecated alias for `
+      + `'${PROFILE_ENFORCING_STRICT_V1}'.`,
+    );
   }
   if (isEnforcingStrict(input)) {
     const weaken = enforcingStrictWeakenFlags(input);
@@ -870,8 +926,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   if (input.ackHmacKey !== undefined) {
     guard.ackHmacKey = input.ackHmacKey;
   }
-  if (input.profile === 'ENFORCING_STRICT') {
-    guard.profile = 'ENFORCING_STRICT';
+  if (isEnforcingStrict(input)) {
+    // The WIRE value, not the input spelling — see GUARD_PROFILE_WIRE_VALUE.
+    guard.profile = GUARD_PROFILE_WIRE_VALUE;
   }
   // previousReceipt getter: host override > composition cursor > undefined.
   // Always install a getter when threading is on OR the host supplied an override, so the frozen

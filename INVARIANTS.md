@@ -74,12 +74,42 @@ profile, not of nine independently settable booleans.
 ENFORCING_STRICT requires (10.0.0 for the execution grant, 12.0.0 for the conditional-write gate).
 A contract makes that question unaskable.
 
-**MEASURED. WE DO NOT HOLD THIS TODAY.** `ENFORCING_STRICT` is a flag lock: seven weakenable flags
-in `enforcingStrictWeakenFlags`, plus a resolver requirement, plus the execution chain — nine
-conditions checked at construction, with no version in the name.
+**MEASURED — UPDATED 2026-08-27 WHEN `_V1` SHIPPED. STILL VIOLATED, BUT NARROWLY, AND THE
+REMAINING GAP IS NOT THE ONE THIS RULE WAS WRITTEN ABOUT.**
 
-**ENFORCED BY:** nothing, deliberately. The fix is the `_V1` design (roadmap 1100), which is a
-proposal this round and not shipped. Recording the violation is the point.
+*What shipped.* `WithCodeRiftsProfile` is now `'ENFORCING_STRICT' | 'ENFORCING_STRICT_V1'`.
+`_V1` names the nine conditions and freezes them: a test pins the seven weakenable flags by name
+and fails on a tenth, so tightening `_V1` under its own name is no longer possible without
+deleting that test on purpose. The unsuffixed spelling is a deprecated alias resolving to `_V1`,
+proven byte-identical field-by-field on a real construction. The wire value on `GuardConfig` is
+deliberately unchanged, so no downstream comparison moved.
+
+*What that fixes.* The defect this rule came from — 10.0.0 and 12.0.0 being MAJOR because the
+meaning of `ENFORCING_STRICT` changed under its own name — cannot recur for `_V1`. The next
+tightening is `_V2`, and every adopter on `_V1` keeps what they asked for at zero cost.
+
+*Why the record is NOT flipped to held.* Two things remain true, and a shipped improvement must not
+quietly claim more than it earned:
+
+1. **The unsuffixed alias is still an accepted, UNVERSIONED public spelling.** A caller writing
+   `profile: 'ENFORCING_STRICT'` is still naming a contract without naming its version. That it
+   resolves to `_V1` today is guaranteed by a comment and a test, not by the type — the type
+   accepts both, and nothing structurally prevents a future maintainer re-pointing the alias. The
+   rule says a profile *is* a versioned contract; one of the two accepted spellings still is not.
+2. **The contract is still expressed as procedural checks, not as data.** `_V1` is nine conditions
+   scattered across `enforcingStrictWeakenFlags`, an inline resolver check and
+   `enforcingStrictExecutionChainProblems` — frozen by a test that reads the source, which is a
+   guard against drift rather than a declaration. A genuine contract would be a table `_V1` and
+   `_V2` both point at.
+
+*The honest summary:* the expensive half is closed, the definitional half is not. Removing the
+alias in a future major, and moving the nine conditions into a versioned table, is what would earn
+`HELD` here.
+
+**ENFORCED BY:** `test/profile-v1.test.js` → *a real construction is IDENTICAL field by field under
+both spellings*, *the NINE conditions of _V1 are exactly these, and adding a tenth must become
+_V2*, and *records that the alias must resolve to _V1 FOREVER*. Those enforce what shipped; nothing
+enforces the two gaps above, which is why this entry still reads as violated.
 
 ---
 
