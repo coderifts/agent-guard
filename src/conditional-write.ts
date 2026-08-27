@@ -39,6 +39,44 @@ export type VersionedContent = {
 export type ConditionalWriteReport = true | false | 'not_reported';
 
 /**
+ * HOW STRONG the atomicity guarantee was — claim language on the mutation side, worded the way the
+ * four claim levels are: each class says what it ASSERTS and what it DOES NOT.
+ *
+ * SAME_TRANSACTION
+ *   ASSERTS: the check and the mutation committed inside ONE transaction of the same system, so no
+ *   interleaving is possible — the provider, not us, enforces it.
+ *   DOES NOT ASSERT: that the transaction was correct, that it was the right row, or anything about
+ *   any resource outside that transaction.
+ *
+ * CONDITIONAL_EXTERNAL
+ *   ASSERTS: a SINGLE conditional claim was made against a provider that supports CAS or
+ *   idempotency (if-match, expected-version, expected-old-sha), and the result was read back.
+ *   DOES NOT ASSERT: atomicity across the check and the mutation. Two systems were involved and the
+ *   provider's own compare-and-set is what closed the window — a Redis SETNX followed by a separate
+ *   HTTP call is NOT this class and is NOT a transaction, because the claim and the mutation are two
+ *   claims against two systems.
+ *
+ * NON_ATOMIC
+ *   ASSERTS: the mutation was applied.
+ *   DOES NOT ASSERT: that anything guarded it. The provider lacked the capability, or no
+ *   authorization-time token was available, so the write was unconditional. This is the honest
+ *   class for "we wrote it and cannot say more", and it must never be reported as either of the
+ *   two above.
+ */
+export type ConditionalWriteGuarantee =
+  | 'SAME_TRANSACTION'
+  | 'CONDITIONAL_EXTERNAL'
+  | 'NON_ATOMIC';
+
+/**
+ * Why an outcome is INDETERMINATE. The claim is strictly "we do not know", never "it failed".
+ */
+export type IndeterminateReason =
+  | 'response_lost'          // request sent, no response observed (timeout / socket death)
+  | 'ambiguous_provider_reply'
+  | 'observation_failed';    // the write may have landed; we could not read back to find out
+
+/**
  * Per-call forensic basis for conditional write (on every GuardOutcome).
  * Survives replay unchanged when recorded.
  */
@@ -58,6 +96,12 @@ export type ConditionalWriteBasis = {
    * Independent of artifacts[]: carrying both sides of a change does not make the commit atomic.
    */
   mutating: boolean;
+  /**
+   * HOW STRONG the guarantee was, when the host reported one. Absent when conditional_write is
+   * not_reported — "we were not told" is not a guarantee class. `conditional_write: true` with
+   * guarantee NON_ATOMIC is a coherent and important combination: the host conditioned nothing.
+   */
+  guarantee?: ConditionalWriteGuarantee;
 };
 
 /**
@@ -69,6 +113,8 @@ export type ConditionalWriteCallContext = {
   conditioned_on_token?: VersionToken | null;
   /** Optional versioned content for token carry (equality only). */
   versioned_content?: VersionedContent | null;
+  /** Host-reported strength of the guarantee. Carried, never inferred. */
+  guarantee?: ConditionalWriteGuarantee;
 };
 
 /** Equality compare only — never semantic interpretation of the token. */
@@ -129,6 +175,13 @@ export function buildConditionalWriteBasis(input: {
     write_style,
     mutating,
   };
+
+  // Guarantee carry: reported only, never inferred from the report being true.
+  if (ctx.guarantee === 'SAME_TRANSACTION'
+    || ctx.guarantee === 'CONDITIONAL_EXTERNAL'
+    || ctx.guarantee === 'NON_ATOMIC') {
+    basis.guarantee = ctx.guarantee;
+  }
 
   // Token carry: prefer explicit conditioned_on_token, else versioned_content.version_token.
   if (conditional_write === true) {
@@ -192,6 +245,24 @@ export type ExecuteIfUnchangedOutcome<T> =
       reason: 'stale_version_token';
       expected_token: VersionToken;
       current_token: VersionToken | null;
+    }
+  | {
+      /**
+       * FIRST-CLASS UNKNOWN. The mutation may or may not have been applied — we sent it and could
+       * not observe the result. Distinct from 'refused' (we know it did not land) and from
+       * 'committed' (we know it did).
+       *
+       * The rule is strict and is the whole point of the class:
+       *   - NEVER blindly retry. A retry of a write that already landed is a second mutation.
+       *   - Reconciliation is REQUIRED: read the resource and establish which state holds.
+       *   - Downstream MUST block until it is resolved. An indeterminate write is not a pass.
+       */
+      status: 'indeterminate';
+      reason: IndeterminateReason;
+      expected_token: VersionToken;
+      /** What we managed to observe, if anything. null when observation itself failed. */
+      observed_token?: VersionToken | null;
+      detail?: string;
     }
   | {
       status: 'committed_stale_detected';

@@ -16,7 +16,7 @@ import { verifyExecutionAttestation } from '@coderifts/sdk';
 import type { ExecutorKeyRegistry } from '@coderifts/sdk';
 import type { GuardExecutionProof, ExecutionResultHash } from './execution-proof.js';
 import { EXECUTION_PROOF_SPEC } from './execution-proof.js';
-import type { ExecuteIfUnchangedOutcome, VersionToken } from './conditional-write.js';
+import type { ExecuteIfUnchangedOutcome, IndeterminateReason, VersionToken } from './conditional-write.js';
 
 /** Machine-readable schema id — mirrors EXECUTION_PROOF_SPEC style. */
 export const CAS_ATTESTATION_SPEC = 'cas-attestation.v1' as const;
@@ -69,6 +69,17 @@ export type CasAttestationCas =
       reason: 'stale_during_commit';
       expected_token: VersionToken;
       post_commit_token: VersionToken | null;
+    }
+  | {
+      status: 'indeterminate';
+      /**
+       * 'unknown' is a THIRD value, never a default to false. Collapsing it to false would say the
+       * write did not run, which is a claim we do not have; collapsing it to true would say it did.
+       */
+      write_ran: 'unknown';
+      reason: IndeterminateReason;
+      expected_token: VersionToken;
+      observed_token: VersionToken | null;
     };
 
 /**
@@ -98,6 +109,11 @@ export type CasAttestation = {
     stale_during_commit: boolean;
     /** outcome.status === 'refused'. */
     refused: boolean;
+    /**
+     * outcome.status === 'indeterminate'. Downstream MUST block on this: it is not a pass, and it
+     * is not a failure either. Reconciliation is required before anything may proceed.
+     */
+    indeterminate: boolean;
   };
   /**
    * Observation-side CAS evidence class (S2-F2a R3). Never a verdict/preimage field.
@@ -317,6 +333,13 @@ export function isExecuteIfUnchangedOutcome(x: unknown): x is ExecuteIfUnchanged
     const s = x as { reason?: unknown; expected_token?: unknown };
     return s.reason === 'stale_during_commit' && typeof s.expected_token === 'string';
   }
+  if (o.status === 'indeterminate') {
+    const i = x as { reason?: unknown; expected_token?: unknown };
+    return (i.reason === 'response_lost'
+      || i.reason === 'ambiguous_provider_reply'
+      || i.reason === 'observation_failed')
+      && typeof i.expected_token === 'string';
+  }
   return false;
 }
 
@@ -339,6 +362,15 @@ function projectCas(outcome: ExecuteIfUnchangedOutcome<unknown>): CasAttestation
       reason: 'stale_version_token' as const,
       expected_token: outcome.expected_token,
       current_token: outcome.current_token == null ? null : outcome.current_token,
+    });
+  }
+  if (outcome.status === 'indeterminate') {
+    return Object.freeze({
+      status: 'indeterminate',
+      write_ran: 'unknown' as const,
+      reason: outcome.reason,
+      expected_token: outcome.expected_token,
+      observed_token: outcome.observed_token == null ? null : outcome.observed_token,
     });
   }
   // committed_stale_detected
@@ -380,6 +412,7 @@ export function buildCasAttestation(
   const write_ran = cas.write_ran === true;
   const stale_during_commit = cas.status === 'committed_stale_detected';
   const refused = cas.status === 'refused';
+  const indeterminate = cas.status === 'indeterminate';
   const cas_evidence = evaluateCasEvidence(outcome, opts);
   let authorized_and_committed = receipt_verified && cas.status === 'committed';
   // ENFORCING_STRICT: the existing derived name now requires executor_attested + kernel
@@ -405,6 +438,7 @@ export function buildCasAttestation(
       write_ran,
       stale_during_commit,
       refused,
+      indeterminate,
     }),
     cas_evidence,
     limits: LIMITS,

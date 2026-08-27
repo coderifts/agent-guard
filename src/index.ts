@@ -227,6 +227,8 @@ export type {
   ConditionalWriteCallContext,
   ExecuteIfUnchangedOutcome,
   ExecuteIfUnchangedArgs,
+  ConditionalWriteGuarantee,
+  IndeterminateReason,
 } from './conditional-write.js';
 
 // Filesystem CAS adapter (mtime + content-hash token, atomic rename). First execution-state CAS enabler.
@@ -238,7 +240,12 @@ export {
   fsTokenContentHash,
   FS_VERSION_TOKEN_PREFIX,
   FS_ABSENT_TOKEN,
+  assertSafeCasPath,
+  UnsafeCasPathError,
+  fsObjectIdentity,
+  identitiesEqual,
 } from './cas-adapters/fs.js';
+export type { FsObjectIdentity } from './cas-adapters/fs.js';
 
 // HTTP/API CAS adapter — ETag/If-Match discipline; host-injected I/O only (no fetch).
 export {
@@ -519,7 +526,10 @@ export {
   inferFsPathFromArgs,
   inferFullFileWriteContent,
   wrapWriteWithFsCas,
+  measureFsAuthorization,
+  measureFsAuthorizationToken,
 } from './cas-adapters/fs-default-wire.js';
+export type { FsCasWireOptions, FsAuthorizationMeasurement } from './cas-adapters/fs-default-wire.js';
 
 // ID632 slice 4 — thin Google Gemini function-calling adapter (functionDeclarations wrapper).
 // ID827 phase 2 — bindGeminiGuardOutcome (Option B proof binder; object response; additive, guard@6.1).

@@ -15,6 +15,7 @@ const {
   inferFsPathFromArgs,
   inferFullFileWriteContent,
   wrapWriteWithFsCas,
+  measureFsAuthorization,
   computeCanonicalBundleFingerprint,
   computeBodyHash,
 } = require('../dist/cjs/index.js');
@@ -89,17 +90,36 @@ describe('inferFullFileWriteContent', () => {
 });
 
 describe('wrapWriteWithFsCas — real adapter vs honest degradation', () => {
-  it('path + contents on an existing file: writeFileIfUnchanged committed (host write skipped)', async () => {
+  it('path + contents WITH a T1 token: writeFileIfUnchanged committed (host write skipped)', async () => {
+    // UPDATED DELIBERATELY (1093). This test used to pass no token, because the wire fetched one
+    // itself at write time — the vacuous window. The CAS path now requires an authorization-time
+    // token; supplying it restores exactly the behaviour this test was written to pin.
     const p = path.join(tmpRoot, 'wired.yaml');
     await fsp.writeFile(p, BEFORE, 'utf8');
+    const t1 = await measureFsAuthorization({ path: p, contents: AFTER });
     let hostRan = false;
     const cas = await wrapWriteWithFsCas(
       { path: p, contents: AFTER },
       async () => { hostRan = true; return { ok: true }; },
+      { expected_token: t1.expected_token, expected_identity: t1.expected_identity },
     );
     assert.equal(hostRan, false, 'default-wire performs the FS adapter write, not a wrap of host execute');
     assert.equal(cas && cas.status, 'committed');
     assert.equal(await fsp.readFile(p, 'utf8'), AFTER);
+  });
+
+  it('path + contents WITHOUT a T1 token: host write, and NO CAS claim is fabricated', async () => {
+    // The other half of 1093: absent an authorization-time measurement we do not substitute a
+    // self-fetched one, because that is the false claim rather than a weaker true one.
+    const p = path.join(tmpRoot, 'unwired.yaml');
+    await fsp.writeFile(p, BEFORE, 'utf8');
+    let hostRan = false;
+    const out = await wrapWriteWithFsCas(
+      { path: p, contents: AFTER },
+      async () => { hostRan = true; return { ok: true }; },
+    );
+    assert.equal(hostRan, true, 'the host write still runs');
+    assert.equal(out && out.status, undefined, 'no ExecuteIfUnchangedOutcome is invented');
   });
 
   it('path but no full-file body: host write, no invented CAS envelope', async () => {

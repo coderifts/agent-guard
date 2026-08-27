@@ -2,6 +2,83 @@
 
 ## Unreleased
 
+### Fixed — BREAKING (1093): the CAS conditioned on a token it fetched itself
+
+- **`wrapWriteWithFsCas` measured its expected token INSIDE `executeFactory`** — after preflight
+  (T1) and after the T2 execution-time recheck — then conditioned the write on that value. It asked
+  whether the state had changed since a read a microsecond earlier: a real check of a vacuous
+  window. Measured on 12.0.0 with a writer landing between T2 and that read, the CAS adopted the
+  interfering state as its legitimate starting point and returned `status: 'committed'` with
+  `enforced: true`, clobbering the other writer.
+
+  The token now comes from **T1**, measured by the runner beside `collectFreshnessCallContext`,
+  before preflight. Timing proof, same interleaving both ways: before → `committed`, interfering
+  state overwritten; after → `refused` / `stale_version_token`, and the write does not land.
+
+  **The adapter contract did not change.** All four CAS adapters (fs, api, db, registry) already
+  took `expected_token` as a required argument; none fetched it. The defect was confined to the
+  default-wire convenience layer, so this is plumbing rather than a contract break.
+
+- **Absent an authorization-time token, no CAS claim is made at all.** The write runs unwrapped and
+  no `ExecuteIfUnchangedOutcome` is fabricated. Self-fetching a substitute is precisely the vacuous
+  claim; a weaker true guarantee is reportable, a false one is not.
+
+### Added — (1098) filesystem defences, none of which existed
+
+Measured absent on 12.0.0: `lstat`, `realpath`, `O_NOFOLLOW`, fd-based reads and `ino`/`dev` were
+all missing from `src/cas-adapters/`.
+
+- **Traversal refused.** A literal `..` segment is rejected, judged on the caller's own string
+  *before* resolution — resolution is exactly what makes `sub/../escaped` look innocent.
+- **Symlinked final component refused.** This was the other half of the TOCTOU and it was worse
+  than a following bug: `stat`/`readFile` measured the link's TARGET while `rename` replaced the
+  LINK, so the check and the write named **different objects**.
+- **A symlinked ANCESTOR is canonicalised, not refused.** Requiring `realpath(dir) === dir` was
+  written first and measured wrong within the hour — on macOS `/var` is itself a symlink, so every
+  path under a normal temp directory was refused. The danger is an ancestor that *changes* between
+  check and write, which identity closes.
+- **The token is read through a file descriptor.** One `open`, then `stat` and `read` from the same
+  handle, instead of `stat(path)` followed by `readFile(path)` — two interpretations a swap could
+  slip between.
+- **`dev`+`ino` recorded in the write evidence**, and an optional `expected_identity` from T1 is
+  compared. This is strictly stronger than the token: an inode swapped in carrying identical bytes
+  and mtime yields an **identical token**, and content equality cannot see it. Opt-in — omitted
+  means no identity claim is made rather than one inferred.
+
+### Added — (1099) the outcome can say how strong the guarantee was, and can say it does not know
+
+- **`ConditionalWriteGuarantee`** on the basis, worded as claim language — each class states what it
+  asserts and what it does not. `SAME_TRANSACTION` (check and mutation in one transaction of one
+  system) · `CONDITIONAL_EXTERNAL` (a single conditional claim against a provider CAS, plus a
+  read-back — a Redis `SETNX` followed by a separate HTTP call is **not** this class and is not a
+  transaction) · `NON_ATOMIC` (applied, nothing guarded it). Carried only when the host reports it;
+  never inferred from `conditional_write: true`, and an unrecognised value is dropped.
+- **`status: 'indeterminate'`** as a first-class `ExecuteIfUnchangedOutcome`, with reasons
+  `response_lost` / `ambiguous_provider_reply` / `observation_failed`. The rule is strict: never
+  blindly retry, reconciliation is required, and downstream must block until resolved. On the
+  attestation `cas.write_ran` is the string `'unknown'` — a third value, never collapsed to a
+  boolean, because `false` would claim it did not run and `true` would claim it did.
+
+### Measured and NOT built — (1098) `git update-ref` is a CAS over a different object
+
+`git update-ref <ref> <new> <expected_old>` is a genuine atomic CAS (verified: refuses a stale
+expected sha with exit 128 naming both values, succeeds with the correct one). It does **not**
+subsume 1093 for git targets, and the measurement that settles it is one line: writing the
+working-tree file moved **no ref**. A ref-level CAS guards commit history; our mutation target is
+the bytes at a path, and a file inside a repository can be written entirely outside git's index.
+Routing a file write through `update-ref` would mean creating a blob, a tree and a commit — turning
+"write this file" into "commit this change", which is a different operation, not a hardening. It is
+the right CAS only where the mutation *is* a ref move. So 1093 remains real for every file target,
+git-tracked or not.
+
+### Version
+
+**MAJOR.** A composition that executed yesterday now refuses: a write whose target moved between
+authorization and commit returns `refused` where it returned `committed`, and a symlinked target is
+rejected outright. Same rule that made 10.0.0 and 12.0.0 major.
+
+## Unreleased
+
 _Nothing yet._
 
 ## 12.0.0

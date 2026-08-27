@@ -25,7 +25,7 @@ import { collectFreshnessCallContext } from './freshness.js';
 import { runAutoRecheckLoop, normalizeAutoRecheck } from './auto-recheck.js';
 import { normalizeAutoDerive, runAutoDerive, attachDerivation } from './auto-derive.js';
 import type { AutoDeriveObservation } from './auto-derive.js';
-import { wrapWriteWithFsCas } from './cas-adapters/fs-default-wire.js';
+import { measureFsAuthorization, wrapWriteWithFsCas } from './cas-adapters/fs-default-wire.js';
 
 // ── public types (§1.1) ─────────────────────────────────────────────────────────────────────────
 export type ToolMutationClass =
@@ -314,6 +314,11 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
         lastDerivation = d.derivation;
         return d.call;
       };
+      const rebindAndRemeasure = async () => {
+        const c = await rebind();
+        casAuth = await measureFsAuthorization(args);
+        return c;
+      };
       const call = await rebind();
       // RUNNER collects prior content (async host I/O) and passes VALUES into the pure guard path.
       // The guard never invokes resolvePriorContent itself.
@@ -326,15 +331,25 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
         resolvePriorContent: guardCfg.resolvePriorContent,
       });
       const fctx = await refreshContext(call);
+      // T1 CAS MEASUREMENT — taken HERE, in the runner, before preflight, alongside the freshness
+      // collection. It must not be taken inside the factory: a token read at write time describes
+      // whatever state the file holds then, not the state the authorization examined, which is the
+      // vacuous window measured on 12.0.0. Re-measured on rebind (below) so an auto-recheck loop
+      // conditions on the state IT authorized rather than on the first pass's.
+      let casAuth = await measureFsAuthorization(args);
       const factory = async (
         _envelope: DecisionResultEnvelope | null,
         redacted: ToolCallDescriptor,
         execution?: import('./types.js').ExecutionGrantCallContext,
       ) => {
         const rawArgs = redacted ? redacted.arguments : args;
-        return wrapWriteWithFsCas(rawArgs, () => (
-          execution ? rawExecute(rawArgs, execution) : rawExecute(rawArgs)
-        ));
+        return wrapWriteWithFsCas(
+          rawArgs,
+          () => (execution ? rawExecute(rawArgs, execution) : rawExecute(rawArgs)),
+          casAuth
+            ? { expected_token: casAuth.expected_token, expected_identity: casAuth.expected_identity }
+            : {},
+        );
       };
       const outcome = normalizeAutoRecheck(guardCfg.autoRecheck)
         ? await runAutoRecheckLoop({
@@ -342,7 +357,7 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
           factory,
           config: guardCfg,
           callContext: fctx,
-          rebind,
+          rebind: rebindAndRemeasure,
           refreshContext,
         })
         : await guardToolCall(call, factory, guardCfg, fctx);

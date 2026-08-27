@@ -14,7 +14,9 @@
 
 import { isExecuteIfUnchangedOutcome } from '../cas-attestation.js';
 import type { ExecuteIfUnchangedOutcome } from '../conditional-write.js';
-import { createFsVersionToken, writeFileIfUnchanged } from './fs.js';
+import type { VersionToken } from '../conditional-write.js';
+import type { FsObjectIdentity } from './fs.js';
+import { assertSafeCasPath, createFsVersionToken, fsObjectIdentity, writeFileIfUnchanged } from './fs.js';
 
 /** Unambiguous fs target: a non-empty `path` string on tool arguments (Write convention). */
 export function inferFsPathFromArgs(args: unknown): string | null {
@@ -42,40 +44,88 @@ export function inferFullFileWriteContent(args: unknown): string | null {
 }
 
 /**
+ * Options carrying the AUTHORIZATION-TIME measurement into the write.
+ */
+export type FsCasWireOptions = {
+  /**
+   * Token of the state the AUTHORIZATION examined, measured at T1 by the runner — before preflight,
+   * not at write time. This is the whole fix: see the note on wrapWriteWithFsCas.
+   */
+  expected_token?: VersionToken | null;
+  /** Identity (dev+ino) of that same T1 object. Catches an inode swap the token cannot see. */
+  expected_identity?: FsObjectIdentity | null;
+};
+
+/** The pair a runner measures at T1. Both halves describe the SAME observation. */
+export type FsAuthorizationMeasurement = {
+  expected_token: VersionToken;
+  expected_identity: FsObjectIdentity | null;
+};
+
+/**
  * Wire the FS adapter when path + full-file contents are both present.
  * Otherwise run the host write unchanged. If the host already returned an
  * ExecuteIfUnchangedOutcome, pass it through (do not wrap again).
  *
- * KNOWN-OPEN RESIDUAL — the expected token is SELF-FETCHED, not authorization-bound.
- * createFsVersionToken runs HERE, inside executeFactory: after preflight (T1) and after the T2
- * execution-time recheck. So the token describes whatever state the file holds at write time, not
- * the state the authorization examined. The CAS then asks "did this change since I read it a
- * microsecond ago", which is a real check of a vacuous window: a writer that lands between T2 and
- * this read has its state adopted as the legitimate starting point, and the outcome still reports
- * status:'committed'. Measured, not inferred — see guard.ts's "no observed_token_at_commit CAS".
- * Closing it means threading a token measured at authorization into this call rather than reading
- * one here; that is a behavioural change with its own proof and is deliberately NOT done here.
+ * THE TOKEN MUST COME FROM T1. This function used to call createFsVersionToken HERE, inside
+ * executeFactory — after preflight (T1) and after the T2 recheck — and then condition the write on
+ * that self-fetched value. Measured on 12.0.0: with a writer landing between T2 and that read, the
+ * CAS adopted the interfering state as its legitimate starting point and still reported
+ * status:'committed' with enforced:true. It was a real check of a vacuous window — it asked whether
+ * the state had changed since a read a microsecond earlier, which is a question whose answer is
+ * always no and which says nothing about the state the authorization actually examined.
+ *
+ * Now the expected token is supplied by the caller from the T1 measurement. When it is ABSENT we do
+ * NOT fall back to self-fetching, because that is precisely the vacuous claim: the write runs
+ * unwrapped and the guarantee is NON_ATOMIC, which is the honest thing to report and which
+ * requireConditionalWrite will refuse. A weaker guarantee is reportable; a false one is not.
  */
 export async function wrapWriteWithFsCas<T>(
   args: unknown,
   write: () => Promise<T> | T,
+  opts?: FsCasWireOptions,
 ): Promise<T | ExecuteIfUnchangedOutcome<unknown>> {
   const filePath = inferFsPathFromArgs(args);
   const content = inferFullFileWriteContent(args);
-  if (filePath && content != null) {
-    let expected: string;
-    try {
-      expected = await createFsVersionToken(filePath);
-    } catch {
-      return write();
-    }
+  const expected = opts && typeof opts.expected_token === 'string' ? opts.expected_token : null;
+
+  if (filePath && content != null && expected !== null) {
     return writeFileIfUnchanged({
       path: filePath,
       expected_token: expected,
       content,
+      ...(opts && 'expected_identity' in opts ? { expected_identity: opts.expected_identity ?? null } : {}),
     });
   }
   const raw = await write();
   if (isExecuteIfUnchangedOutcome(raw)) return raw;
   return raw;
+}
+
+/**
+ * The T1 measurement itself — call this in the RUNNER, before preflight, and pass the result to
+ * wrapWriteWithFsCas. Returns null when this call is not an inferable full-file FS write, or when
+ * the path is unsafe / unreadable (a token we could not measure is not a token we may claim).
+ */
+export async function measureFsAuthorization(args: unknown): Promise<FsAuthorizationMeasurement | null> {
+  const filePath = inferFsPathFromArgs(args);
+  const content = inferFullFileWriteContent(args);
+  if (!filePath || content == null) return null;
+  try {
+    const target = await assertSafeCasPath(filePath);
+    // Identity FIRST, then the token: both must describe the same observation, and taking identity
+    // first means a swap between them makes the token the newer of the two, which the pre-rename
+    // re-check then catches rather than silently accepting.
+    const expected_identity = await fsObjectIdentity(target);
+    const expected_token = await createFsVersionToken(target);
+    return { expected_token, expected_identity };
+  } catch {
+    return null;
+  }
+}
+
+/** Convenience: the token half only. */
+export async function measureFsAuthorizationToken(args: unknown): Promise<VersionToken | null> {
+  const m = await measureFsAuthorization(args);
+  return m ? m.expected_token : null;
 }
