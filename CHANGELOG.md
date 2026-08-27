@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+_Nothing yet._
+
+## 12.0.0
+
 ### Fixed — BREAKING for `requireConditionalWrite` / `ENFORCING_STRICT` callers
 
 - **The conditional-write policy now gates on MUTATION, not on write-style.** An ordinary
