@@ -413,6 +413,45 @@ export function isWriteStyleCall(call: {
   return false;
 }
 
+/**
+ * Detect MUTATION: does this call change a resource? Deliberately independent of artifacts[].
+ *
+ * WHY THIS IS NOT isWriteStyleCall: that predicate answers a different question — "did the caller
+ * supply a both-sides snapshot we can compare against?" — because freshness must MEASURE a before
+ * it does not trust (see f14e5a3: "a caller-supplied before is a claim, and a claim is not a
+ * measurement"). Correct there. But carrying before AND after says nothing about whether the commit
+ * was atomic: those are different facts, and reusing the freshness predicate for the
+ * conditional-write policy let an ordinary Edit — which the default binder lifts into artifacts[]
+ * with both sides — suppress the atomicity demand entirely.
+ *
+ * Evidence of mutation, any one of:
+ *   - an artifact carrying a non-empty `after` (the call states a resulting state), or
+ *   - content-bearing arguments: contents / content / new_string / old_string / patch, or
+ *   - a non-empty edits[] array.
+ * A path alone is NOT evidence — a read names a path too.
+ */
+export function isMutatingCall(call: {
+  artifacts?: ReadonlyArray<{ before?: unknown; after?: unknown }> | undefined;
+  arguments?: unknown;
+  filesTouched?: string[];
+}): boolean {
+  const arts = call.artifacts;
+  if (Array.isArray(arts)) {
+    for (const a of arts) {
+      if (a && typeof a.after === 'string' && a.after.length > 0) return true;
+    }
+  }
+  const args = call.arguments && typeof call.arguments === 'object'
+    ? (call.arguments as Record<string, unknown>)
+    : {};
+  for (const k of ['contents', 'content', 'new_string', 'old_string', 'patch'] as const) {
+    const v = args[k];
+    if (typeof v === 'string' && v.length > 0) return true;
+  }
+  if (Array.isArray(args.edits) && args.edits.length > 0) return true;
+  return false;
+}
+
 /** Artifact ids the runner should ask the host to resolve (from lifted artifacts or path-derived id). */
 export function artifactIdsForResolve(call: {
   toolName?: string;

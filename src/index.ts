@@ -190,6 +190,7 @@ export {
   computePathSetTreeHash,
   freshnessAllowsEnforce,
   isWriteStyleCall,
+  isMutatingCall,
   artifactIdsForResolve,
   collectFreshnessCallContext,
   buildFreshnessBasis,

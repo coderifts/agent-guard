@@ -45,6 +45,16 @@ export function inferFullFileWriteContent(args: unknown): string | null {
  * Wire the FS adapter when path + full-file contents are both present.
  * Otherwise run the host write unchanged. If the host already returned an
  * ExecuteIfUnchangedOutcome, pass it through (do not wrap again).
+ *
+ * KNOWN-OPEN RESIDUAL — the expected token is SELF-FETCHED, not authorization-bound.
+ * createFsVersionToken runs HERE, inside executeFactory: after preflight (T1) and after the T2
+ * execution-time recheck. So the token describes whatever state the file holds at write time, not
+ * the state the authorization examined. The CAS then asks "did this change since I read it a
+ * microsecond ago", which is a real check of a vacuous window: a writer that lands between T2 and
+ * this read has its state adopted as the legitimate starting point, and the outcome still reports
+ * status:'committed'. Measured, not inferred — see guard.ts's "no observed_token_at_commit CAS".
+ * Closing it means threading a token measured at authorization into this call rather than reading
+ * one here; that is a behavioural change with its own proof and is deliberately NOT done here.
  */
 export async function wrapWriteWithFsCas<T>(
   args: unknown,

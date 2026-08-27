@@ -109,6 +109,7 @@ const CW_NOT_REPORTED = Object.freeze({
   conditional_write: 'not_reported' as const,
   require_conditional_write: false,
   write_style: false,
+  mutating: false,
 });
 
 function notObserved() {

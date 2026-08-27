@@ -29,6 +29,7 @@ import { freezeCoverageObserved, type CoverageObserved } from './coverage-observ
 import {
   buildFreshnessBasis,
   isWriteStyleCall,
+  isMutatingCall,
   type FreshnessBasis,
   type FreshnessCallContext,
 } from './freshness.js';
@@ -421,9 +422,15 @@ function conditionalWriteFor(
   config: GuardConfig,
   redacted: ToolCallDescriptor,
   ctx: ConditionalWriteCallContext,
+  detectedArts?: Artifact[],
 ): { basis: ConditionalWriteBasis; blockCause?: 'CONDITIONAL_WRITE_REQUIRED' } {
+  // The policy gates on MUTATION, not on write-style. Detected artifacts are consulted as well as
+  // the descriptor's, because the detector may carry the resulting state the caller did not lift.
+  const mutating = isMutatingCall(redacted)
+    || (Array.isArray(detectedArts) && isMutatingCall({ artifacts: detectedArts }));
   return buildConditionalWriteBasis({
     writeStyle: isWriteStyleCall(redacted),
+    mutating,
     requireConditionalWrite: config.requireConditionalWrite === true,
     ctx,
   });
@@ -544,9 +551,9 @@ export async function guardToolCall<T>(
     }
   }
 
-  // Conditional-write policy (requireConditionalWrite): write without host report true → refuse.
+  // Conditional-write policy (requireConditionalWrite): a MUTATION without host report true → refuse.
   {
-    const { blockCause } = conditionalWriteFor(config, redacted, cwctx);
+    const { blockCause } = conditionalWriteFor(config, redacted, cwctx, detection.artifacts);
     if (blockCause === 'CONDITIONAL_WRITE_REQUIRED') {
       breakerRecord(config);
       return closedIntegrity(config, blockCause, failPolicy, fctx, cwctx, redacted, detection.artifacts);
@@ -566,7 +573,7 @@ export async function guardToolCall<T>(
     const count = (breakers.get(config)?.fails.length) ?? 0;
     const v = unavailableVerdict({ cause: 'MISSING_ARTIFACT_CONTENT', failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
-    const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
+    const { basis: cw } = conditionalWriteFor(config, redacted, cwctx, detection.artifacts);
     return blocked(config, v, false, basis, cw);
   }
 
@@ -628,7 +635,7 @@ export async function guardToolCall<T>(
     breakerRecord(config);
     const count = (breakers.get(config)?.fails.length) ?? 1;
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
-    const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
+    const { basis: cw } = conditionalWriteFor(config, redacted, cwctx, detection.artifacts);
     if (pf.integrity) {
       emit(config, { type: 'breaker_tripped', at: iso(), cause: pf.cause });
       const v = unavailableVerdict({ cause: pf.cause as IntegrityCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
@@ -722,7 +729,7 @@ export async function guardToolCall<T>(
   if (gate.verdict === 'block-strict') {
     // A real (or stricter-reconciled) BLOCK / REQUIRE_APPROVAL — clean block; the factory never runs.
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
-    const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
+    const { basis: cw } = conditionalWriteFor(config, redacted, cwctx, detection.artifacts);
     return gate.decision === 'BLOCK'
       ? blocked(config, { kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis, cw, undefined, undefined, grantObs)
       : blocked(config, { kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis, cw, undefined, undefined, grantObs);
@@ -819,7 +826,7 @@ export async function guardToolCall<T>(
   }
 
   // Conditional-write re-check immediately before enforced execution (same conjunct class as freshness).
-  const { basis: cwBasis, blockCause: cwBlock } = conditionalWriteFor(config, redacted, cwctx);
+  const { basis: cwBasis, blockCause: cwBlock } = conditionalWriteFor(config, redacted, cwctx, detection.artifacts);
   if (cwBlock === 'CONDITIONAL_WRITE_REQUIRED') {
     breakerRecord(config);
     return closedIntegrity(config, cwBlock, failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
@@ -965,7 +972,7 @@ function closedIntegrity<T>(
   emit(config, { type: 'breaker_tripped', at: iso(), cause });
   const v = unavailableVerdict({ cause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
   const { basis } = freshnessFor(config, redacted, fctx, arts);
-  const { basis: cw } = conditionalWriteFor(config, redacted, cwctx);
+  const { basis: cw } = conditionalWriteFor(config, redacted, cwctx, arts);
   return blocked(config, v, false, basis, cw, monitoring_delivery, monitoring_attestation, grantObs);
 }
 

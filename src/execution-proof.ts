@@ -174,6 +174,7 @@ export type ProofBuildInput = {
   conditionalWriteBasis?: {
     require_conditional_write: boolean;
     write_style: boolean;
+    mutating?: boolean;
     conditional_write: true | false | 'not_reported';
   };
   /** T3 observation assembled by the guard after executeFactory (or not_observed). */
@@ -211,8 +212,9 @@ const LIMITS: GuardExecutionProof['limits'] = Object.freeze({
 /**
  * Runtime twin of the type-level enforced⟺receiptVerified invariant.
  * Throws if enforced:true is paired with anything other than receiptVerified+preflighted.
- * When requireConditionalWrite+writeStyle: enforced:true also requires conditional_write:true
- * (same refusal class as the permission gate — not a parallel path).
+ * When requireConditionalWrite + the call MUTATES: enforced:true also requires conditional_write:true
+ * (same refusal class as the permission gate — not a parallel path). Gated on `mutating`, not
+ * `writeStyle`: both sides of a change being present says nothing about the commit being atomic.
  * The proof block is read by consumers that do not have our TypeScript brands.
  */
 export function assertEnforcedReceiptInvariant(input: {
@@ -222,6 +224,8 @@ export function assertEnforcedReceiptInvariant(input: {
   /** Policy requireConditionalWrite for this call (optional; omit = not checked here). */
   requireConditionalWrite?: boolean;
   writeStyle?: boolean;
+  /** Artifact-independent mutation classification. Defaults to writeStyle when omitted. */
+  mutating?: boolean;
   /** Host report: true | false | 'not_reported'. */
   conditionalWrite?: true | false | 'not_reported';
 }): void {
@@ -231,7 +235,10 @@ export function assertEnforcedReceiptInvariant(input: {
         '@coderifts/agent-guard: enforced:true without receiptVerified+preflighted (runtime invariant)',
       );
     }
-    if (input.requireConditionalWrite === true && input.writeStyle === true) {
+    const mutating = input.mutating === undefined
+      ? input.writeStyle === true
+      : input.mutating === true;
+    if (input.requireConditionalWrite === true && mutating) {
       if (input.conditionalWrite !== true) {
         throw new Error(
           '@coderifts/agent-guard: enforced:true without conditional_write:true under requireConditionalWrite (runtime invariant)',
@@ -320,6 +327,7 @@ export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof
     receiptVerified,
     requireConditionalWrite: cwb?.require_conditional_write,
     writeStyle: cwb?.write_style,
+    mutating: cwb?.mutating,
     conditionalWrite: cwb?.conditional_write,
   });
 

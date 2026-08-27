@@ -51,8 +51,13 @@ export type ConditionalWriteBasis = {
   conditioned_on_token?: VersionToken | null;
   /** Config requireConditionalWrite for this call (policy). */
   require_conditional_write: boolean;
-  /** Whether this call was treated as write-style. */
+  /** Whether this call was treated as write-style (freshness classification; reporting only). */
   write_style: boolean;
+  /**
+   * Whether this call was treated as a MUTATION — the fact the policy actually gates on.
+   * Independent of artifacts[]: carrying both sides of a change does not make the commit atomic.
+   */
+  mutating: boolean;
 };
 
 /**
@@ -87,13 +92,23 @@ function normalizeReport(raw: unknown): ConditionalWriteReport {
  * Build per-call conditional-write basis + optional enforce block.
  * Pure once the host report is a value (no I/O).
  *
- * Policy (mirrors requireFreshness Decision-1): when requireConditionalWrite is true
- * and the call is write-style, conditional_write must be true for enforced execution
- * to be eligible. false and not_reported both refuse (distinct from "host said false"
- * vs "host silent" only on the basis field — both block under policy).
+ * Policy: when requireConditionalWrite is true and the call MUTATES, conditional_write must be
+ * true for enforced execution to be eligible. false and not_reported both refuse (distinct from
+ * "host said false" vs "host silent" only on the basis field — both block under policy).
+ *
+ * The gate is `mutating`, NOT `writeStyle`. It once mirrored requireFreshness's write-style
+ * predicate; that predicate means "the caller supplied no both-sides snapshot", which is the right
+ * question for freshness and the wrong one for atomicity. Under the old gate an ordinary Edit
+ * carrying artifacts[] with non-empty before AND after classified as not-write-style and the
+ * policy never fired — the demand for an atomic commit was suppressed by evidence about content.
+ *
+ * `mutating` is optional and defaults to `writeStyle` so a direct caller of this pure export keeps
+ * its previous behaviour; guardToolCall always supplies it.
  */
 export function buildConditionalWriteBasis(input: {
   writeStyle: boolean;
+  /** Artifact-independent mutation classification (isMutatingCall). Defaults to writeStyle. */
+  mutating?: boolean;
   requireConditionalWrite: boolean;
   ctx?: ConditionalWriteCallContext | null;
 }): {
@@ -103,6 +118,8 @@ export function buildConditionalWriteBasis(input: {
 } {
   const require_conditional_write = input.requireConditionalWrite === true;
   const write_style = input.writeStyle === true;
+  // Absent `mutating` = legacy call site: fall back to write_style, never widen silently.
+  const mutating = input.mutating === undefined ? write_style : input.mutating === true;
   const ctx = input.ctx && typeof input.ctx === 'object' ? input.ctx : {};
   const conditional_write = normalizeReport(ctx.conditional_write);
 
@@ -110,6 +127,7 @@ export function buildConditionalWriteBasis(input: {
     conditional_write,
     require_conditional_write,
     write_style,
+    mutating,
   };
 
   // Token carry: prefer explicit conditioned_on_token, else versioned_content.version_token.
@@ -127,8 +145,8 @@ export function buildConditionalWriteBasis(input: {
     }
   }
 
-  // Policy on write: only conditional_write:true is eligible for enforced:true.
-  if (write_style && require_conditional_write && conditional_write !== true) {
+  // Policy on mutation: only conditional_write:true is eligible for enforced:true.
+  if (mutating && require_conditional_write && conditional_write !== true) {
     return { basis, blockCause: 'CONDITIONAL_WRITE_REQUIRED' };
   }
   return { basis };
@@ -142,12 +160,15 @@ export const RESIDUAL_UNCONDITIONAL_WRITE = 'composition_unconditional_write_und
  * inescapable_runtime must stay false — we report what the host told us, never claim compliance.
  */
 export function conditionalWriteResidual(input: {
+  /** Artifact-independent mutation classification. Defaults to writeStyle when omitted. */
+  mutating?: boolean;
   requireConditionalWrite: boolean;
   writeStyle: boolean;
   conditionalWrite: ConditionalWriteReport;
 }): string | null {
   if (input.requireConditionalWrite !== true) return null;
-  if (input.writeStyle !== true) return null;
+  const mutating = input.mutating === undefined ? input.writeStyle === true : input.mutating === true;
+  if (!mutating) return null;
   if (input.conditionalWrite === true) return null;
   return RESIDUAL_UNCONDITIONAL_WRITE;
 }

@@ -1,5 +1,69 @@
 # Changelog
 
+## Unreleased
+
+### Fixed — BREAKING for `requireConditionalWrite` / `ENFORCING_STRICT` callers
+
+- **The conditional-write policy now gates on MUTATION, not on write-style.** An ordinary
+  mutation that carried `artifacts[]` with a non-empty `before` AND `after` was classified
+  not-write-style, so `requireConditionalWrite: true` never fired: the call executed with
+  `enforced: true` and the outcome read `conditional_write: "not_reported"`.
+
+  Reproduced against the published `@coderifts/agent-guard@11.0.1` tarball from npm, not the
+  working tree — end to end through `guardToolCall` (the side effect ran) and through
+  `withCodeRifts` + the default binder, which is the surface where it actually bites.
+
+  **Why it was wrong.** `isWriteStyleCall` answers "did the caller supply a both-sides snapshot
+  we can compare against?" That is the right question for FRESHNESS, and it was written for
+  freshness (f14e5a3: *"a caller-supplied before is a claim, and a claim is not a measurement"*).
+  The conditional-write policy was built to mirror `requireFreshness` (322c334) and mirrored its
+  gating predicate along with its shape. But passing both sides of a change does not make the
+  commit atomic — those are different facts, and evidence about content was suppressing the
+  demand for atomicity.
+
+  New `isMutatingCall` (exported) answers the separate question, independent of `artifacts[]`:
+  a non-empty artifact `after`, content-bearing arguments (`contents`/`content`/`new_string`/
+  `old_string`/`patch`), or a non-empty `edits[]`. A path alone is not evidence — a read names a
+  path too. `isWriteStyleCall` is unchanged and still drives freshness.
+
+- `ConditionalWriteBasis` gains `mutating: boolean` (additive). `write_style` is retained and
+  still reported. `buildConditionalWriteBasis`, `conditionalWriteResidual`, and
+  `assertEnforcedReceiptInvariant` accept an optional `mutating` that **defaults to `writeStyle`**,
+  so a direct caller of those pure exports keeps its previous behaviour; `guardToolCall` always
+  supplies it.
+
+### Who this breaks
+
+Callers with `requireConditionalWrite: true` (or `profile: 'ENFORCING_STRICT'`, which sets it at
+`src/with-coderifts.ts`) whose agents emit `old_string`/`new_string` or `edits[]` edits on
+contract-artifact paths. `defaultBinder` (`src/tool-registry.ts`) lifts both sides into
+`artifacts[]`, which is exactly the shape that used to escape the gate. Every such call now fails
+closed with `CONDITIONAL_WRITE_REQUIRED` unless the host reports `conditional_write: true`.
+
+This is an adoption cliff, and it is named rather than smoothed: the default FS CAS wire
+(`wrapWriteWithFsCas`) deliberately handles only full-file `path` + `contents` writes and declines
+edit fragments, so an edit under this policy has no built-in way to report a conditional write —
+the host must wire a CAS adapter. A policy that says "no unconditional writes" refusing a write it
+cannot condition is the policy working, not a regression.
+
+No test in this repo relied on the old behaviour (893 → 910, 0 fail).
+
+### Known-open — measured, NOT fixed here
+
+- **The CAS expected token is self-fetched, not authorization-bound (TOCTOU).**
+  `wrapWriteWithFsCas` calls `createFsVersionToken` *inside* `executeFactory` — after preflight
+  (T1) and after the T2 execution-time recheck — then conditions the write on that token. So it
+  asks "did this change since I read it a microsecond ago", which is a real check of a vacuous
+  window. Measured on 11.0.1: with a writer landing between T2 and the token read, the guard
+  returned `executed: true`, `enforced: true`, the CAS returned `status: 'committed'`, and the
+  `expected_token` did not equal the token of the state the authorization examined.
+
+  This is a timing defect, not a classification defect, and it needs its own proof, so it is
+  deliberately not bundled into the fix above. The residual is now documented at the site that
+  causes it (`src/cas-adapters/fs-default-wire.ts`); `guard.ts` already named it as
+  "no `observed_token_at_commit` CAS". Closing it means threading a token measured at
+  authorization into the write rather than reading one at write time.
+
 ## 11.0.1
 
 Identifier rename only. **No preimage byte changed, and no digest moved.**
