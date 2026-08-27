@@ -13,9 +13,21 @@
  *
  * The three deploy-specific binds are the whole point: T7 (a MERGE — or operation-less — receipt can
  * never deploy), environment binding (a staging ALLOW never authorizes production), and artifact
- * binding (an old artifact's ALLOW never deploys a newer one). Scope honesty mirrors the merge gate:
- * `inescapable_deploy` is true ONLY in the fully-enforcing, non-bypassable case; otherwise the check
- * may be `success` for visibility but the claim is false with the residual named.
+ * binding (an old artifact's ALLOW never deploys a newer one). Scope honesty follows the merge gate's
+ * SHAPE (a conjunction, fail-closed on any gap) but NOT its conjuncts — see below.
+ *
+ * `inescapable_deploy` is true ONLY when every conjunct holds: ENFORCING ∧ ¬bypass_possible ∧
+ * fingerprint rebound. Missing any conjunct → FALSE (fail-closed); the check may still be `success`
+ * for visibility, with the residual named.
+ *
+ * WHAT THAT DOES NOT SAY, stated because the field name is stronger than the fact. The first two
+ * conjuncts are the HOST's observation of its own CD config (`DeployRequiredContext.enforcement`),
+ * consumed by this pure gate, not verified by it — so `inescapable_deploy: true` reports that the
+ * host said its pipeline enforces and cannot be bypassed, plus a fingerprint we did rebind. Note
+ * also that this gate carries NO issuer-binding conjunct at all, unlike `inescapable_merge`: where a
+ * provider check supplies the enforcing signal, binding it to an App id proves the check came from
+ * that provider's Actions app, NOT that CodeRifts produced it — anyone who can edit the workflow
+ * definition can post under the same issuer. Closing that needs workflow-SHA pinning.
  *
  * Public source (ships in the npm package): references only receipt/target/enforcement fields and
  * generic deploy-gate concepts — no scoring logic, weights, thresholds, pattern names, endpoints, or
