@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 13.0.0
 
 ### Fixed — BREAKING (1093): the CAS conditioned on a token it fetched itself
 
@@ -76,10 +76,6 @@ git-tracked or not.
 **MAJOR.** A composition that executed yesterday now refuses: a write whose target moved between
 authorization and commit returns `refused` where it returned `committed`, and a symlinked target is
 rejected outright. Same rule that made 10.0.0 and 12.0.0 major.
-
-## Unreleased
-
-_Nothing yet._
 
 ## 12.0.0
 
