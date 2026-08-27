@@ -82,6 +82,13 @@ import type {
 import type { GuardConfig, GuardEvent, GuardOutcome } from './types.js';
 import { createCoverageObserver } from './coverage-observed.js';
 import type { CoverageObserver } from './coverage-observed.js';
+import {
+  isEnforcingAtomic,
+  atomicConstructionProblems,
+  throwAtomicUnsatisfied,
+  GUARD_ATOMIC_WIRE_VALUE,
+} from './atomic-profile.js';
+import type { MutatorRegister, AtomicConstructionInput } from './atomic-profile.js';
 
 /** Registry config fields callers may forward untouched (S1/S2 do not re-declare them). */
 export type WithCodeRiftsRegistryConfig = {
@@ -235,13 +242,16 @@ export function guardedFractionAmongRoutes(
  *   implied otherwise would be the overstatement class we spend most of our time removing.
  */
 export type WithCodeRiftsProfile = 'ENFORCING_STRICT' | 'ENFORCING_STRICT_V1';
+export type WithCodeRiftsAtomicProfile = 'ENFORCING_ATOMIC' | 'ENFORCING_ATOMIC_V1';
 
 /** The canonical contract name. The unsuffixed alias resolves here and always will. */
 export const PROFILE_ENFORCING_STRICT_V1 = 'ENFORCING_STRICT_V1' as const;
+export { PROFILE_ENFORCING_ATOMIC_V1 } from './atomic-profile.js';
 
 /** Every accepted spelling. Order is documentation: canonical first, deprecated alias second. */
-const ACCEPTED_PROFILES: readonly WithCodeRiftsProfile[] = Object.freeze([
+const ACCEPTED_PROFILES: readonly (WithCodeRiftsProfile | WithCodeRiftsAtomicProfile)[] = Object.freeze([
   'ENFORCING_STRICT_V1', 'ENFORCING_STRICT',
+  'ENFORCING_ATOMIC_V1', 'ENFORCING_ATOMIC',
 ] as const);
 
 /**
@@ -275,7 +285,7 @@ export type WithCodeRiftsInput = {
    * Absent: today's defaults (freshness/conditional-write remain opt-in). Not weakenable when set.
    * See WithCodeRiftsProfile for what a profile can and cannot require.
    */
-  profile?: WithCodeRiftsProfile;
+  profile?: WithCodeRiftsProfile | WithCodeRiftsAtomicProfile;
   /** Optional; carried through untouched. Artifact resolution is a later slice — S1 invents no use for it. */
   repository?: string;
   /**
@@ -376,6 +386,14 @@ export type WithCodeRiftsInput = {
    * Default absent — no verification attempted, CAS evidence stays host_claimed (no penalty).
    */
   executorAttestation?: GuardConfig['executorAttestation'];
+  /** ATOMIC: explicit mutator register (replaces isWriteStyleCall for this profile only). */
+  mutatorRegister?: MutatorRegister;
+  executorId?: string;
+  adapterId?: string;
+  targetUri?: string;
+  casAdapter?: unknown;
+  readBack?: (ctx: unknown) => unknown;
+  credentialBoundary?: true | Record<string, unknown>;
   /**
    * Opt-in CWM monitoring attestation. Forwarded onto GuardConfig.
    * `{ kid, signer }` — host sign(bytes), never a raw key. Absent = today's CWM (no token).
@@ -874,7 +892,7 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
       + `'${PROFILE_ENFORCING_STRICT_V1}'.`,
     );
   }
-  if (isEnforcingStrict(input)) {
+  if (isEnforcingStrict(input) || isEnforcingAtomic(input.profile)) {
     const weaken = enforcingStrictWeakenFlags(input);
     if (weaken.length > 0) {
       problems.push(`ENFORCING_STRICT cannot be weakened: ${weaken.join(', ')} conflicts`);
@@ -885,6 +903,20 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
     }
   // The execution chain — strict must mean the chain, not just the guard lock.
     problems.push(...enforcingStrictExecutionChainProblems(input));
+  }
+  if (isEnforcingAtomic(input.profile)) {
+    const atomicProblems = atomicConstructionProblems({
+      executionGrant: input.executionGrant as AtomicConstructionInput['executionGrant'],
+      executorId: input.executorId,
+      adapterId: input.adapterId,
+      targetUri: input.targetUri,
+      executorAttestation: input.executorAttestation,
+      mutatorRegister: input.mutatorRegister,
+      casAdapter: input.casAdapter,
+      readBack: input.readBack,
+      credentialBoundary: input.credentialBoundary,
+    });
+    if (atomicProblems.length > 0) throwAtomicUnsatisfied(atomicProblems);
   }
   if (problems.length > 0) {
     throw new Error(
@@ -929,6 +961,9 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   if (isEnforcingStrict(input)) {
     // The WIRE value, not the input spelling — see GUARD_PROFILE_WIRE_VALUE.
     guard.profile = GUARD_PROFILE_WIRE_VALUE;
+  }
+  if (isEnforcingAtomic(input.profile)) {
+    guard.profile = GUARD_ATOMIC_WIRE_VALUE;
   }
   // previousReceipt getter: host override > composition cursor > undefined.
   // Always install a getter when threading is on OR the host supplied an override, so the frozen

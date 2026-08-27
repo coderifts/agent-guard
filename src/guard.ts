@@ -44,7 +44,9 @@ import {
   evaluateCasEvidence,
   isExecuteIfUnchangedOutcome,
   strictCommitObservation,
+  COMMIT_EVIDENCE_MISSING,
 } from './cas-attestation.js';
+import type { CommitLabel } from './cas-attestation.js';
 import {
   deliverMonitoring,
   monitoringDeliveryFailClosed,
@@ -345,6 +347,7 @@ async function finishExecuted<T>(
   const casOpts = {
     registry: config.executorAttestation && config.executorAttestation.registry,
     ...(config.profile === 'ENFORCING_STRICT' ? { profile: 'ENFORCING_STRICT' as const } : {}),
+    ...(config.profile === 'ENFORCING_ATOMIC' ? { profile: 'ENFORCING_ATOMIC' as const } : {}),
   };
   const cas_evidence = result !== undefined
     ? evaluateCasEvidence(result, casOpts)
@@ -353,7 +356,7 @@ async function finishExecuted<T>(
     ? strictCommitObservation(result, cas_evidence, casOpts)
     : null;
   const cov = coverageSnap(config);
-  const proof = buildExecutionProof({
+  const proofInput = {
     ...base,
     conditionalWriteBasis: conditional_write,
     commitObservation: commit_observation,
@@ -365,12 +368,37 @@ async function finishExecuted<T>(
       commitEvidenceReason: strictObs.commit_evidence_reason,
     } : {}),
     ...cov,
-  });
+  };
+  let proof = buildExecutionProof(proofInput);
+  let atomicLabel: { commit_label: CommitLabel; commit_evidence_reason?: typeof COMMIT_EVIDENCE_MISSING } | null = null;
   if (result !== undefined && isExecuteIfUnchangedOutcome(result)) {
     try {
-      buildCasAttestation(proof, result, casOpts);
+      const att = buildCasAttestation(proof, result, casOpts);
+      if (config.profile === 'ENFORCING_ATOMIC') {
+        if (att.derived.authorized_and_committed) {
+          atomicLabel = { commit_label: 'authorized_and_committed' };
+        } else if (att.derived.authorized_and_host_reported_committed) {
+          atomicLabel = { commit_label: 'authorized_and_host_reported_committed' };
+        } else {
+          atomicLabel = {
+            commit_label: 'authorized_not_committed',
+            commit_evidence_reason: COMMIT_EVIDENCE_MISSING,
+          };
+        }
+        proof = buildExecutionProof({
+          ...proofInput,
+          commitLabel: atomicLabel.commit_label,
+          commitEvidenceReason: atomicLabel.commit_evidence_reason,
+        });
+      }
     } catch { /* label already set; never throw */ }
   }
+  const labelBits = atomicLabel || (strictObs ? {
+    commit_label: strictObs.commit_label,
+    ...(strictObs.commit_evidence_reason
+      ? { commit_evidence_reason: strictObs.commit_evidence_reason }
+      : {}),
+  } : null);
   const out = {
     ...base,
     proof,
@@ -380,10 +408,10 @@ async function finishExecuted<T>(
     ...(monitoring_delivery ? { monitoring_delivery } : {}),
     ...(monitoring_attestation ? { monitoring_attestation } : {}),
     ...(cas_evidence ? { cas_evidence } : {}),
-    ...(strictObs ? {
-      commit_label: strictObs.commit_label,
-      ...(strictObs.commit_evidence_reason
-        ? { commit_evidence_reason: strictObs.commit_evidence_reason }
+    ...(labelBits ? {
+      commit_label: labelBits.commit_label,
+      ...('commit_evidence_reason' in labelBits && labelBits.commit_evidence_reason
+        ? { commit_evidence_reason: labelBits.commit_evidence_reason }
         : {}),
     } : {}),
     ...coverageOutcomeFieldsFrom(cov),

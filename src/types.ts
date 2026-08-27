@@ -66,7 +66,7 @@ export interface GuardConfig {
    */
   ackHmacKey?: string | Buffer;
   /** Forwarded from withCodeRifts. Used with failPolicy/observeOnly for delivery fail-closed teeth. */
-  profile?: 'ENFORCING_STRICT';
+  profile?: 'ENFORCING_STRICT' | 'ENFORCING_ATOMIC';
   /**
    * Optional prior chain-receipt token for the preflight `previous_receipt` field (server hashes it
    * into the signed `prev` slot). Host-owned only: a string the host updates between calls, or a

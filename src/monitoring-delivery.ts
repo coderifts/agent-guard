@@ -343,7 +343,7 @@ export function formatMonitoringDeliveryLine(d: MonitoringDelivery, attestedKid?
 export function monitoringDeliveryFailClosed(config: {
   observeOnly?: boolean;
   failPolicy?: 'closed' | 'open' | 'lkg';
-  profile?: 'ENFORCING_STRICT';
+  profile?: 'ENFORCING_STRICT' | 'ENFORCING_ATOMIC';
 }): boolean {
   if (config.observeOnly === true) return false;
   if (config.failPolicy === 'open') return false;

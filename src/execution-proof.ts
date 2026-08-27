@@ -382,7 +382,11 @@ export function buildExecutionProof(input: ProofBuildInput): GuardExecutionProof
   if (input.casEvidence && typeof input.casEvidence === 'object') {
     proof.cas_evidence = Object.freeze({ ...input.casEvidence });
   }
-  if (input.commitLabel === 'authorized_and_committed' || input.commitLabel === 'authorized_not_committed') {
+  if (
+    input.commitLabel === 'authorized_and_committed'
+    || input.commitLabel === 'authorized_not_committed'
+    || input.commitLabel === 'authorized_and_host_reported_committed'
+  ) {
     proof.commit_label = input.commitLabel;
     if (input.commitLabel === 'authorized_not_committed' && input.commitEvidenceReason === 'commit_evidence_missing') {
       proof.commit_evidence_reason = 'commit_evidence_missing';

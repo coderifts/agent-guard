@@ -427,9 +427,18 @@ export {
   foldTableSettledCalls,
   guardedFractionAmongRoutes,
   PROFILE_ENFORCING_STRICT_V1,
+  PROFILE_ENFORCING_ATOMIC_V1,
 } from './with-coderifts.js';
+export {
+  createMutatorRegister,
+  ATOMIC_INVARIANTS,
+  ATOMIC_PROFILE_UNSATISFIED,
+  atomicOutcome,
+  isEnforcingAtomic,
+} from './atomic-profile.js';
+export type { AtomicOutcome, MutatorRegister } from './atomic-profile.js';
 export type {
-  WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, WithCodeRiftsProfile, CompositionAssurance,
+  WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, WithCodeRiftsProfile, WithCodeRiftsAtomicProfile, CompositionAssurance,
   SettledCallObservation, CallRoute, CallTerminal, TableSettledCallRouteCounts,
   ReceiptThreadHandle, ReceiptCursorSkipReason,
 } from './with-coderifts.js';

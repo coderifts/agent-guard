@@ -12,6 +12,8 @@ export type ExecutionGrantConfig = {
     toolName: string;
     args: unknown;
   }) => string | Promise<string>;
+  /** Default 'v1' this wave. ATOMIC construction requires 'v2'. */
+  grantVersion?: 'v1' | 'v2';
 };
 
 export type ExecutionGrantObservation = {

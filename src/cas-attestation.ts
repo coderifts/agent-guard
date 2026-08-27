@@ -103,6 +103,11 @@ export type CasAttestation = {
      * (clean commit only — committed_stale_detected is NOT this flag).
      */
     authorized_and_committed: boolean;
+    /**
+     * ATOMIC / v2 only: host-reported commit. Never co-named with authorized_and_committed.
+     * Absent on non-ATOMIC records (byte-identical 9.0.0 derived).
+     */
+    authorized_and_host_reported_committed?: boolean;
     /** Write mutation ran: committed or committed_stale_detected. */
     write_ran: boolean;
     /** outcome.status === 'committed_stale_detected'. */
@@ -151,11 +156,11 @@ export type EvaluateCasEvidenceOpts = {
     receipt_digest?: string;
   } | null;
   /** Strict-only tightening of derived.authorized_and_committed. Absent = 9.0.0 formula. */
-  profile?: 'ENFORCING_STRICT';
+  profile?: 'ENFORCING_STRICT' | 'ENFORCING_ATOMIC';
 };
 
 /** Existing CasAttestation.derived name and its honest sibling — not a parallel taxonomy. */
-export type CommitLabel = 'authorized_and_committed' | 'authorized_not_committed';
+export type CommitLabel = 'authorized_and_committed' | 'authorized_not_committed' | 'authorized_and_host_reported_committed';
 export const COMMIT_EVIDENCE_MISSING = 'commit_evidence_missing' as const;
 
 export type StrictCommitObservation = {
@@ -415,12 +420,19 @@ export function buildCasAttestation(
   const indeterminate = cas.status === 'indeterminate';
   const cas_evidence = evaluateCasEvidence(outcome, opts);
   let authorized_and_committed = receipt_verified && cas.status === 'committed';
+  let authorized_and_host_reported_committed = false;
   // ENFORCING_STRICT: the existing derived name now requires executor_attested + kernel
   // cross-check. Non-strict keeps the 9.0.0 formula (receipt verified + clean commit).
   if (opts.profile === 'ENFORCING_STRICT') {
     const obs = strictCommitObservation(outcome, cas_evidence, opts);
     authorized_and_committed = authorized_and_committed
       && obs.commit_label === 'authorized_and_committed';
+  }
+  if (opts.profile === 'ENFORCING_ATOMIC') {
+    const executorOk = cas_evidence.class === 'executor_attested';
+    const hostClaimed = cas_evidence.class === 'host_claimed';
+    authorized_and_host_reported_committed = receipt_verified && cas.status === 'committed' && hostClaimed;
+    authorized_and_committed = receipt_verified && cas.status === 'committed' && executorOk;
   }
 
   const attestation: CasAttestation = {
@@ -439,6 +451,9 @@ export function buildCasAttestation(
       stale_during_commit,
       refused,
       indeterminate,
+      ...(opts.profile === 'ENFORCING_ATOMIC'
+        ? { authorized_and_host_reported_committed }
+        : {}),
     }),
     cas_evidence,
     limits: LIMITS,
