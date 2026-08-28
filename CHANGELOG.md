@@ -1,5 +1,17 @@
 # Changelog
 
+## 14.0.0
+
+### Breaking
+
+- **ENFORCING_ATOMIC_V1 profile.** A new frozen assurance profile that conjoins eleven invariants (verified receipt, verified v2 grant, exact executor, exact target, after-payload hash, fresh nonce, nonce consumed once, target CAS, read-back, executor attestation, credential boundary). A missing invariant at construction throws `ATOMIC_PROFILE_UNSATISFIED` — the guard does not start. The outcome union is `AUTHORIZED_COMMITTED` / `REFUSED` / `INDETERMINATE`. `registerMutator` replaces `isWriteStyleCall` for ATOMIC only; non-ATOMIC profiles keep the previous predicate.
+- **Commit label on the live outcome.** On the ATOMIC host-claimed path the live `GuardOutcome.commit_label` is now `authorized_and_host_reported_committed`; `authorized_and_committed` is emitted only with a verified executor attestation. The label is carried on the live outcome and the execution proof, not only the CAS record. Non-ATOMIC behaviour is unchanged (v1 compatible).
+
+### Added
+
+- v2 execution grant minting (`cr.exec.v2`) when the profile is ATOMIC or `grantVersion: 'v2'` is requested; the v1 default is unchanged.
+- LICENSE shipped in the package `files[]`.
+
 ## 13.0.0
 
 ### Fixed — BREAKING (1093): the CAS conditioned on a token it fetched itself
