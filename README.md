@@ -236,7 +236,7 @@ outside the returned table — residual `calls_outside_guarded_path_invisible`. 
 
 The `withCodeRifts` example above is the **entry point** (absent profile: freshness and
 conditional-write stay opt-in). For production, lock the fail-closed conjunction with
-`profile: 'ENFORCING_STRICT'` (shipped guard@8.1.0; current package 8.3.0). Construction
+`profile: 'ENFORCING_STRICT'` (shipped guard@8.1.0; current package 13.0.0). Construction
 **aborts** if you opt down any locked flag, omit `resolvePriorContent`, or omit the execution
 chain (`executionGrant: { enabled: true }`, required since 9.8.0).
 
