@@ -140,7 +140,11 @@ describe('1167 — V2 credential_boundary requires a verified posture receipt', 
       ...baseInput(),
       profile: PROFILE_ENFORCING_ATOMIC_V2,
       credentialBoundary: {
-        postureReceipt: mintReceipt(), registry: REGISTRY, maxAgeMs: 60_000, now: () => NOW + 3_600_000,
+        postureReceipt: mintReceipt(),
+        registry: REGISTRY,
+        deploymentId: DEPLOY,
+        maxAgeMs: 60_000,
+        now: () => NOW + 3_600_000,
       },
     });
     assert.match(boundaryProblems(problems)[0], /not a receipt-carried expiry/);

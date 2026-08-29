@@ -97,7 +97,7 @@ export function createMutatorRegister(): MutatorRegister {
   return api;
 }
 
-export function isEnforcingAtomic(profile: unknown): boolean {
+export function isEnforcingAtomic(profile: unknown): profile is AtomicProfileSpelling {
   return profile === 'ENFORCING_ATOMIC'
     || profile === PROFILE_ENFORCING_ATOMIC_V1
     || profile === PROFILE_ENFORCING_ATOMIC_V2;
@@ -119,8 +119,14 @@ export type AtomicConstructionInput = {
   readBack?: unknown;
   credentialBoundary?: unknown;
   /** V2 ONLY. Ignored on V1, whose credential_boundary check is frozen. */
-  profile?: unknown;
+  profile?: AtomicProfileSpelling;
 };
+
+/**
+ * V2 caller-supplied freshness window must be finite, positive, and ≤ 24h.
+ * A larger value is not a freshness check (the receipt has no expires_at).
+ */
+export const ATOMIC_V2_MAX_AGE_MS_CAP = 86_400_000;
 
 /**
  * V2 credential_boundary input. A bare `true` is deliberately NOT assignable.
@@ -191,25 +197,52 @@ export function atomicConstructionProblems(input: AtomicConstructionInput): stri
         + 'receipt is verified against a caller-supplied key; this package never fetches one.',
       );
     } else {
-      const r = verifyPostureReceipt(cb.postureReceipt, {
-        registry: cb.registry,
-        pinnedKeyPem: cb.pinnedKeyPem,
-        expectedDeploymentId: cb.deploymentId,
-        maxAgeMs: cb.maxAgeMs,
-        now: cb.now,
-      });
-      if (!r.valid) {
+      const deploymentId = typeof cb.deploymentId === 'string' ? cb.deploymentId : '';
+      if (deploymentId.length === 0) {
         problems.push(
-          `credential_boundary: posture receipt not verified — ${r.status} (${r.reason}). `
-          + (r.status === 'POSTURE_STALE'
-            ? 'This is the caller-supplied freshness window (maxAgeMs), not a receipt-carried '
-              + 'expiry: cr.posture.receipt.v1 signs measured_at and no expires_at.'
-            : r.status === 'POSTURE_FAIL'
-              ? 'The signature verified; the posture did not. A signed FAIL is a drift artifact — '
-                + 'the boundary regressed, the receipt is intact.'
-              : 'Supply a posture receipt signed by a key in the registry, bound to this '
-                + 'deployment_id, with verdict PASS.'),
+          'credential_boundary: credentialBoundary.deploymentId required under ENFORCING_ATOMIC_V2 — '
+          + 'the posture receipt must be bound to this deployment.',
         );
+      }
+      const maxAgeMs = cb.maxAgeMs;
+      const maxAgeOk = typeof maxAgeMs === 'number'
+        && Number.isFinite(maxAgeMs)
+        && maxAgeMs > 0
+        && maxAgeMs <= ATOMIC_V2_MAX_AGE_MS_CAP;
+      if (typeof maxAgeMs !== 'number' || !Number.isFinite(maxAgeMs) || maxAgeMs <= 0) {
+        problems.push(
+          'credential_boundary: credentialBoundary.maxAgeMs required under ENFORCING_ATOMIC_V2 — '
+          + 'a finite positive freshness window; the receipt signs measured_at and no expires_at.',
+        );
+      } else if (maxAgeMs > ATOMIC_V2_MAX_AGE_MS_CAP) {
+        problems.push(
+          `credential_boundary: credentialBoundary.maxAgeMs exceeds the ${ATOMIC_V2_MAX_AGE_MS_CAP}ms `
+          + 'cap (24h). A larger window is not a freshness check.',
+        );
+      }
+      // V2 calls the verifier only with both mandatory args present — a call with neither
+      // is itself a construction problem (the verifier stays permissive when invoked directly).
+      if (deploymentId.length > 0 && maxAgeOk) {
+        const r = verifyPostureReceipt(cb.postureReceipt, {
+          registry: cb.registry,
+          pinnedKeyPem: cb.pinnedKeyPem,
+          expectedDeploymentId: deploymentId,
+          maxAgeMs,
+          now: cb.now,
+        });
+        if (!r.valid) {
+          problems.push(
+            `credential_boundary: posture receipt not verified — ${r.status} (${r.reason}). `
+            + (r.status === 'POSTURE_STALE'
+              ? 'This is the caller-supplied freshness window (maxAgeMs), not a receipt-carried '
+                + 'expiry: cr.posture.receipt.v1 signs measured_at and no expires_at.'
+              : r.status === 'POSTURE_FAIL'
+                ? 'The signature verified; the posture did not. A signed FAIL is a drift artifact — '
+                  + 'the boundary regressed, the receipt is intact.'
+                : 'Supply a posture receipt signed by a key in the registry, bound to this '
+                  + 'deployment_id, with verdict PASS.'),
+          );
+        }
       }
     }
   }

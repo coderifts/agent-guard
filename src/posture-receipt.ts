@@ -43,9 +43,16 @@ export type PostureVerifyStatus =
   | 'POSTURE_FAIL'
   | 'POSTURE_MALFORMED'
   | 'POSTURE_UNKNOWN_KEY'
+  | 'POSTURE_REVOKED_KEY'
   | 'POSTURE_INVALID_SIGNATURE'
   | 'POSTURE_UNBOUND'
   | 'POSTURE_STALE';
+
+/**
+ * Allowed future skew on measured_at, in ms. A receipt dated further in the
+ * future than this is not fresh — it is clock-skewed / malformed.
+ */
+export const POSTURE_CLOCK_SKEW_TOLERANCE_MS = 5_000;
 
 export type PostureReceiptPayload = {
   v?: string;
@@ -79,32 +86,40 @@ export type PostureVerifyResult = {
   age_ms?: number;
 };
 
+type ResolvedPostureKey =
+  | { ok: true; key: ReturnType<typeof createPublicKey> }
+  | { ok: false; status: 'POSTURE_UNKNOWN_KEY' | 'POSTURE_REVOKED_KEY' };
+
 /**
  * Same shape and precedence as deploy-receipt-token.ts:106-134 — pinned PEM wins
- * (air-gap), then the registry entry for this kid, preferring an active key.
+ * (air-gap), then the registry entry for this kid. Active-only: a revoked (or
+ * otherwise non-active) match is NOT a fallback.
  */
 function resolvePostureKey(
   kid: string,
   registry: ExecutorKeyRegistry | undefined,
   pinnedKeyPem: string | undefined,
-): ReturnType<typeof createPublicKey> | null {
+): ResolvedPostureKey {
   if (typeof pinnedKeyPem === 'string' && pinnedKeyPem.trim().length > 0) {
     try {
-      return createPublicKey(pinnedKeyPem);
+      return { ok: true, key: createPublicKey(pinnedKeyPem) };
     } catch {
-      return null;
+      return { ok: false, status: 'POSTURE_UNKNOWN_KEY' };
     }
   }
-  if (!registry || !Array.isArray(registry.keys) || !kid) return null;
+  if (!registry || !Array.isArray(registry.keys) || !kid) {
+    return { ok: false, status: 'POSTURE_UNKNOWN_KEY' };
+  }
   const matches = registry.keys.filter(
     (k) => k && k.kid === kid && typeof k.public_key_pem === 'string',
   );
-  if (matches.length === 0) return null;
-  const entry = matches.find((k) => k.status === 'active') || matches[0];
+  if (matches.length === 0) return { ok: false, status: 'POSTURE_UNKNOWN_KEY' };
+  const entry = matches.find((k) => k.status === 'active');
+  if (!entry) return { ok: false, status: 'POSTURE_REVOKED_KEY' };
   try {
-    return createPublicKey(entry.public_key_pem as string);
+    return { ok: true, key: createPublicKey(entry.public_key_pem as string) };
   } catch {
-    return null;
+    return { ok: false, status: 'POSTURE_UNKNOWN_KEY' };
   }
 }
 
@@ -141,8 +156,14 @@ export function verifyPostureReceipt(
     return fail('POSTURE_MALFORMED', 'bad_preimage');
   }
 
-  const key = resolvePostureKey(seg[1], input.registry, input.pinnedKeyPem);
-  if (!key) return fail('POSTURE_UNKNOWN_KEY', 'unknown_kid');
+  const resolved = resolvePostureKey(seg[1], input.registry, input.pinnedKeyPem);
+  if (!resolved.ok) {
+    return fail(
+      resolved.status,
+      resolved.status === 'POSTURE_REVOKED_KEY' ? 'kid_revoked' : 'unknown_kid',
+    );
+  }
+  const key = resolved.key;
 
   let sigOk = false;
   try {
@@ -170,6 +191,18 @@ export function verifyPostureReceipt(
     return fail('POSTURE_FAIL', 'posture_verdict_not_pass', { payload });
   }
 
+  // Envelope kid is seg[1]. Body executor_kid is optional; when present it must match.
+  if (typeof payload.executor_kid === 'string' && payload.executor_kid.length > 0
+      && payload.executor_kid !== seg[1]) {
+    return fail('POSTURE_UNBOUND', 'kid_mismatch', { payload });
+  }
+
+  // Body `v` is optional (PostureReceiptPayload.v). When present it must match the envelope magic.
+  if (Object.prototype.hasOwnProperty.call(payload, 'v') && payload.v != null
+      && payload.v !== POSTURE_RECEIPT_V) {
+    return fail('POSTURE_MALFORMED', 'body_version_mismatch', { payload });
+  }
+
   if (typeof input.expectedDeploymentId === 'string' && input.expectedDeploymentId.length > 0) {
     if (payload.deployment_id !== input.expectedDeploymentId) {
       return fail('POSTURE_UNBOUND', 'deployment_id_mismatch', { payload });
@@ -186,7 +219,18 @@ export function verifyPostureReceipt(
       return fail('POSTURE_STALE', 'measured_at_unparseable', { payload });
     }
     const now = (input.now || (() => Date.now()))();
+    // NaN < -tolerance and NaN > maxAgeMs are both false — a non-finite clock
+    // must not skip the freshness predicates into POSTURE_PASS.
+    if (!Number.isFinite(now)) {
+      return fail('POSTURE_STALE', 'now_unparseable', { payload });
+    }
     ageMs = now - measured;
+    if (!Number.isFinite(ageMs)) {
+      return fail('POSTURE_STALE', 'measured_at_unparseable', { payload });
+    }
+    if (ageMs < -POSTURE_CLOCK_SKEW_TOLERANCE_MS) {
+      return fail('POSTURE_STALE', 'measured_at_in_future', { payload, age_ms: ageMs });
+    }
     if (ageMs > input.maxAgeMs) {
       return fail('POSTURE_STALE', 'outside_freshness_window', { payload, age_ms: ageMs });
     }

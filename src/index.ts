@@ -440,9 +440,14 @@ export {
   isEnforcingAtomicV2,
   atomicConstructionProblems,
   CREDENTIAL_BOUNDARY_BARE_REJECTED,
+  ATOMIC_V2_MAX_AGE_MS_CAP,
 } from './atomic-profile.js';
 export type { AtomicOutcome, MutatorRegister, VerifiedCredentialBoundary } from './atomic-profile.js';
-export { verifyPostureReceipt, POSTURE_RECEIPT_V } from './posture-receipt.js';
+export {
+  verifyPostureReceipt,
+  POSTURE_RECEIPT_V,
+  POSTURE_CLOCK_SKEW_TOLERANCE_MS,
+} from './posture-receipt.js';
 export type {
   PostureVerifyStatus, PostureVerifyResult, PostureVerifyInput, PostureReceiptPayload,
 } from './posture-receipt.js';

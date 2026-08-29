@@ -242,16 +242,19 @@ export function guardedFractionAmongRoutes(
  *   implied otherwise would be the overstatement class we spend most of our time removing.
  */
 export type WithCodeRiftsProfile = 'ENFORCING_STRICT' | 'ENFORCING_STRICT_V1';
-export type WithCodeRiftsAtomicProfile = 'ENFORCING_ATOMIC' | 'ENFORCING_ATOMIC_V1';
+export type WithCodeRiftsAtomicProfile =
+  | 'ENFORCING_ATOMIC'
+  | 'ENFORCING_ATOMIC_V1'
+  | 'ENFORCING_ATOMIC_V2';
 
 /** The canonical contract name. The unsuffixed alias resolves here and always will. */
 export const PROFILE_ENFORCING_STRICT_V1 = 'ENFORCING_STRICT_V1' as const;
-export { PROFILE_ENFORCING_ATOMIC_V1 } from './atomic-profile.js';
+export { PROFILE_ENFORCING_ATOMIC_V1, PROFILE_ENFORCING_ATOMIC_V2 } from './atomic-profile.js';
 
 /** Every accepted spelling. Order is documentation: canonical first, deprecated alias second. */
 const ACCEPTED_PROFILES: readonly (WithCodeRiftsProfile | WithCodeRiftsAtomicProfile)[] = Object.freeze([
   'ENFORCING_STRICT_V1', 'ENFORCING_STRICT',
-  'ENFORCING_ATOMIC_V1', 'ENFORCING_ATOMIC',
+  'ENFORCING_ATOMIC_V2', 'ENFORCING_ATOMIC_V1', 'ENFORCING_ATOMIC',
 ] as const);
 
 /**
@@ -915,6 +918,7 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
       casAdapter: input.casAdapter,
       readBack: input.readBack,
       credentialBoundary: input.credentialBoundary,
+      profile: input.profile,
     });
     if (atomicProblems.length > 0) throwAtomicUnsatisfied(atomicProblems);
   }
