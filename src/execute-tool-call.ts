@@ -43,6 +43,11 @@ import {
   type BindLangGraphGuardOutcomeArgs,
   type ProofBoundLangGraphToolMessage,
 } from './adapters/langgraph.js';
+import {
+  bindVercelGuardOutcome,
+  type BindVercelGuardOutcomeArgs,
+  type ProofBoundVercelToolResult,
+} from './adapters/vercel.js';
 
 // ── Table input ──────────────────────────────────────────────────────────────
 
@@ -52,14 +57,18 @@ import {
  */
 export type ProtectedToolTableInput =
   | readonly ProtectedTool[]
-  | { tools?: readonly ProtectedTool[]; protected_tools?: readonly ProtectedTool[] };
+  | {
+      /** Core withCodeRifts tools[], or a provider shape record/array (ignored unless it has execute). */
+      tools?: readonly ProtectedTool[] | Record<string, unknown>;
+      protected_tools?: readonly ProtectedTool[];
+    };
 
 function resolveProtectedTools(table: ProtectedToolTableInput): readonly ProtectedTool[] {
   if (Array.isArray(table)) return table;
   if (table && typeof table === 'object') {
     const bag = table as {
       protected_tools?: readonly ProtectedTool[];
-      tools?: readonly ProtectedTool[];
+      tools?: readonly ProtectedTool[] | Record<string, unknown>;
     };
     if (Array.isArray(bag.protected_tools) && bag.protected_tools.length > 0) {
       return bag.protected_tools;
@@ -439,6 +448,42 @@ export async function executeLangGraphToolCall(
       name: args.name,
     };
     return msg as ProofBoundLangGraphToolMessage;
+  }
+  return bound;
+}
+
+export type ExecuteVercelToolCallArgs = {
+  tools: ProtectedToolTableInput;
+  /** Vercel toolCallId this tool-result answers. */
+  toolCallId: string;
+  name: string;
+  arguments?: unknown;
+  serialize?: BindVercelGuardOutcomeArgs<unknown>['serialize'];
+};
+
+/**
+ * Vercel AI SDK face: protected table + one tool call → ProofBoundVercelToolResult only.
+ * Return type is branded — host cannot type-check a forgotten-proof path.
+ */
+export async function executeVercelToolCall(
+  args: ExecuteVercelToolCallArgs,
+): Promise<ProofBoundVercelToolResult> {
+  const callArgs = parseMaybeJsonArgs(args.arguments);
+  const outcome = await executeProtectedTool(args.tools, args.name, callArgs);
+  const bound = bindVercelGuardOutcome(outcome, {
+    toolCallId: args.toolCallId,
+    toolName: args.name,
+    serialize: args.serialize,
+  });
+  if (outcome.executionAttempted === false) {
+    const result = appendEnvelopeSurface(bound.result, outcome);
+    const part: { type: 'tool-result'; toolCallId: string; toolName?: string; result: string } = {
+      type: 'tool-result',
+      toolCallId: args.toolCallId,
+      toolName: args.name,
+      result,
+    };
+    return part as ProofBoundVercelToolResult;
   }
   return bound;
 }

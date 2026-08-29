@@ -15,6 +15,8 @@ const {
   executeAnthropicToolCall,
   executeGeminiToolCall,
   executeLangGraphToolCall,
+  executeVercelToolCall,
+  withCodeRiftsVercel,
   executeProtectedTool,
   isGuardOutcome,
   surfaceEnvelopeFields,
@@ -728,6 +730,139 @@ describe('executeLangGraphToolCall — audit-D matrix', () => {
     assert.doesNotMatch(r.content, /"applied":\s*true/);
     assert.equal(r.tool_call_id, 'lg_missing');
     assert.equal(r.name, 'not_in_table');
+  });
+});
+
+// ── Vercel face — full audit-D matrix (roadmap 129) ──────────────────────────
+describe('executeVercelToolCall — audit-D matrix', () => {
+  it('(i) ALLOW + success → proof-bound tool-result shape', async () => {
+    const r = await executeVercelToolCall({
+      tools: tableAllowSuccess(),
+      toolCallId: 'vc_1',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.equal(r.type, 'tool-result');
+    assert.equal(r.toolCallId, 'vc_1');
+    assert.equal(r.toolName, 'apply_openapi');
+    assert.equal(typeof r.result, 'string');
+    assert.match(r.result, /applied/);
+    assert.match(r.result, /execution proof|CodeRifts/i);
+    assert.deepEqual(Object.keys(r).sort(), ['result', 'toolCallId', 'toolName', 'type']);
+  });
+
+  it('(ii) ALLOW + execution error → proof-bound error, no fake result', async () => {
+    const r = await executeVercelToolCall({
+      tools: tableAllowThrow(),
+      toolCallId: 'vc_err',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.equal(r.type, 'tool-result');
+    assert.match(r.result, /failed|boom-side-effect/i);
+    assert.doesNotMatch(r.result, /"applied":\s*true/);
+    assert.match(r.result, /CodeRifts|execution proof/i);
+  });
+
+  it('(iii) BLOCK → no execution, proof-bound refusal, envelope surfaced', async () => {
+    const flag = { ran: false };
+    const r = await executeVercelToolCall({
+      tools: tableBlock(flag),
+      toolCallId: 'vc_block',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.equal(flag.ran, false);
+    assert.match(r.result, /did not permit execution/);
+    assert.match(r.result, /dec_block_1/);
+    assert.match(r.result, /decision envelope/i);
+    assert.doesNotMatch(r.result, /"applied":\s*true/);
+  });
+
+  it('(iv) requireExecutionStateMatch:true + drift → EXECUTION_STATE_DRIFT proof-bound', async () => {
+    const flag = { ran: false };
+    const { table, A_PRIME } = tableDrift(flag);
+    const r = await executeVercelToolCall({
+      tools: table,
+      toolCallId: 'vc_drift',
+      name: 'apply_openapi',
+      arguments: contractArgs(A_PRIME),
+    });
+    assert.equal(flag.ran, false);
+    assert.match(r.result, /did not permit execution|UNAVAILABLE/i);
+    assert.match(r.result, /EXECUTION_STATE_DRIFT|CodeRifts/i);
+  });
+
+  it('(v) dispatcher always embeds proof', async () => {
+    const r = await executeVercelToolCall({
+      tools: tableAllowSuccess(),
+      toolCallId: 'vc_p',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.match(r.result, /proof_spec|execution proof|CodeRifts/i);
+    assert.ok(r.result.includes(EXECUTION_PROOF_SPEC) || /ENFORCED|AUTHORIZED|proof/i.test(r.result));
+  });
+
+  it('(vi) host-tampered tool-result without proof is detectable', async () => {
+    const bound = await executeVercelToolCall({
+      tools: tableAllowSuccess(),
+      toolCallId: 'vc_brand',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    const tampered = {
+      type: 'tool-result',
+      toolCallId: 'vc_brand',
+      toolName: 'apply_openapi',
+      result: '{"applied":true}',
+    };
+    assert.equal(bound.type, tampered.type);
+    assert.notEqual(bound.result, tampered.result);
+    assert.match(bound.result, /CodeRifts|execution proof|proof/i);
+    assert.doesNotMatch(tampered.result, /execution proof/i);
+    assert.ok(bound.result.length > tampered.result.length);
+  });
+
+  it('(vii) unknown tool name → typed refusal, factory unreachable', async () => {
+    const flag = { ran: false };
+    const r = await executeVercelToolCall({
+      tools: tableUnknown(flag),
+      toolCallId: 'vc_missing',
+      name: 'not_in_table',
+      arguments: {},
+    });
+    assert.equal(flag.ran, false);
+    assert.match(r.result, /did not permit execution|UNAVAILABLE/i);
+    assert.doesNotMatch(r.result, /"applied":\s*true/);
+    assert.equal(r.toolCallId, 'vc_missing');
+    assert.equal(r.toolName, 'not_in_table');
+    assert.equal(r.type, 'tool-result');
+  });
+});
+
+describe('executeVercelToolCall — withCodeRiftsVercel table path (regression)', () => {
+  it('withCodeRiftsVercel result accepted as tools table via protected_tools', async () => {
+    const vercel = withCodeRiftsVercel({
+      tools: [
+        {
+          name: 'apply_openapi',
+          mutationClass: 'mutating',
+          execute: async () => ({ via: 'vercel' }),
+        },
+      ],
+      client: mockClient(),
+      operation: 'tool_call',
+    });
+    const msg = await executeVercelToolCall({
+      tools: vercel,
+      toolCallId: 'call_wcr_v',
+      name: 'apply_openapi',
+      arguments: contractArgs(),
+    });
+    assert.equal(msg.type, 'tool-result');
+    assert.equal(msg.toolCallId, 'call_wcr_v');
+    assert.match(msg.result, /via/);
   });
 });
 

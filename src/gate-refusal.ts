@@ -1,5 +1,5 @@
 /**
- * Binder-visible gate-refusal copy. Shared by the four host binders so a blocked
+ * Binder-visible gate-refusal copy. Shared by the host binders so a blocked
  * call teaches the same sentence the construction path already uses.
  *
  * Does not change verdict.cause / preimage. Additive string on the tool-result

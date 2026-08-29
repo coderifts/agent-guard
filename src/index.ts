@@ -569,6 +569,25 @@ export type {
   BindGeminiGuardOutcomeArgs,
 } from './adapters/gemini.js';
 
+// Roadmap 129 — thin Vercel AI SDK tool adapter (generateText tools record; no `ai` dep).
+// bindVercelGuardOutcome (Option B proof binder; id field is toolCallId).
+export {
+  withCodeRiftsVercel,
+  vercelToolAdapter,
+  toVercelTools,
+  protectedToolToVercel,
+  bindVercelGuardOutcome,
+  defaultSerializeVercelToolResult,
+} from './adapters/vercel.js';
+export type {
+  VercelTool,
+  VercelToolExecutionOptions,
+  WithCodeRiftsVercelResult,
+  VercelToolResult,
+  ProofBoundVercelToolResult,
+  BindVercelGuardOutcomeArgs,
+} from './adapters/vercel.js';
+
 // Option A safe dispatcher — protected table + one framework tool call → ProofBound* only.
 // Closes manual-binder gap; no parallel guard path (uses ProtectedTool.execute → guardToolCall).
 export {
@@ -577,6 +596,7 @@ export {
   executeAnthropicToolCall,
   executeGeminiToolCall,
   executeLangGraphToolCall,
+  executeVercelToolCall,
   isGuardOutcome,
   surfaceEnvelopeFields,
 } from './execute-tool-call.js';
@@ -587,6 +607,7 @@ export type {
   ExecuteAnthropicToolCallArgs,
   ExecuteGeminiToolCallArgs,
   ExecuteLangGraphToolCallArgs,
+  ExecuteVercelToolCallArgs,
 } from './execute-tool-call.js';
 
 export {

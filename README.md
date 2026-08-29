@@ -230,7 +230,7 @@ opt-down. Not TOCTOU closure (see **`requireExecutionStateMatch`** above).
 A conflicting opt-down **aborts construction** (`ENFORCING_STRICT cannot be weakened: <flag> conflicts`).
 Requires `resolvePriorContent` at construction. Does **not** claim host cannot register raw tools
 outside the returned table — residual `calls_outside_guarded_path_invisible`. Adapters
-(`withCodeRiftsOpenAI` / Anthropic / Gemini / LangGraph) still emit only the guarded list.
+(`withCodeRiftsOpenAI` / Anthropic / Gemini / LangGraph / Vercel) still emit only the guarded list.
 
 ### Production enforcement (`ENFORCING_STRICT` + freshness / CAS)
 
@@ -474,9 +474,35 @@ const {
 
 See also `examples/gemini-adapter.mjs` (not published in the npm tarball).
 
+**Vercel AI SDK (roadmap 129).** Same thin pattern; emits a **dependency-free**
+`generateText` / `streamText` `tools` record (`{ [name]: { description?, parameters, execute } }`)
+matching v4 `tool({ description, parameters, execute })`. This package does **not**
+depend on `ai` or `zod` — `parameters` is JSON Schema from `ProtectedTool.inputSchema`
+(v4 accepts Zod Schema | JSON Schema). `execute` is the guarded factory; mutator
+outcomes are bound with **`bindVercelGuardOutcome`** (`toolCallId`). Assurance still
+unflattened:
+
+```typescript
+import { withCodeRiftsVercel } from '@coderifts/agent-guard';
+// host-owned (not a dependency of this package):
+// import { generateText, tool } from 'ai';
+
+const {
+  tools,                 // generateText tools record; guarded execute bound
+  protected_tools,
+  registry_report,
+  composition_assurance, // still may be incomplete (inescapable_runtime:false) — do not drop
+  receipt_thread,
+} = withCodeRiftsVercel({ tools: rawTools, client, operation: 'merge' });
+
+// generateText({ model, tools, prompt })  — only `tools` / `protected_tools` enter the loop
+```
+
+See also `examples/vercel-adapter.mjs` (not published in the npm tarball).
+
 ### Policy delivery
 
-The four adapters (`withCodeRiftsOpenAI` / Anthropic / Gemini / LangGraph, and
+The adapters (`withCodeRiftsOpenAI` / Anthropic / Gemini / LangGraph / Vercel, and
 the `bind*GuardOutcome` helpers) are **result-shapers**. They convert guarded
 tools and bind proof onto the **tool result**. They never see the outbound
 `messages` / `system` field, so they cannot auto-inject into the request. File-based

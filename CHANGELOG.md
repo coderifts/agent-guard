@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Vercel AI SDK tool adapter.** `withCodeRiftsVercel` / `protectedToolToVercel` / `toVercelTools` emit a dependency-free `generateText` tools record matching v4 `tool({ description, parameters, execute })`. `bindVercelGuardOutcome` maps GuardOutcome arms onto `{ type: 'tool-result', toolCallId, result }` (id field is `toolCallId`). `executeVercelToolCall` is the Option A dispatcher face, same wiring as the other four.
+
 ## 14.0.0
 
 ### Breaking

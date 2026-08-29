@@ -14,6 +14,7 @@ repo. They are **not** a claim that the freshness / TOCTOU story is closed.
 | [`anthropic-adapter.mjs`](./anthropic-adapter.mjs) | **ID632** thin Anthropic tool_use adapter: same pattern as OpenAI; target shape is `{ name, description?, input_schema }`. Assurance unflattened. |
 | [`langgraph-adapter.mjs`](./langgraph-adapter.mjs) | **ID632** thin LangChain/LangGraph adapter: plain descriptors `{ name, description?, schema, func, invoke }` (no hard framework dep). Host wires into `tool()` / `ToolNode`. Assurance unflattened. |
 | [`gemini-adapter.mjs`](./gemini-adapter.mjs) | **ID632** thin Google Gemini adapter: `tools: [{ functionDeclarations: [{ name, description?, parameters }] }]`. Assurance unflattened. |
+| [`vercel-adapter.mjs`](./vercel-adapter.mjs) | **roadmap 129** thin Vercel AI SDK adapter: `tools` record `{ [name]: { description?, parameters, execute } }` matching v4 `tool()`. No `ai` dep. Assurance unflattened. |
 | [`final-answer-proof.mjs`](./final-answer-proof.mjs) | **ID645** human-readable final-answer proof block: verified/enforced vs skipped (`currently_authorized: null`) side by side; limits always surfaced. |
 | [`langgraph-guard-python/`](./langgraph-guard-python/) | **Python** reference for the same control-flow contract this package enforces in TS: branch on `execution_action`, closed set of four, present-but-unknown halts. Framework nodes for LangGraph / LangChain / AutoGen plus a `@coderifts_guard` decorator. Offline test suite, stdlib only. |
 
