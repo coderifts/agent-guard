@@ -62,6 +62,19 @@ export type PostureReceiptPayload = {
   verdict?: string;
   facts?: unknown;
   drift?: unknown;
+  /**
+   * The credential-boundary tuple (AUDIT P1 / RES-3).
+   *
+   * MEASURED: the issuer (capability-demo demo/src/posture.js) emits these as
+   * OPTIONAL reserved body fields — only non-empty strings are spread in, so a
+   * receipt may legitimately carry none of them. They are part of the signed
+   * body when present, which is what makes binding them here meaningful rather
+   * than decorative.
+   */
+  executor_id?: string;
+  adapter_id?: string;
+  target_uri?: string;
+  policy_hash?: string;
 };
 
 export type PostureVerifyInput = {
@@ -71,6 +84,22 @@ export type PostureVerifyInput = {
   pinnedKeyPem?: string;
   /** The receipt must be bound to THIS deployment. */
   expectedDeploymentId?: string;
+  /**
+   * The credential-boundary tuple this receipt must bind (AUDIT P1 / RES-3).
+   *
+   * Each is INDEPENDENTLY opt-in, and each behaves like expectedDeploymentId:
+   * supply it and the receipt must carry a matching value or the verify fails
+   * closed with POSTURE_UNBOUND.
+   *
+   * A field you do NOT supply is NOT silently ignored — the result's
+   * `bound` / `not_bound` lists say exactly which parts of the tuple this
+   * verification actually proved. A receipt that binds nothing still verifies
+   * as a signature; it just does not get to claim a boundary it never named.
+   */
+  expectedExecutorId?: string;
+  expectedAdapterId?: string;
+  expectedTargetUri?: string;
+  expectedPolicyHash?: string;
   /** Caller-supplied freshness window in ms. NO DEFAULT — see the header. */
   maxAgeMs?: number;
   /** Injectable clock for tests. Defaults to Date.now. */
@@ -84,6 +113,13 @@ export type PostureVerifyResult = {
   payload?: PostureReceiptPayload;
   /** Age in ms at verification time, when it could be computed. */
   age_ms?: number;
+  /**
+   * Which credential-boundary fields this verification actually BOUND, and
+   * which it did not. Named rather than implied: a caller reading `valid: true`
+   * must be able to see that a tuple it did not ask about was not checked.
+   */
+  bound?: string[];
+  not_bound?: Array<{ field: string; reason: string }>;
 };
 
 type ResolvedPostureKey =
@@ -209,6 +245,42 @@ export function verifyPostureReceipt(
     }
   }
 
+  // ── CREDENTIAL-BOUNDARY TUPLE (AUDIT P1 / RES-3) ───────────────────────────
+  // atomic-profile.ts used to say, in its own comment, that a V2 receipt binds
+  // "NOT executor_id, adapter_id, target_uri or policy_hash". Each is now bound
+  // when the caller names it — same mechanism as the deployment above, so a
+  // receipt for the RIGHT deployment but the WRONG executor no longer passes.
+  //
+  // An expectation the caller does not state is recorded in `not_bound`, never
+  // defaulted to a value that would make it look checked.
+  const bound: string[] = [];
+  const notBound: Array<{ field: string; reason: string }> = [];
+  const tuple: Array<[keyof PostureReceiptPayload, string | undefined, string]> = [
+    ['executor_id', input.expectedExecutorId, 'executor_id'],
+    ['adapter_id', input.expectedAdapterId, 'adapter_id'],
+    ['target_uri', input.expectedTargetUri, 'target_uri'],
+    ['policy_hash', input.expectedPolicyHash, 'policy_hash'],
+  ];
+  for (const [field, expected, label] of tuple) {
+    if (typeof expected !== 'string' || expected.length === 0) {
+      notBound.push({
+        field: label,
+        reason: 'the caller did not state an expected value, so this verification did not check it',
+      });
+      continue;
+    }
+    const actual = payload[field];
+    if (typeof actual !== 'string' || actual.length === 0) {
+      // The caller asked for a binding the receipt cannot supply. That is a
+      // refusal, not a pass: a missing field is not a matching one.
+      return fail('POSTURE_UNBOUND', `${label}_absent`, { payload, bound, not_bound: notBound });
+    }
+    if (actual !== expected) {
+      return fail('POSTURE_UNBOUND', `${label}_mismatch`, { payload, bound, not_bound: notBound });
+    }
+    bound.push(label);
+  }
+
   // FRESHNESS. maxAgeMs is the CALLER's window; there is no receipt-carried
   // expiry to fall back on, so an absent maxAgeMs means the caller did not ask
   // for an age check — not that the receipt is timeless.
@@ -242,5 +314,9 @@ export function verifyPostureReceipt(
     reason: null,
     payload,
     ...(ageMs === undefined ? {} : { age_ms: ageMs }),
+    // What this PASS actually proved about the credential boundary — and what
+    // it did not. A caller must not have to infer the difference.
+    bound,
+    not_bound: notBound,
   };
 }

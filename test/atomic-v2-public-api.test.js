@@ -51,12 +51,24 @@ function canonicalJson(value) {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
 }
 
+/**
+ * The credential-boundary tuple this construction declares (AUDIT P1 / RES-3).
+ * One definition for the config AND the receipt, so a binding test cannot pass
+ * because the two happened to agree.
+ */
+const TUPLE = Object.freeze({
+  executor_id: 'exec-a',
+  adapter_id: 'fs',
+  target_uri: 'fs://repo/openapi.yaml',
+});
+
 function mintReceipt({
   verdict = 'PASS',
   deployment_id = DEPLOY,
   measured_at = new Date(NOW).toISOString(),
   executor_kid = KID,
   v = POSTURE_RECEIPT_V,
+  reserved = TUPLE,
 } = {}) {
   const body = {
     v,
@@ -66,6 +78,10 @@ function mintReceipt({
     verdict,
     facts: { host_role_dml: [], owner_login: false },
     drift: [],
+    // Signed by the producer when they carry real content — measured against
+    // capability-demo demo/src/posture.js (RESERVED_BODY_FIELDS).
+    ...Object.fromEntries(Object.entries(reserved)
+      .filter(([, val]) => typeof val === 'string' && val.length > 0)),
   };
   const preimage = canonicalJson(body);
   const signature = crypto.sign(null, Buffer.from(preimage, 'utf8'), privateKey).toString('base64url');
@@ -93,9 +109,9 @@ function atomicPublic(over = {}) {
     operation: 'merge',
     resolvePriorContent: STUB_RESOLVER,
     executionGrant: { enabled: true, grantVersion: 'v2', resolveStateNonce: async () => 'n1' },
-    executorId: 'exec-a',
-    adapterId: 'fs',
-    targetUri: 'fs://repo/openapi.yaml',
+    executorId: TUPLE.executor_id,
+    adapterId: TUPLE.adapter_id,
+    targetUri: TUPLE.target_uri,
     executorAttestation: { registry: STUB_ATTEST },
     mutatorRegister: mutators(),
     casAdapter: { put: async () => {} },

@@ -58,6 +58,7 @@ import type { PolicyPresence } from './policy.js';
 import {
   isExecutionGrantEnabled,
   isSignerUnavailableError,
+  v2WireFields,
   readExecutionGrantToken,
   resolveStateNonceForCall,
   type ExecutionGrantCallContext,
@@ -625,7 +626,18 @@ export async function guardToolCall<T>(
     idempotency_key: string | undefined;
     include_execution_grant?: true;
     state_nonce?: string;
-  } = {
+    /**
+     * The V2 binding (AUDIT P1 / RES-1). Set only when grantVersion is 'v2'
+     * AND the deployment configured the field — see v2WireFields.
+     */
+    grant_version?: 'v2';
+    executor_id?: string;
+    adapter_id?: string;
+    target_uri?: string;
+    tenant_id?: string;
+    policy_hash?: string;
+    audience_hash?: string;
+  } & Record<string, unknown> = {
     artifacts: detection.artifacts,
     context: { operation: config.operation ?? 'tool_call', environment: config.environment, audience: config.audience },
     previous_receipt: resolvePreviousReceipt(config),
@@ -646,6 +658,30 @@ export async function guardToolCall<T>(
     }
     request.include_execution_grant = true;
     if (nonceRes.nonce) request.state_nonce = nonceRes.nonce;
+
+    // ── V2 WIRE FIELDS (AUDIT P1 / RES-1) ────────────────────────────────────
+    // The builder used to send include_execution_grant and state_nonce and
+    // nothing else, so the V2 binding the config demanded never reached the
+    // wire. Each configured field is attached; each unconfigured one is NAMED
+    // in the observation rather than sent as an empty placeholder, which the
+    // server would otherwise bind as a real value.
+    const wire = v2WireFields(config);
+    if (config.executionGrant?.grantVersion === 'v2') {
+      request.grant_version = 'v2';
+      for (const [k, v] of Object.entries(wire.fields)) request[k] = v;
+    }
+    // Recorded ONLY for v2. On v1 these fields are not "absent" — they are not
+    // part of that grant shape at all, and stamping six absences onto every v1
+    // observation would report a gap where there is no field. It also keeps the
+    // v1 observation byte-identical for the callers already pinning it.
+    if (config.executionGrant?.grantVersion === 'v2') {
+      grantObs = {
+        ...grantObs,
+        grant_version: 'v2',
+        v2_fields_sent: Object.keys(wire.fields),
+        v2_fields_absent: wire.absent,
+      };
+    }
   }
 
   // request-attributable payload cap => PAYLOAD_TOO_LARGE (integrity) => closed.

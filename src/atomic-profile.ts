@@ -28,13 +28,15 @@ export const PROFILE_ENFORCING_ATOMIC_V1 = 'ENFORCING_ATOMIC_V1' as const;
  *   to this `deployment_id`.
  *
  * WHAT IT DOES NOT PROVE, and this list is the point rather than a caveat:
- *   · NOT executor_id, adapter_id, target_uri or policy_hash binding. The
- *     producer does not sign those fields — measured 2026-08-29 against
- *     capability-demo demo/src/posture.js:427-435, whose signed body is exactly
- *     { v, executor_kid, deployment_id, measured_at, verdict, facts, drift }.
- *     Verifying a field the producer never signed would be the same overclaim
- *     the audit found, inverted. Deferred to roadmap 1174; until the producer
- *     signs them, V2 must not imply the receipt binds them.
+ *   · NOT a tuple the CALLER did not name. executor_id, adapter_id, target_uri
+ *     and policy_hash ARE now bound (AUDIT P1 / RES-3) — but each only when the
+ *     construction configures it. The earlier text here said the producer does
+ *     not sign those fields; re-measured 2026-08-29 against capability-demo
+ *     demo/src/posture.js, the issuer spreads them into the SIGNED canonical
+ *     body whenever they carry real content, so binding them is backed by the
+ *     producer rather than asserted over it. What has NOT changed is the rule
+ *     underneath: a field nobody configured is reported in the verifier's
+ *     `not_bound` list, never defaulted into looking checked.
  *   · NOT an expiry. The receipt carries `measured_at` and no `expires_at`, so
  *     the age check is a FRESHNESS window the CALLER supplies via `maxAgeMs`.
  *     A guard-side default would present our policy as the receipt's statement.
@@ -113,6 +115,13 @@ export type AtomicConstructionInput = {
   executorId?: string;
   adapterId?: string;
   targetUri?: string;
+  /**
+   * MEASURED: executorId/adapterId/targetUri already existed here; policyHash
+   * did not exist anywhere in this package — its only mention was the comment
+   * above saying it was not bound. Added so the tuple can be STATED, not so it
+   * can be assumed: leaving it unset binds nothing, and says so.
+   */
+  policyHash?: string;
   executorAttestation?: { registry?: unknown } | null;
   mutatorRegister?: MutatorRegister | null;
   casAdapter?: unknown;
@@ -223,10 +232,19 @@ export function atomicConstructionProblems(input: AtomicConstructionInput): stri
       // V2 calls the verifier only with both mandatory args present — a call with neither
       // is itself a construction problem (the verifier stays permissive when invoked directly).
       if (deploymentId.length > 0 && maxAgeOk) {
+        // The credential-boundary tuple, from the construction input rather than
+        // from anywhere this function could invent it. Each is passed ONLY when
+        // configured: an absent one reaches the verifier as undefined and comes
+        // back named in `not_bound` — the honest record of a boundary this
+        // deployment never stated.
         const r = verifyPostureReceipt(cb.postureReceipt, {
           registry: cb.registry,
           pinnedKeyPem: cb.pinnedKeyPem,
           expectedDeploymentId: deploymentId,
+          expectedExecutorId: input.executorId,
+          expectedAdapterId: input.adapterId,
+          expectedTargetUri: input.targetUri,
+          expectedPolicyHash: input.policyHash,
           maxAgeMs,
           now: cb.now,
         });
