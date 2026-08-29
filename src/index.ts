@@ -435,8 +435,17 @@ export {
   ATOMIC_PROFILE_UNSATISFIED,
   atomicOutcome,
   isEnforcingAtomic,
+  // 1167 — V2 only. The unsuffixed alias stays pinned to V1.
+  PROFILE_ENFORCING_ATOMIC_V2,
+  isEnforcingAtomicV2,
+  atomicConstructionProblems,
+  CREDENTIAL_BOUNDARY_BARE_REJECTED,
 } from './atomic-profile.js';
-export type { AtomicOutcome, MutatorRegister } from './atomic-profile.js';
+export type { AtomicOutcome, MutatorRegister, VerifiedCredentialBoundary } from './atomic-profile.js';
+export { verifyPostureReceipt, POSTURE_RECEIPT_V } from './posture-receipt.js';
+export type {
+  PostureVerifyStatus, PostureVerifyResult, PostureVerifyInput, PostureReceiptPayload,
+} from './posture-receipt.js';
 export type {
   WithCodeRiftsInput, WithCodeRiftsResult, WithCodeRiftsRegistryConfig, WithCodeRiftsProfile, WithCodeRiftsAtomicProfile, CompositionAssurance,
   SettledCallObservation, CallRoute, CallTerminal, TableSettledCallRouteCounts,
