@@ -1,10 +1,18 @@
 # Changelog
 
-## Unreleased
+## 14.1.0
+
+### Security
+
+- **ENFORCING_ATOMIC_V2 posture verifier no longer fails open.** The posture-receipt verifier now rejects a revoked signing key (active-only resolution; a revoked key in the registry no longer resolves via fallback), a future or unparseable `measured_at` (a non-finite or negative age is refused, not silently passed), and — found in security review — a non-finite clock: `NaN < -tolerance` and `NaN > maxAgeMs` are both false, so a non-finite `now()` previously skipped both freshness predicates and a future receipt could still pass under a set `maxAgeMs`; the verifier now requires `Number.isFinite(now)` and `Number.isFinite(ageMs)` when `maxAgeMs` is set. When `maxAgeMs` is unset the direct verifier stays permissive; ENFORCING_ATOMIC_V2 is what makes a bounded `maxAgeMs` and an `expectedDeploymentId` mandatory, at the call site. V1 is byte-frozen and unchanged.
+
+### Fixed
+
+- **ENFORCING_ATOMIC_V2 is now reachable from the public API.** `withCodeRifts({ profile: 'ENFORCING_ATOMIC_V2' })` was defined in the profile module but excluded from the public entry's accepted-profile list, so the V2 profile could not be selected from the product API. It is now accepted (type + `ACCEPTED_PROFILES` + re-export), and the profile is forwarded to the construction helper so a V2 profile runs the V2 credential-boundary check rather than silently falling back to V1 — a bare `credentialBoundary: true` no longer passes under a V2 profile.
 
 ### Added
 
-- **Vercel AI SDK tool adapter.** `withCodeRiftsVercel` / `protectedToolToVercel` / `toVercelTools` emit a dependency-free `generateText` tools record matching v4 `tool({ description, parameters, execute })`. `bindVercelGuardOutcome` maps GuardOutcome arms onto `{ type: 'tool-result', toolCallId, result }` (id field is `toolCallId`). `executeVercelToolCall` is the Option A dispatcher face, same wiring as the other four.
+- **Vercel AI SDK tool adapter.** `withCodeRiftsVercel` / `protectedToolToVercel` / `toVercelTools` emit a dependency-free `generateText` tools record matching v4 `tool({ description, parameters, execute })`. `bindVercelGuardOutcome` maps GuardOutcome arms onto `{ type: 'tool-result', toolCallId, result }` (id field is `toolCallId`). `executeVercelToolCall` is the Option A dispatcher face, same wiring as the other four. No `ai` or `zod` dependency; `parameters` is JSON Schema from `inputSchema`. BLOCK never fabricates a result; a guarded non-outcome fails closed to an UNAVAILABLE bind rather than forwarding raw GuardOutcome JSON to the model.
 
 ## 14.0.0
 
