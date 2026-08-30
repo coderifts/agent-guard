@@ -162,6 +162,22 @@ export interface GuardConfig {
    * Observation-only on the outcome (`requested` / `arrived`); not a verdict/preimage field.
    */
   executionGrant?: import('./execution-grant.js').ExecutionGrantConfig;
+  /**
+   * THE CANONICAL V2 IDENTITY (roadmap 1198). One home, read by BOTH halves:
+   * the authorize request (execution-grant.ts v2WireFields) and the ATOMIC
+   * construction check / posture tuple (atomic-profile.ts).
+   *
+   * withCodeRifts resolves its input onto these before building the guard, so a
+   * direct guardToolCall caller and a withCodeRifts composition hand
+   * v2WireFields an identically-shaped config. `executionGrant.<same name>` is a
+   * deprecated alias; setting both with different values throws at init.
+   */
+  executorId?: string;
+  adapterId?: string;
+  targetUri?: string;
+  tenantId?: string;
+  policyHash?: string;
+  audienceHash?: string;
 }
 
 export interface ToolCallDescriptor {

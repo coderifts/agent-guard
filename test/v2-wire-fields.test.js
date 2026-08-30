@@ -99,3 +99,104 @@ describe('AUDIT P1 / RES-1 — the V2 field set on the authorize request', () =>
     assert.equal(new Set(ALL_WIRE).size, ALL_WIRE.length, 'duplicate wire name');
   });
 });
+
+// ── 1198: ONE CANONICAL SOURCE ───────────────────────────────────────────────
+/**
+ * The V2 identity used to live in two places with nothing reconciling them:
+ * the TOP LEVEL of the withCodeRifts input (→ the ATOMIC construction check and
+ * the posture tuple) and the nested executionGrant config (→ the authorize
+ * request). A field set only at the top level never reached the wire; set in
+ * both with different values, each half believed a different identity.
+ *
+ * 6bca531 called the wire-side absence "honest named-absent". The 1196 lesson
+ * applies here too: named-absent is honest only while the value genuinely does
+ * not exist. Once the config supplies it, absence is a binding gap.
+ */
+describe('AUDIT 1198 — the V2 identity has ONE source', () => {
+  const { resolveV2Fields, V2_FIELD_KEYS } = require('../dist/cjs/execution-grant.js');
+
+  it('a TOP-LEVEL field reaches the wire — the gap this closes', () => {
+    // Before 1198 this returned {} : v2WireFields read executionGrant only.
+    const r = v2WireFields({
+      executorId: 'exec-7',
+      targetUri: 'postgres://articles',
+      executionGrant: { enabled: true, grantVersion: 'v2' },
+    });
+    assert.equal(r.fields.executor_id, 'exec-7');
+    assert.equal(r.fields.target_uri, 'postgres://articles');
+    assert.ok(!r.absent.includes('executor_id'));
+  });
+
+  it('the deprecated nested spelling still reaches the wire', () => {
+    const r = v2WireFields({ executionGrant: { enabled: true, grantVersion: 'v2', adapterId: 'pg' } });
+    assert.equal(r.fields.adapter_id, 'pg');
+  });
+
+  it('both spellings AGREEING is fine and yields one value', () => {
+    const r = resolveV2Fields({
+      executorId: 'exec-7',
+      executionGrant: { executorId: 'exec-7', adapterId: 'pg' },
+    });
+    assert.deepEqual(r, { executorId: 'exec-7', adapterId: 'pg' });
+  });
+
+  it('both spellings DISAGREEING throws, naming BOTH values', () => {
+    // Preferring one silently is what made the split invisible.
+    assert.throws(
+      () => resolveV2Fields({ executorId: 'exec-A', executionGrant: { executorId: 'exec-B' } }),
+      (e) => e.code === 'V2_FIELDS_CONFLICT'
+        && /top-level "exec-A" vs executionGrant\.executorId "exec-B"/.test(e.message)
+        && /Set each field ONCE/.test(e.message),
+    );
+  });
+
+  it('a disagreement on ANY of the six throws, not just the first three', () => {
+    for (const key of V2_FIELD_KEYS) {
+      assert.throws(
+        () => resolveV2Fields({ [key]: 'a', executionGrant: { [key]: 'b' } }),
+        // Substring, not a hand-escaped regex: the message format is the
+        // contract here, and an escaping slip in the TEST would read as a
+        // missing reconciliation in the CODE.
+        (e) => e.code === 'V2_FIELDS_CONFLICT' && e.message.includes(`${key}: top-level`),
+        `${key} does not reconcile`,
+      );
+    }
+  });
+
+  it('every conflicting field is listed, not only the first', () => {
+    try {
+      resolveV2Fields({
+        executorId: 'a', adapterId: 'c',
+        executionGrant: { executorId: 'b', adapterId: 'd' },
+      });
+      assert.fail('did not throw');
+    } catch (e) {
+      assert.match(e.message, /executorId:/);
+      assert.match(e.message, /adapterId:/);
+    }
+  });
+
+  it('an UNSUPPLIED field stays named-absent — the honest case is unchanged', () => {
+    // 6bca531's named-absent is still correct where the Guard genuinely cannot
+    // know the value. What changed is that a SUPPLIED value can no longer be
+    // reported absent.
+    const r = v2WireFields({ executorId: 'exec-7', executionGrant: { enabled: true, grantVersion: 'v2' } });
+    assert.deepEqual(r.absent.sort(), ['adapter_id', 'audience_hash', 'policy_hash', 'target_uri', 'tenant_id']);
+    for (const k of r.absent) assert.ok(!(k in r.fields));
+  });
+
+  it('an empty string on one side is not a conflict — it is unsupplied', () => {
+    // Only non-empty strings count as supplied, so '' vs 'x' takes 'x' rather
+    // than throwing on a field nobody actually set twice.
+    assert.deepEqual(resolveV2Fields({ executorId: '', executionGrant: { executorId: 'x' } }),
+      { executorId: 'x' });
+    assert.deepEqual(resolveV2Fields({ executorId: 'x', executionGrant: { executorId: '' } }),
+      { executorId: 'x' });
+  });
+
+  it('no config at all resolves to nothing and throws nothing', () => {
+    for (const c of [null, undefined, {}, { executionGrant: null }]) {
+      assert.deepEqual(resolveV2Fields(c), {});
+    }
+  });
+});

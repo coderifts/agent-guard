@@ -70,6 +70,7 @@
  */
 
 import { guardToolRegistry } from './tool-registry.js';
+import { resolveV2Fields } from './execution-grant.js';
 import type {
   RawTool,
   ProtectedTool,
@@ -391,9 +392,24 @@ export type WithCodeRiftsInput = {
   executorAttestation?: GuardConfig['executorAttestation'];
   /** ATOMIC: explicit mutator register (replaces isWriteStyleCall for this profile only). */
   mutatorRegister?: MutatorRegister;
+  /**
+   * THE CANONICAL V2 IDENTITY (1198). These bind the ATOMIC construction check
+   * and the posture receipt, AND they are what goes on the authorize request —
+   * one source for both. `executionGrant.<same name>` is a deprecated alias;
+   * setting both with different values throws at init (resolveV2Fields).
+   */
   executorId?: string;
   adapterId?: string;
   targetUri?: string;
+  /**
+   * Added here in 1198. policyHash had a reader (atomic-profile.ts passes it to
+   * the posture verifier) and no writer on this path, so the binding was
+   * permanently undefined; tenantId and audienceHash existed on the wire side
+   * only. All three now have the same single home as the other three.
+   */
+  tenantId?: string;
+  policyHash?: string;
+  audienceHash?: string;
   casAdapter?: unknown;
   readBack?: (ctx: unknown) => unknown;
   credentialBoundary?: true | Record<string, unknown>;
@@ -908,11 +924,19 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
     problems.push(...enforcingStrictExecutionChainProblems(input));
   }
   if (isEnforcingAtomic(input.profile)) {
+    // Resolved ONCE, before anything is built. A disagreement between the two
+    // spellings throws here — at initialization, naming both values — rather
+    // than silently building a grant bound to one identity and a profile bound
+    // to another.
+    const v2 = resolveV2Fields(input);
     const atomicProblems = atomicConstructionProblems({
       executionGrant: input.executionGrant as AtomicConstructionInput['executionGrant'],
-      executorId: input.executorId,
-      adapterId: input.adapterId,
-      targetUri: input.targetUri,
+      executorId: v2.executorId,
+      adapterId: v2.adapterId,
+      targetUri: v2.targetUri,
+      // Previously never forwarded, so the posture verifier's policy_hash
+      // binding could not fire no matter what the caller configured.
+      policyHash: v2.policyHash,
       executorAttestation: input.executorAttestation,
       mutatorRegister: input.mutatorRegister,
       casAdapter: input.casAdapter,
@@ -1015,6 +1039,12 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   }
   if (input.executionGrant !== undefined) {
     guard.executionGrant = input.executionGrant;
+    // The resolved identity goes on the GuardConfig's TOP LEVEL — the same
+    // surface a direct guardToolCall caller uses, so both entry points hand
+    // v2WireFields an identically-shaped config and there is one code path to
+    // test rather than two. Writing it into a nested copy here instead would
+    // create a second shape that only this entry point exercises.
+    Object.assign(guard, resolveV2Fields(input));
   }
   const strict = isEnforcingStrict(input);
   if (strict) {

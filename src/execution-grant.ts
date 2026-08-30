@@ -27,6 +27,18 @@ export type ExecutionGrantConfig = {
    * Every one is OPTIONAL and every one is sent only when set. A deployment
    * that does not configure a field gets it NAMED in the observation's
    * `v2_fields_absent`, never a placeholder on the wire.
+   *
+   * ── DEPRECATED ALIASES (1198) ────────────────────────────────────────────
+   * The canonical home is the TOP LEVEL of the withCodeRifts input, where
+   * executorId/adapterId/targetUri already lived before this config existed
+   * (with-coderifts.ts:394-396) and where the ATOMIC construction check reads
+   * them. Setting them here still works and still reaches the wire — but a
+   * value here that DISAGREES with the top level is an initialization error,
+   * because the two used to feed different halves of the system with nothing
+   * reconciling them. See resolveV2Fields.
+   *
+   * Unreleased when this was written — added after the 14.1.0 release and never
+   * published — so no adopter depends on the nested spelling.
    */
   executorId?: string;
   adapterId?: string;
@@ -35,6 +47,82 @@ export type ExecutionGrantConfig = {
   policyHash?: string;
   audienceHash?: string;
 };
+
+/**
+ * THE CANONICAL V2 FIELD SET (roadmap 1198).
+ *
+ * MEASURED SPLIT-BRAIN, which is what this exists to end:
+ *   · executorId / adapterId / targetUri lived in BOTH the top-level input
+ *     (with-coderifts.ts:394-396 → the ATOMIC construction check and the
+ *     posture tuple) and the nested executionGrant config (→ the authorize
+ *     request). Nothing compared them, so a configuration could bind the
+ *     profile to one executor and put another — or none — on the wire.
+ *   · policyHash had a READER and no writer: atomic-profile.ts:247 passes
+ *     `input.policyHash` to the posture verifier and with-coderifts.ts:911-915
+ *     never forwarded it, so that binding was permanently undefined.
+ *   · tenantId / audienceHash existed on the wire side only.
+ *
+ * This reads both spellings, REFUSES a disagreement, and returns one set that
+ * the wire and the profile both use. A field neither side supplies stays
+ * genuinely absent — the case 6bca531's named-absent was written for, and now
+ * the only case it covers.
+ */
+export const V2_FIELD_KEYS = Object.freeze([
+  'executorId', 'adapterId', 'targetUri', 'tenantId', 'policyHash', 'audienceHash',
+] as const);
+
+export type V2FieldKey = typeof V2_FIELD_KEYS[number];
+export type V2Fields = Partial<Record<V2FieldKey, string>>;
+
+/**
+ * Resolve the canonical set from an input carrying either spelling.
+ *
+ * THROWS on disagreement. Preferring one silently is what produced the split:
+ * a caller who set both would have one quietly ignored, with no way to see
+ * which one survived.
+ */
+export function resolveV2Fields(input?: {
+  executorId?: unknown;
+  adapterId?: unknown;
+  targetUri?: unknown;
+  tenantId?: unknown;
+  policyHash?: unknown;
+  audienceHash?: unknown;
+  executionGrant?: ExecutionGrantConfig | null;
+} | null): V2Fields {
+  const top = (input || {}) as Record<string, unknown>;
+  const nested = ((input && input.executionGrant) || {}) as Record<string, unknown>;
+  const out: V2Fields = {};
+  const conflicts: string[] = [];
+
+  for (const key of V2_FIELD_KEYS) {
+    const t = typeof top[key] === 'string' && (top[key] as string).length > 0
+      ? (top[key] as string) : undefined;
+    const n = typeof nested[key] === 'string' && (nested[key] as string).length > 0
+      ? (nested[key] as string) : undefined;
+
+    if (t !== undefined && n !== undefined && t !== n) {
+      conflicts.push(`  ${key}: top-level ${JSON.stringify(t)} vs executionGrant.${key} ${JSON.stringify(n)}`);
+      continue;
+    }
+    const v = t !== undefined ? t : n;
+    if (v !== undefined) out[key] = v;
+  }
+
+  if (conflicts.length > 0) {
+    const err = new Error(
+      'withCodeRifts: the V2 identity fields are configured in two places and they disagree.\n'
+      + `${conflicts.join('\n')}\n\n`
+      + 'These feed DIFFERENT halves of the system — the top level binds the ATOMIC construction '
+      + 'check and the posture receipt, the executionGrant copy goes on the authorize request — so '
+      + 'a disagreement builds a grant against one identity and verifies against another. Set each '
+      + 'field ONCE, at the top level; the executionGrant spelling is a deprecated alias.',
+    );
+    (err as Error & { code: string }).code = 'V2_FIELDS_CONFLICT';
+    throw err;
+  }
+  return out;
+}
 
 /** The V2 request fields, in the wire spelling. One list, used to send and to report. */
 export const V2_WIRE_FIELDS = Object.freeze([
@@ -72,8 +160,12 @@ export function v2WireFields(
   if (!g || g.grantVersion !== 'v2') {
     return { fields, absent: V2_WIRE_FIELDS.map(([wire]) => wire) };
   }
+  // ONE SOURCE. Reading `config.executionGrant` directly here was half of the
+  // 1198 split: the profile read the top level and the wire read the nested
+  // copy, and a value set only at the top level never left the process.
+  const resolved = resolveV2Fields(config as Parameters<typeof resolveV2Fields>[0]);
   for (const [wire, key] of V2_WIRE_FIELDS) {
-    const v = (g as Record<string, unknown>)[key];
+    const v = resolved[key as V2FieldKey];
     if (typeof v === 'string' && v.length > 0) fields[wire] = v;
     else absent.push(wire);
   }

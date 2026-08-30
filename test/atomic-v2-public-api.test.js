@@ -268,3 +268,128 @@ describe('V1 regression — byte-frozen credentialBoundary:true', () => {
 });
 
 void isUnsatisfied;
+
+// ── 1198: THE TOP-LEVEL IDENTITY REACHES BOTH HALVES ─────────────────────────
+/**
+ * End-to-end for the split-brain fix. `atomicPublic()` above configures the identity at
+ * the TOP LEVEL only — which is how the public API has always documented it, and
+ * which before 1198 meant the values bound the ATOMIC construction check and the
+ * posture receipt while NEVER reaching the authorize request.
+ */
+describe('AUDIT 1198 — one identity, both halves', () => {
+  const { v2WireFields, resolveV2Fields } = require('../dist/cjs/execution-grant.js');
+
+  it('a top-level identity constructs AND is what the wire would carry', () => {
+    const input = atomicPublic({
+      profile: PROFILE_ENFORCING_ATOMIC_V2,
+      credentialBoundary: v2Boundary(),
+    });
+    // The profile half: construction succeeds, which requires exact_executor /
+    // exact_target / after_payload_hash to have found the fields.
+    assert.doesNotThrow(() => withCodeRifts(input));
+
+    // The wire half: the same values, from the same single source.
+    const wire = v2WireFields(input);
+    assert.equal(wire.fields.executor_id, TUPLE.executor_id);
+    assert.equal(wire.fields.adapter_id, TUPLE.adapter_id);
+    assert.equal(wire.fields.target_uri, TUPLE.target_uri);
+  });
+
+  it('a MISMATCH between the two spellings throws at init, not at call time', () => {
+    const input = atomicPublic({
+      profile: PROFILE_ENFORCING_ATOMIC_V2,
+      credentialBoundary: v2Boundary(),
+    });
+    const conflicted = {
+      ...input,
+      executionGrant: { ...input.executionGrant, executorId: 'someone-else' },
+    };
+    assert.throws(
+      () => withCodeRifts(conflicted),
+      (e) => e.code === 'V2_FIELDS_CONFLICT'
+        && e.message.includes('exec-a')
+        && e.message.includes('someone-else'),
+      'a disagreeing identity built silently',
+    );
+  });
+
+  it('the nested spelling ALONE still constructs — it is deprecated, not removed', () => {
+    const input = atomicPublic({
+      profile: PROFILE_ENFORCING_ATOMIC_V2,
+      credentialBoundary: v2Boundary(),
+    });
+    const nestedOnly = {
+      ...input,
+      executorId: undefined,
+      adapterId: undefined,
+      targetUri: undefined,
+      executionGrant: {
+        ...input.executionGrant,
+        executorId: TUPLE.executor_id,
+        adapterId: TUPLE.adapter_id,
+        targetUri: TUPLE.target_uri,
+      },
+    };
+    assert.doesNotThrow(() => withCodeRifts(nestedOnly));
+  });
+
+  it('an identity supplied NOWHERE still fails construction — unchanged', () => {
+    // The exact-profile requirement is not softened by the reconciliation: a
+    // genuinely absent executorId is still an unsatisfied ATOMIC condition.
+    const input = atomicPublic({
+      profile: PROFILE_ENFORCING_ATOMIC_V2,
+      credentialBoundary: v2Boundary(),
+      executorId: undefined,
+    });
+    assert.throws(() => withCodeRifts(input), /exact_executor/);
+  });
+
+  it('resolveV2Fields is what both halves call — one function, not two copies', () => {
+    const input = atomicPublic({
+      profile: PROFILE_ENFORCING_ATOMIC_V2,
+      credentialBoundary: v2Boundary(),
+    });
+    const resolved = resolveV2Fields(input);
+    const wire = v2WireFields(input);
+    for (const [wireName, key] of [['executor_id', 'executorId'], ['adapter_id', 'adapterId'],
+      ['target_uri', 'targetUri']]) {
+      assert.equal(wire.fields[wireName], resolved[key]);
+    }
+  });
+});
+
+// ── 1198: policyHash HAS A WRITER NOW ────────────────────────────────────────
+/**
+ * policyHash had a READER (atomic-profile passes it to the posture verifier) and
+ * no writer on this path, so the binding could never fire. Pinned end to end: a
+ * configured policyHash that DISAGREES with the receipt must now fail
+ * construction, which is only possible if the value is being forwarded.
+ */
+describe('AUDIT 1198 — a configured policyHash reaches the posture verifier', () => {
+  it('a policyHash the receipt does not carry fails construction', () => {
+    const msg = unsatisfiedMessage(() => withCodeRifts(atomicPublic({
+      profile: PROFILE_ENFORCING_ATOMIC_V2,
+      credentialBoundary: v2Boundary(),
+      policyHash: 'sha256:configured',
+    })));
+    assert.match(msg, /policy_hash_absent|policy_hash_mismatch/,
+      'a configured policyHash did not reach the verifier');
+  });
+
+  it('a matching policyHash constructs', () => {
+    assert.doesNotThrow(() => withCodeRifts(atomicPublic({
+      profile: PROFILE_ENFORCING_ATOMIC_V2,
+      credentialBoundary: v2Boundary({
+        postureReceipt: mintReceipt({ reserved: { ...TUPLE, policy_hash: 'sha256:configured' } }),
+      }),
+      policyHash: 'sha256:configured',
+    })));
+  });
+
+  it('NO policyHash configured stays named-absent — construction is unaffected', () => {
+    assert.doesNotThrow(() => withCodeRifts(atomicPublic({
+      profile: PROFILE_ENFORCING_ATOMIC_V2,
+      credentialBoundary: v2Boundary(),
+    })));
+  });
+});

@@ -481,3 +481,86 @@ describe('executionGrant is not a preimage field', () => {
     }
   });
 });
+
+// ── 1198: THE RESOLVED IDENTITY IS ON THE REQUEST ────────────────────────────
+/**
+ * The V2 identity used to live in two places: the top level of the withCodeRifts
+ * input (→ the ATOMIC construction check) and the nested executionGrant config
+ * (→ this request). A value set only at the top level never reached the wire.
+ *
+ * These read the body that actually went out. MEASURED while writing them: a
+ * unit test over `v2WireFields(input)` stays green even when the with-coderifts
+ * handoff drops the resolved values, because it never touches the handoff — the
+ * request body is the only place the whole path is observable.
+ */
+describe('1198 — the V2 identity reaches the authorize request', () => {
+  const V2 = { enabled: true, grantVersion: 'v2', resolveStateNonce: async () => 'nonce-1' };
+
+  it('a TOP-LEVEL identity is on the body', async () => {
+    const seen = [];
+    const client = mockClient((req) => { seen.push(req); return allowBody(); });
+    await guardToolCall(CALL, async () => ({ ok: true }), {
+      client,
+      operation: 'merge',
+      executorId: 'exec-7',
+      adapterId: 'pg',
+      targetUri: 'postgres://articles',
+      executionGrant: V2,
+    });
+    assert.ok(seen.length > 0);
+    assert.equal(seen[0].grant_version, 'v2');
+    assert.equal(seen[0].executor_id, 'exec-7', 'the top-level executorId never reached the wire');
+    assert.equal(seen[0].adapter_id, 'pg');
+    assert.equal(seen[0].target_uri, 'postgres://articles');
+  });
+
+  it('the deprecated nested identity is still on the body', async () => {
+    const seen = [];
+    const client = mockClient((req) => { seen.push(req); return allowBody(); });
+    await guardToolCall(CALL, async () => ({ ok: true }), {
+      client,
+      operation: 'merge',
+      executionGrant: { ...V2, executorId: 'exec-nested' },
+    });
+    assert.equal(seen[0].executor_id, 'exec-nested');
+  });
+
+  it('a MISMATCH refuses rather than sending one of the two', async () => {
+    const seen = [];
+    const client = mockClient((req) => { seen.push(req); return allowBody(); });
+    await assert.rejects(
+      () => guardToolCall(CALL, async () => ({ ok: true }), {
+        client,
+        operation: 'merge',
+        executorId: 'exec-top',
+        executionGrant: { ...V2, executorId: 'exec-nested' },
+      }),
+      (e) => e.code === 'V2_FIELDS_CONFLICT',
+    );
+    assert.equal(seen.length, 0, 'a request went out despite a conflicting identity');
+  });
+
+  it('an unsupplied field is ABSENT from the body, never an empty placeholder', async () => {
+    const seen = [];
+    const client = mockClient((req) => { seen.push(req); return allowBody(); });
+    await guardToolCall(CALL, async () => ({ ok: true }), {
+      client, operation: 'merge', executorId: 'exec-7', executionGrant: V2,
+    });
+    for (const k of ['adapter_id', 'target_uri', 'tenant_id', 'policy_hash', 'audience_hash']) {
+      assert.ok(!(k in seen[0]), `${k} was sent as a placeholder`);
+    }
+  });
+
+  it('a v1 grant carries NO V2 fields even with the identity configured', async () => {
+    const seen = [];
+    const client = mockClient((req) => { seen.push(req); return allowBody(); });
+    await guardToolCall(CALL, async () => ({ ok: true }), {
+      client,
+      operation: 'merge',
+      executorId: 'exec-7',
+      executionGrant: { enabled: true, grantVersion: 'v1', resolveStateNonce: async () => 'n' },
+    });
+    assert.equal(seen[0].grant_version, undefined);
+    assert.equal(seen[0].executor_id, undefined);
+  });
+});
