@@ -294,6 +294,13 @@ export type GuardOutcome<T> = GuardOutcomeCore<T>
      * Not a verdict input; not a preimage field.
      */
     execution_grant?: import('./execution-grant.js').ExecutionGrantObservation;
+    /**
+     * deny-remedy.v1 — the machine-readable next step for a refusal the guard
+     * reached before the factory ran. Present only when the refusal maps to one
+     * of the three grant error classes; absent otherwise, and absent on every
+     * executed outcome. Additive: not a verdict input, not a preimage field.
+     */
+    remedy?: import('./deny-remedy.js').DenyRemedy;
   };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.

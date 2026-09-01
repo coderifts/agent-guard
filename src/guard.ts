@@ -54,6 +54,7 @@ import {
 } from './monitoring-delivery.js';
 import { tryIssueMonitoringAttestation } from './monitoring-attestation.js';
 import { observePolicyPresence } from './policy.js';
+import { buildDenyRemedy, denyErrorForReason } from './deny-remedy.js';
 import type { PolicyPresence } from './policy.js';
 import {
   isExecutionGrantEnabled,
@@ -271,6 +272,15 @@ function coverageOutcomeFieldsFrom(s: { coverageObserved?: CoverageObserved }): 
   return s.coverageObserved ? { coverage_observed: s.coverageObserved } : {};
 }
 
+/**
+ * Every refusal the guard reaches before the factory runs. `call` is optional so
+ * the refusal does not depend on it: without it the outcome is exactly what it
+ * was before the remedy existed; with it the outcome additionally names the
+ * next step.
+ *
+ * The remedy is attached AFTER the verdict. No branch below reads it, and none
+ * can turn executed:false into anything else.
+ */
 function blocked<T>(
   config: GuardConfig,
   verdict: GuardVerdict,
@@ -280,12 +290,26 @@ function blocked<T>(
   monitoring_delivery?: MonitoringDelivery,
   monitoring_attestation?: string,
   grantObs?: ExecutionGrantObservation,
+  call?: ToolCallDescriptor,
 ): GuardOutcome<T> {
   const commit_observation: CommitObservation = {
     status: 'not_observed', observed_at: iso(), host_attestation: 'absent',
   };
   const base = { executionAttempted: false as const, executed: false as const, enforced: false as const, verdict, preflighted };
   const cov = coverageSnap(config);
+  // Only an UNAVAILABLE verdict carries a cause. A BLOCK or REQUEST_APPROVAL is a
+  // policy decision on a grant that verified fine — obtaining another grant is not
+  // the next step there, so those refusals carry no remedy.
+  const cause = 'cause' in verdict ? verdict.cause : null;
+  const remedy = call
+    ? buildDenyRemedy({
+        error: denyErrorForReason(cause),
+        target: call.toolName || null,
+        // The guard's own input fingerprint, already sha256:<hex>.
+        fingerprint: fingerprint(call),
+        observed: { cause, resolution: 'resolution' in verdict ? verdict.resolution : null },
+      })
+    : null;
   const out = {
     ...base,
     proof: buildExecutionProof({
@@ -303,6 +327,7 @@ function blocked<T>(
     ...(monitoring_attestation ? { monitoring_attestation } : {}),
     ...coverageOutcomeFieldsFrom(cov),
     ...(grantObs ? { execution_grant: grantObs } : {}),
+    ...(remedy ? { remedy } : {}),
   } as GuardOutcome<T>;
   return attachPolicyPresence(out, config);
 }
@@ -603,7 +628,7 @@ export async function guardToolCall<T>(
     const v = unavailableVerdict({ cause: 'MISSING_ARTIFACT_CONTENT', failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
     const { basis: cw } = conditionalWriteFor(config, redacted, cwctx, detection.artifacts);
-    return blocked(config, v, false, basis, cw);
+    return blocked(config, v, false, basis, cw, undefined, undefined, undefined, redacted);
   }
 
   // config validation: lkg policy requires an LkgStore.
@@ -703,7 +728,7 @@ export async function guardToolCall<T>(
     if (pf.integrity) {
       emit(config, { type: 'breaker_tripped', at: iso(), cause: pf.cause });
       const v = unavailableVerdict({ cause: pf.cause as IntegrityCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-      return blocked(config, v, false, basis, cw, undefined, undefined, grantObs);
+      return blocked(config, v, false, basis, cw, undefined, undefined, grantObs, redacted);
     }
     // availability
     const availCause = pf.cause as AvailabilityCause;
@@ -712,7 +737,7 @@ export async function guardToolCall<T>(
     if (grantObs && grantObs.requested) {
       if (breakerTripped(config)) emit(config, { type: 'breaker_tripped', at: iso(), cause: availCause });
       const v = unavailableVerdict({ cause: availCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-      return blocked(config, v, false, basis, cw, undefined, undefined, grantObs);
+      return blocked(config, v, false, basis, cw, undefined, undefined, grantObs, redacted);
     }
     if (failPolicy === 'open' && !breakerTripped(config)) {
       emit(config, { type: 'preflight_unavailable', at: iso(), cause: availCause, action: 'CONTINUE' });
@@ -730,7 +755,7 @@ export async function guardToolCall<T>(
     }
     if (breakerTripped(config)) emit(config, { type: 'breaker_tripped', at: iso(), cause: availCause });
     const v = unavailableVerdict({ cause: availCause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
-    return blocked(config, v, false, basis, cw, undefined, undefined, grantObs);
+    return blocked(config, v, false, basis, cw, undefined, undefined, grantObs, redacted);
   }
 
   // We have a response. Read the decision (envelope-first) and verify the receipt.
@@ -795,8 +820,8 @@ export async function guardToolCall<T>(
     const { basis } = freshnessFor(config, redacted, fctx, detection.artifacts);
     const { basis: cw } = conditionalWriteFor(config, redacted, cwctx, detection.artifacts);
     return gate.decision === 'BLOCK'
-      ? blocked(config, { kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis, cw, undefined, undefined, grantObs)
-      : blocked(config, { kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis, cw, undefined, undefined, grantObs);
+      ? blocked(config, { kind: 'BLOCK', action: 'STOP', envelope, receiptVerified }, true, basis, cw, undefined, undefined, grantObs, redacted)
+      : blocked(config, { kind: 'APPROVAL', action: 'REQUEST_APPROVAL', envelope, receiptVerified }, true, basis, cw, undefined, undefined, grantObs, redacted);
   }
   const kind = gate.kind; // 'ALLOW' | 'MONITOR' — allow-class, safe, non-degraded, artifact-bound.
 
@@ -1037,7 +1062,7 @@ function closedIntegrity<T>(
   const v = unavailableVerdict({ cause, failPolicy, resolution: 'CLOSED', action: 'STOP' }, count);
   const { basis } = freshnessFor(config, redacted, fctx, arts);
   const { basis: cw } = conditionalWriteFor(config, redacted, cwctx, arts);
-  return blocked(config, v, false, basis, cw, monitoring_delivery, monitoring_attestation, grantObs);
+  return blocked(config, v, false, basis, cw, monitoring_delivery, monitoring_attestation, grantObs, redacted);
 }
 
 function isExpired(envelope: DecisionResultEnvelope): boolean {
