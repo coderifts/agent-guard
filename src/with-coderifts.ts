@@ -562,6 +562,46 @@ function isEnforcingStrict(input: WithCodeRiftsInput): boolean {
 }
 
 /**
+ * The unversioned spelling still resolves to `_V1`, and always will — see the type doc above:
+ * re-pointing it at a future `_V2` would silently move every existing caller, which is the
+ * migration this design refuses.
+ *
+ * SO THIS NOTICE PROMISES NOTHING. It does not say deprecated, it does not name a removal
+ * version, and it must not: the alias is permanent by design, and a notice announcing a removal
+ * that will never happen is a false statement shipped to every consumer on the alias. What it
+ * does is point at the name that carries the version, so a caller who wants the guarantee the
+ * suffix gives can ask for it by name.
+ *
+ * ONCE PER PROCESS, and the flag is module-level for the same reason `policy.ts` uses one: a
+ * per-call notice on a construction path that a host may run per request is noise, and noise is
+ * how a line stops being read.
+ *
+ * The wire value is untouched. `GUARD_PROFILE_WIRE_VALUE` stays the suffix-less string that four
+ * downstream modules compare against; this observes the spelling, it does not rewrite it.
+ */
+export const UNVERSIONED_PROFILE_NOTICE =
+  'ENFORCING_STRICT is the unversioned spelling of ENFORCING_STRICT_V1; prefer the versioned name.';
+
+let noticedUnversionedProfile = false;
+
+/** Test-only reset. Exported so a test can assert the once-per-process behaviour more than once. */
+export function _resetUnversionedProfileNoticeForTest(): void {
+  noticedUnversionedProfile = false;
+}
+
+/**
+ * Emitted through `console.warn`, matching `policy.ts`'s `defaultWarn` — the convention this
+ * package already has for an advisory that is not an error. Not `process.emitWarning`: that
+ * channel is where this package puts DeprecationWarnings, and this is explicitly not one.
+ */
+function noticeUnversionedProfileOnce(profile: unknown): void {
+  if (profile !== 'ENFORCING_STRICT') return;
+  if (noticedUnversionedProfile) return;
+  noticedUnversionedProfile = true;
+  console.warn(UNVERSIONED_PROFILE_NOTICE);
+}
+
+/**
  * Explicit opt-downs that contradict ENFORCING_STRICT. Empty = no conflict.
  * `unknownToolPolicy: 'reject'` is stricter than 'mutating' (unclassified throws) — not a weaken.
  * `'readonly'` hides a possible mutator → conflict.
@@ -891,6 +931,10 @@ export function withCodeRifts(input: WithCodeRiftsInput): WithCodeRiftsResult {
   if (!input || typeof input !== 'object') {
     throw new Error('withCodeRifts: input object is required');
   }
+
+  // The spelling is observed once, here, at the single entry point — before validation, because
+  // the notice is about which NAME was used and is true whether or not the rest of the input is.
+  noticeUnversionedProfileOnce(input.profile);
 
   // Pre-registry input validation — collect ALL problems, throw once (a valid operation + client are
   // required even to reach the registry, so these cannot be batched with the post-registry check).

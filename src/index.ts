@@ -433,6 +433,10 @@ export {
   guardedFractionAmongRoutes,
   PROFILE_ENFORCING_STRICT_V1,
   PROFILE_ENFORCING_ATOMIC_V1,
+  // The notice text, exported so a consumer's log filter can match on the constant rather than
+  // on a string copied out of a release note.
+  UNVERSIONED_PROFILE_NOTICE,
+  _resetUnversionedProfileNoticeForTest,
 } from './with-coderifts.js';
 export {
   createMutatorRegister,
