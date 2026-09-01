@@ -51,7 +51,14 @@ export type DeployTokenVerifyStatus =
   | 'INVALID_SIGNATURE'
   | 'MALFORMED'
   | 'UNKNOWN_KEY'
-  | 'UNSUPPORTED_VERSION';
+  | 'UNSUPPORTED_VERSION'
+  // Key-withdrawal statuses, matching the published verifier taxonomy
+  // (RECEIPT_FORMAT.md §7.1). Every one of these is valid:false.
+  | 'KEY_REVOKED'
+  | 'REVOKED_KEY'
+  | 'REVOKED_KEY_UNDECIDABLE'
+  | 'KEY_RETIRED_AFTER_SIGNING'
+  | 'UNKNOWN_KEY_STATUS';
 
 export type DeployTokenVerifyResult = {
   valid: boolean;
@@ -62,7 +69,7 @@ export type DeployTokenVerifyResult = {
   denyReason: string | null;
   payload?: Record<string, unknown>;
   view: TokenDerivedReceiptView | null;
-  key_status: 'active' | 'retired' | null;
+  key_status: 'active' | 'retired' | 'revoked' | 'unknown' | null;
 };
 
 function scalar(v: unknown): string {
@@ -83,9 +90,54 @@ function reconstructInput(payload: Record<string, unknown>): string {
   return v1;
 }
 
+/**
+ * The key-withdrawal half of the published verifier's status taxonomy
+ * (`receipt-verifier/verify.js` deriveStatus, RECEIPT_FORMAT.md §7.1),
+ * transliterated. Returns the refusal status, or null to continue.
+ *
+ * Order matters and matches the reference: an unknown status fails closed before
+ * anything else is read; `revoked_at` kills the whole key history because the
+ * attacker chooses `ts`; `retired_at` only rejects receipts signed at or after
+ * it. A revoked key is never valid — UNDECIDABLE is not a softer accept, it
+ * reports that a legitimate pre-compromise receipt cannot be told apart from a
+ * backdated forgery.
+ *
+ * Kept as a small local function rather than a shared import: this package ships
+ * pure and dependency-light, and the reference core is CommonJS with a CLI and
+ * `fs` at module scope. `test/vendor-core.test.js` pins agreement with a
+ * byte-identical copy of that core, so the two cannot drift silently.
+ */
+function deriveKeyWithdrawalStatus(
+  ts: string | undefined,
+  keyMeta: Pick<ResolvedKeyMeta, 'status' | 'retired_at' | 'revoked_at' | 'compromised_at'>,
+): DeployTokenVerifyStatus | null {
+  const KNOWN_STATUSES: ReadonlyArray<string | null> = ['active', 'retired', 'revoked', null];
+  if (!KNOWN_STATUSES.includes(keyMeta.status)) return 'UNKNOWN_KEY_STATUS';
+
+  if (typeof keyMeta.revoked_at === 'string' && keyMeta.revoked_at.length > 0) return 'KEY_REVOKED';
+
+  if (typeof keyMeta.retired_at === 'string' && keyMeta.retired_at.length > 0 && ts) {
+    const issued = Date.parse(ts);
+    const retired = Date.parse(keyMeta.retired_at);
+    if (Number.isFinite(issued) && Number.isFinite(retired) && issued >= retired) {
+      return 'KEY_RETIRED_AFTER_SIGNING';
+    }
+  }
+
+  if (keyMeta.status === 'revoked') {
+    const at = keyMeta.compromised_at;
+    if (typeof at !== 'string' || at.length === 0) return 'REVOKED_KEY_UNDECIDABLE';
+    const boundary = Date.parse(at);
+    const issued = typeof ts === 'string' ? Date.parse(ts) : NaN;
+    if (!Number.isFinite(boundary) || !Number.isFinite(issued)) return 'REVOKED_KEY_UNDECIDABLE';
+    return issued >= boundary ? 'REVOKED_KEY' : 'REVOKED_KEY_UNDECIDABLE';
+  }
+  return null;
+}
+
 function isIssueTimeWithinKeyWindow(
   ts: string | undefined,
-  keyMeta: { status: string; valid_from: string | null; retired_at: string | null },
+  keyMeta: { status: string | null; valid_from: string | null; retired_at: string | null },
 ): boolean {
   if (!keyMeta || keyMeta.status === 'active') return true;
   if (keyMeta.status !== 'retired') return false;
@@ -103,11 +155,38 @@ function isIssueTimeWithinKeyWindow(
   return true;
 }
 
+/**
+ * The registry entry as it was published, not as we hope it reads.
+ *
+ * MEASURED 2026-09-01: this used to collapse the entry to `'retired' | 'active'`
+ * — `entry.status === 'retired' ? 'retired' : 'active'`. A key the registry had
+ * marked `revoked` therefore arrived here as ACTIVE, and deployGate allowed a
+ * production deploy authorized by it, indistinguishably from a healthy key.
+ * The status is now carried through verbatim and judged below.
+ *
+ * `revoked_at` / `compromised_at` are published on the well-known registry but
+ * are not in the SDK's ExecutorKeyEntry type, so they are read structurally.
+ */
+type ResolvedKeyMeta = {
+  publicKey: ReturnType<typeof createPublicKey>;
+  status: string | null;
+  valid_from: string | null;
+  retired_at: string | null;
+  revoked_at: string | null;
+  compromised_at: string | null;
+};
+
+function optionalString(source: unknown, field: string): string | null {
+  if (!source || typeof source !== 'object') return null;
+  const v = (source as Record<string, unknown>)[field];
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
 function resolveKey(
   kid: string,
   registry: ExecutorKeyRegistry | undefined,
   pinnedKeyPem: string | undefined,
-): { publicKey: ReturnType<typeof createPublicKey>; status: 'active' | 'retired'; valid_from: string | null; retired_at: string | null } | null {
+): ResolvedKeyMeta | null {
   if (typeof pinnedKeyPem === 'string' && pinnedKeyPem.trim().length > 0) {
     try {
       return {
@@ -115,6 +194,8 @@ function resolveKey(
         status: 'active',
         valid_from: null,
         retired_at: null,
+        revoked_at: null,
+        compromised_at: null,
       };
     } catch {
       return null;
@@ -127,9 +208,11 @@ function resolveKey(
   try {
     return {
       publicKey: createPublicKey(entry.public_key_pem),
-      status: entry.status === 'retired' ? 'retired' : 'active',
+      status: typeof entry.status === 'string' ? entry.status : null,
       valid_from: entry.valid_from || null,
       retired_at: entry.retired_at || null,
+      revoked_at: optionalString(entry, 'revoked_at'),
+      compromised_at: optionalString(entry, 'compromised_at'),
     };
   } catch {
     return null;
@@ -230,6 +313,21 @@ export function verifyDeployReceiptToken(
     if (typeof payload[k] === 'string' && (payload[k] as string).includes('|')) {
       return fail('INVALID_SIGNATURE', 'invalid_signature', { payload, authz_reason: 'delimiter_in_field' });
     }
+  }
+
+  // A key the registry has withdrawn is judged BEFORE any authorization path.
+  // The signature verified — that is precisely the problem a withdrawal exists
+  // to answer, and no timestamp on a receipt the attacker minted may rehabilitate it.
+  const withdrawn = deriveKeyWithdrawalStatus(
+    typeof payload.ts === 'string' ? payload.ts : undefined,
+    resolved,
+  );
+  if (withdrawn) {
+    return fail(withdrawn, withdrawn === 'UNKNOWN_KEY_STATUS' ? 'unknown_key_status' : 'revoked_key', {
+      payload,
+      authz_reason: withdrawn.toLowerCase(),
+      key_status: withdrawn === 'UNKNOWN_KEY_STATUS' ? 'unknown' : 'revoked',
+    });
   }
 
   if (resolved.status === 'retired') {

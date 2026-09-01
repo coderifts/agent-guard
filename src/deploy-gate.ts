@@ -83,7 +83,20 @@ export type DeployGateReason =
   | 'invalid_signature'
   | 'expired'
   | 'unknown_key'
-  | 'retired_key';
+  | 'retired_key'
+  /**
+   * The registry has withdrawn this key: status `revoked`, or a `revoked_at`
+   * timestamp on the entry. Distinct from retired_key, which is a planned
+   * rotation whose pre-rotation receipts stay meaningful. NOT repairable by
+   * re-requesting a receipt — the same key would sign it.
+   */
+  | 'revoked_key'
+  /**
+   * The registry carries a key status this verifier does not understand. Fails
+   * closed rather than reading it as healthy: an unrecognised status is more
+   * likely a withdrawal we cannot parse than a permission we should grant.
+   */
+  | 'unknown_key_status';
 
 /** What is being deployed — all fields are INPUTS (the pure function performs no discovery). */
 export type DeployTarget = {
