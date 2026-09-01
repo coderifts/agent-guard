@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+Additive on both counts — no field removed, no meaning changed, no signature widened —
+so the expected release is a **MINOR** bump (15.1.0). `DeployGateReason` and every other
+closed set are untouched; the two new outcome fields are optional and the two new binders
+are new exports.
+
+### Added
+
+- **`next_step` on refusals that hold a SIGNED envelope (I-1288f).** The app moved
+  `next_agent_step` inside `decision_result`, where `decision_body_hash` covers it and the
+  receipt signs it. A consumer holding only the envelope can therefore render the decision's
+  own remediation without a second call to the issuer.
+  - `deployGate` exposes it top-level, **TOKEN mode only** — a `verified_view` or bare
+    receipt is a host claim about someone else's check, and a step read from one would be
+    guidance with no issuer behind it.
+  - `guardToolCall` exposes it top-level on refusals, **only when `verdict.receiptVerified`
+    is true**. With `verifyReceipts: false` the BLOCK still stands and the step is not shown.
+  - `readNextAgentStep`, `NEXT_AGENT_ACTIONS` and `NEXT_STEP_NOTE` are exported. The note is
+    byte-identical to contract-gate 0.8.0: *"This is the decision's remediation suggestion,
+    not permission; branch on execution_action."*
+  - Not a verdict input and not a preimage field: every branchable field is deep-equal to the
+    same run with no step in the envelope.
+
+- **`bindLangChainToolOutcome` (I-1272)** — LangChain's `content_and_artifact` return
+  contract (`responseFormat: "content_and_artifact"`; the tool returns `[content, artifact]`
+  and the artifact is preserved on the `ToolMessage` without entering the model's context).
+  `content` carries the same string the other binders emit; `artifact` carries the structured
+  `GuardExecutionProof`, so the proof stays verifiable without spending model context.
+
+- **`bindCrewAIToolOutcome` (I-1272)** — CrewAI's `result` plus `result_as_answer`. The flag
+  is `true` on exactly the arms the guard did not permit: a gate refusal is the end of that
+  path, not an observation for the agent to reason around. No CrewAI dependency — a plain
+  JSON-serialisable object the host returns from its Python tool.
+
+  Both binders keep the shipped invariants: pure, non-mutating, no framework SDK dependency,
+  type-level `ProofBound` brand, no fabricated result on the blocked branch, and a rendering
+  byte-identical to `attachProofToAgentResponse` (asserted against `bindLangGraphGuardOutcome`
+  on all five outcome arms).
+
 ## 15.0.0
 
 ### Security

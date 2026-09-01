@@ -340,8 +340,10 @@ message — not only in a human final answer.
 | `bindAnthropicGuardOutcome(outcome, { tool_use_id })` | `tool_use_id` | Anthropic `tool_result` `content` (string) |
 | `bindGeminiGuardOutcome(outcome, { name })` | function `name` | Gemini `functionResponse.response` — a **structured object** `{ result, final_answer_proof, … }` (not a text field) |
 | `bindLangGraphGuardOutcome(outcome, { tool_call_id, name? })` | `tool_call_id` (+ optional `name`) | LangGraph/LangChain ToolMessage `content` (string) |
+| `bindLangChainToolOutcome(outcome, { tool_call_id, name? })` | `tool_call_id` (+ optional `name`) | LangChain **`content_and_artifact`** — `content` (string, to the model) + `artifact` (structured proof, kept OUT of the model's context) |
+| `bindCrewAIToolOutcome(outcome, { tool_name })` | `tool_name` | CrewAI `result` (string) + **`result_as_answer`** — `true` on every arm the guard did not permit |
 
-**Behaviour (all four):** take the full `GuardOutcome` (ALLOW / BLOCK / APPROVAL / SKIPPED / error
+**Behaviour (all six):** take the full `GuardOutcome` (ALLOW / BLOCK / APPROVAL / SKIPPED / error
 arms); **auto-attach** `outcome.proof` by default (S4; `{ attachProof: false }` opts out); on a
 blocked arm state that the gate did not permit execution with **no fabricated tool result**; on
 factory-error arms report the failure + proof. Pure and non-mutating. No framework SDK dependency
