@@ -55,6 +55,7 @@ import {
 import { tryIssueMonitoringAttestation } from './monitoring-attestation.js';
 import { observePolicyPresence } from './policy.js';
 import { buildDenyRemedy, denyErrorForReason } from './deny-remedy.js';
+import { readNextAgentStep } from './next-agent-step.js';
 import type { PolicyPresence } from './policy.js';
 import {
   isExecutionGrantEnabled,
@@ -301,6 +302,15 @@ function blocked<T>(
   // policy decision on a grant that verified fine — obtaining another grant is not
   // the next step there, so those refusals carry no remedy.
   const cause = 'cause' in verdict ? verdict.cause : null;
+  // I-1288f — the DECISION's step, from the envelope, and ONLY when this run verified
+  // the receipt. A BLOCK on an unverified envelope is still a BLOCK (the verdict does
+  // not soften), but the remediation text on it is unauthenticated: the response came
+  // over the network and nothing here bound it. SKIPPED and UNAVAILABLE verdicts carry
+  // no envelope at all, so `'envelope' in verdict` is the second guard.
+  const nextStep = ('envelope' in verdict && 'receiptVerified' in verdict
+    && verdict.receiptVerified === true)
+    ? readNextAgentStep(verdict.envelope)
+    : null;
   const remedy = call
     ? buildDenyRemedy({
         error: denyErrorForReason(cause),
@@ -328,6 +338,7 @@ function blocked<T>(
     ...coverageOutcomeFieldsFrom(cov),
     ...(grantObs ? { execution_grant: grantObs } : {}),
     ...(remedy ? { remedy } : {}),
+    ...(nextStep ? { next_step: nextStep } : {}),
   } as GuardOutcome<T>;
   return attachPolicyPresence(out, config);
 }

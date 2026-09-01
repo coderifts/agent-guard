@@ -301,6 +301,22 @@ export type GuardOutcome<T> = GuardOutcomeCore<T>
      * executed outcome. Additive: not a verdict input, not a preimage field.
      */
     remedy?: import('./deny-remedy.js').DenyRemedy;
+    /**
+     * I-1288f — the DECISION's own remediation suggestion, lifted verbatim from the
+     * `decision_result` envelope. Distinct from `remedy`: that one names THIS GUARD's
+     * refusal class (the grant is missing / invalid / unavailable), this one is what
+     * the issuer signed about the change itself. They can co-occur.
+     *
+     * PRESENT ONLY WHEN `verdict.receiptVerified` IS TRUE. The envelope arrives over
+     * the network; without a verified receipt nothing in this process checked a
+     * signature over the step, and unverified guidance carrying the issuer's voice is
+     * exactly the thing this package refuses to emit. Absent on SKIPPED / UNAVAILABLE
+     * (no envelope), on every executed outcome, and when the envelope carried none.
+     *
+     * NOT PERMISSION: branch on `verdict.action`, never on this. Additive — not a
+     * verdict input, not a preimage field.
+     */
+    next_step?: import('./next-agent-step.js').NextAgentStep;
   };
 // On EVERY arm (success AND factory-threw), enforced:true correlates strictly
 // with ApprovedVerdict + receiptVerified:true + preflighted:true.

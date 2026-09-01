@@ -42,6 +42,8 @@ import {
 
 export type { GateStatusState, EnforcementState } from './merge-gate.js';
 export type { DeployTokenReceipt } from './deploy-receipt-token.js';
+import { readNextAgentStep, type NextAgentStep } from './next-agent-step.js';
+export type { NextAgentStep } from './next-agent-step.js';
 
 /**
  * Guard-defined VERIFIED-VIEW provenance marker (same idiom as `proof_spec` /
@@ -235,6 +237,22 @@ export type DeployGateDecision = {
    * Observation: which input mode ran and the verify_status. Not a preimage field.
    */
   verification: DeployVerificationObservation;
+  /**
+   * I-1288f — the DECISION's own remediation suggestion, lifted verbatim from the
+   * `decision_result` envelope this gate verified.
+   *
+   * PRESENT ONLY IN TOKEN MODE. `verified_view` and `unverified` receipts are
+   * host-supplied views: nothing in this process checked a signature over their
+   * contents, so a step read from one would be guidance with no issuer behind it.
+   * TOKEN mode is the only path where the guard itself bound the body hash.
+   *
+   * Absent when the envelope carried none, on every allow-class deploy (the issuer
+   * sends null), and on every non-token mode. Additive: not a verdict input, not a
+   * preimage field, and no branch below reads it — see the deep-equal test.
+   *
+   * NOT PERMISSION: branch on `reason` / `deploy_allowed`, never on this.
+   */
+  next_step?: NextAgentStep;
 };
 
 // ── helpers (pure) ────────────────────────────────────────────────────────────────────────────────
@@ -300,12 +318,26 @@ export function deployGate(input: DeployGateInput): DeployGateDecision {
     bound_artifact_id: r && r.bound_artifact_id != null ? norm(r.bound_artifact_id) : null,
     operation: r && r.operation != null ? String(r.operation) : null,
   });
-  const deny = (state: GateStatusState, reason: DeployGateReason): DeployGateDecision => ({
-    deploy_allowed: false, state, reason, enforcement_state, inescapable_deploy: false,
-    residuals: [],
-    detail: detailOf(receipt),
-    verification,
-  });
+  /**
+   * The step is read from `receipt` ONLY when this run verified a token itself. A
+   * verified-view or unverified receipt is a host claim about someone else's check,
+   * and `fail()` in the token verifier returns `view: null`, so a token that did not
+   * authenticate has no view to read from either. Both guards, stated once here.
+   */
+  const nextStepOf = (r: DeployReceiptView | null | undefined): NextAgentStep | null => (
+    verification.mode === 'token' ? readNextAgentStep(r) : null
+  );
+
+  const deny = (state: GateStatusState, reason: DeployGateReason): DeployGateDecision => {
+    const step = nextStepOf(receipt);
+    return {
+      deploy_allowed: false, state, reason, enforcement_state, inescapable_deploy: false,
+      residuals: [],
+      detail: detailOf(receipt),
+      verification,
+      ...(step ? { next_step: step } : {}),
+    };
+  };
 
   // 0) incomplete target → pending/failure (fail-closed on missing evaluation input).
   if (!target.environment || String(target.environment).trim() === ''

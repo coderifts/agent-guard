@@ -13,6 +13,7 @@
  * No fetch. Same inputs → same output.
  */
 
+import { readNextAgentStep, type NextAgentStep } from './next-agent-step.js';
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import { isReceiptExpired } from '@coderifts/sdk';
 import type { ExecutorKeyRegistry } from '@coderifts/sdk';
@@ -29,6 +30,12 @@ export type TokenDerivedReceiptView = {
   verdict_fingerprint?: string;
   body_hash?: string;
   target_id?: string;
+  /**
+   * I-1288f — the decision's own remediation suggestion, lifted from the envelope.
+   * Only ever populated by viewFromEnvelope, which runs after the body hash bound.
+   * `fail()` returns `view: null`, so no unverified token can produce one.
+   */
+  next_agent_step?: NextAgentStep | null;
 };
 
 export const CHAIN_SIGNING_PREFIX = 'crchain.v1';
@@ -254,6 +261,11 @@ function viewFromEnvelope(
       : (typeof payload.fp === 'string' ? payload.fp : undefined),
     body_hash: typeof payload.bh === 'string' ? payload.bh : undefined,
     target_id: envelope.target_id == null ? undefined : String(envelope.target_id),
+    // Read from the envelope the caller supplied. On the currently_authorized path the
+    // body hash has already bound it; on the expired / retired-key paths the signature
+    // was authentic too. Every path that did NOT authenticate returns through fail(),
+    // which sets view: null — so this field cannot carry an unsigned step.
+    next_agent_step: readNextAgentStep(envelope),
   };
 }
 

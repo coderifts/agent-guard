@@ -372,6 +372,11 @@ export type {
 } from './deploy-gate.js';
 export { verifyDeployReceiptToken } from './deploy-receipt-token.js';
 export type { DeployTokenVerifyResult, DeployTokenVerifyStatus } from './deploy-receipt-token.js';
+// I-1288f — the decision's own remediation suggestion, read from a SIGNED envelope.
+// Not permission; branch on execution_action. NEXT_STEP_NOTE is the one fixed sentence
+// every CodeRifts surface prints beside a rendered step (byte-identical to contract-gate).
+export { readNextAgentStep, NEXT_AGENT_ACTIONS, NEXT_STEP_NOTE } from './next-agent-step.js';
+export type { NextAgentStep, NextAgentAction } from './next-agent-step.js';
 // bindDeploy — pure deploy-TIME caller over deployGate (host asserts env; pipeline action not observed).
 export { bindDeploy, DEPLOY_REPAIRABLE_REASONS } from './deploy-bind.js';
 export type {
@@ -575,6 +580,30 @@ export type {
 } from './adapters/gemini.js';
 
 // Roadmap 129 — thin Vercel AI SDK tool adapter (generateText tools record; no `ai` dep).
+// I-1272 — bindLangChainToolOutcome (content_and_artifact: proof off the model's context).
+export {
+  bindLangChainToolOutcome,
+  defaultSerializeLangChainToolResult,
+  LANGCHAIN_ARTIFACT_SPEC,
+} from './adapters/langchain.js';
+export type {
+  LangChainToolOutput,
+  LangChainToolArtifact,
+  ProofBoundLangChainToolOutput,
+  BindLangChainToolOutcomeArgs,
+} from './adapters/langchain.js';
+
+// I-1272 — bindCrewAIToolOutcome (result + result_as_answer: a refusal is the final answer).
+export {
+  bindCrewAIToolOutcome,
+  defaultSerializeCrewAIToolResult,
+} from './adapters/crewai.js';
+export type {
+  CrewAIToolResult,
+  ProofBoundCrewAIToolResult,
+  BindCrewAIToolOutcomeArgs,
+} from './adapters/crewai.js';
+
 // bindVercelGuardOutcome (Option B proof binder; id field is toolCallId).
 export {
   withCodeRiftsVercel,
