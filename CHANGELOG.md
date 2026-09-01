@@ -1,5 +1,22 @@
 # Changelog
 
+## 15.0.0
+
+### Security
+
+- **deployGate no longer allows a deploy on a revoked key.** `deploy-receipt-token` resolved every registry status other than `retired` to `active` and never read `revoked_at` / `compromised_at`, so a deploy receipt signed by a key the registry marked revoked (or carrying `revoked_at`, or an unknown status) verified as `VERIFIED_CURRENT` and `deployGate` allowed the deploy under ENFORCING. The key-withdrawal rule is now the canonical receipt-verifier rule, judged before any authorization path; `test/vendor-core.test.js` pins the reference core by digest and asserts parity on the full vector set. The `guardToolCall` receipt path (server-side verify) and the posture-receipt verifier were not affected.
+
+### Breaking
+
+- `DeployGateReason` gains `revoked_key` and `unknown_key_status`; both are non-repairable (re-requesting a receipt would use the same key). Exhaustive switches must handle them.
+- Conflicting V2 configuration now throws instead of being silently reconciled (one canonical source).
+
+### Added
+
+- A machine-readable remedy (`deny-remedy.v1`) on refused `guardToolCall` outcomes: which tool to call, in which mode, with what argument shape, and what a grant does not promise. The blocked branch still returns no invented result.
+- The V2 wire fields the guard actually has are sent; the rest are bound in posture as named-absent.
+- The vendored `CODERIFTS_POLICY` text is re-synced from the canonical source.
+
 ## 14.1.0
 
 ### Security
