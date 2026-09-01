@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 15.1.0
 
 Additive on both counts — no field removed, no meaning changed, no signature widened —
 so the expected release is a **MINOR** bump (15.1.0). `DeployGateReason` and every other
@@ -8,6 +8,19 @@ closed set are untouched; the two new outcome fields are optional and the two ne
 are new exports.
 
 ### Added
+
+- **A pointer on the unversioned profile spelling.** `withCodeRifts({ profile: 'ENFORCING_STRICT' })`
+  now emits, once per process:
+
+  > ENFORCING_STRICT is the unversioned spelling of ENFORCING_STRICT_V1; prefer the versioned name.
+
+  It is **not** a deprecation. The unsuffixed alias resolves to `_V1` and is designed to do so
+  permanently — re-pointing it at a future `_V2` would silently move every existing caller, which
+  is the migration the versioned names exist to refuse. So the notice names no removal version and
+  makes no promise; it points at the name that carries the version, for a caller who wants that
+  guarantee by name. Emitted through `console.warn`, matching this package's existing advisory
+  channel, and deliberately not as a `DeprecationWarning`. The wire value is unchanged: the four
+  modules that compare `opts.profile === 'ENFORCING_STRICT'` see exactly what they saw before.
 
 - **`next_step` on refusals that hold a SIGNED envelope (I-1288f).** The app moved
   `next_agent_step` inside `decision_result`, where `decision_body_hash` covers it and the
@@ -39,6 +52,11 @@ are new exports.
   type-level `ProofBound` brand, no fabricated result on the blocked branch, and a rendering
   byte-identical to `attachProofToAgentResponse` (asserted against `bindLangGraphGuardOutcome`
   on all five outcome arms).
+
+### Changed
+
+- `@coderifts/sdk` dependency range `^3.4.0` → `^3.10.0`. It stays a **dependency**; moving it to a
+  peer dependency is a consumer-visible install change and waits for the next natural major.
 
 ## 15.0.0
 
