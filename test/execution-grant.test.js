@@ -546,7 +546,7 @@ describe('1198 — the V2 identity reaches the authorize request', () => {
     await guardToolCall(CALL, async () => ({ ok: true }), {
       client, operation: 'merge', executorId: 'exec-7', executionGrant: V2,
     });
-    for (const k of ['adapter_id', 'target_uri', 'tenant_id', 'policy_hash', 'audience_hash']) {
+    for (const k of ['adapter_id', 'target_uri', 'tenant_id', 'policy_hash', 'audience_hash', 'expected_state_token']) {
       assert.ok(!(k in seen[0]), `${k} was sent as a placeholder`);
     }
   });

@@ -46,6 +46,7 @@ export type ExecutionGrantConfig = {
   tenantId?: string;
   policyHash?: string;
   audienceHash?: string;
+  expectedStateToken?: string;
 };
 
 /**
@@ -69,6 +70,11 @@ export type ExecutionGrantConfig = {
  */
 export const V2_FIELD_KEYS = Object.freeze([
   'executorId', 'adapterId', 'targetUri', 'tenantId', 'policyHash', 'audienceHash',
+  // 1206 F2. The server reads `expected_state_token` when minting a v2 grant
+  // (execution-grant-request.v2 producer schema). The Python SDK already sends it; this
+  // package did not, so a deployment that configured it got a grant bound to no state token
+  // and nothing said so. It joins the SAME one-source resolution as the other six.
+  'expectedStateToken',
 ] as const);
 
 export type V2FieldKey = typeof V2_FIELD_KEYS[number];
@@ -82,6 +88,7 @@ export type V2Fields = Partial<Record<V2FieldKey, string>>;
  * which one survived.
  */
 export function resolveV2Fields(input?: {
+  expectedStateToken?: unknown;
   executorId?: unknown;
   adapterId?: unknown;
   targetUri?: unknown;
@@ -132,6 +139,7 @@ export const V2_WIRE_FIELDS = Object.freeze([
   ['tenant_id', 'tenantId'],
   ['policy_hash', 'policyHash'],
   ['audience_hash', 'audienceHash'],
+  ['expected_state_token', 'expectedStateToken'],
 ] as const);
 
 export type V2WireResult = {

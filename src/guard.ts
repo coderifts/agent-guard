@@ -673,6 +673,7 @@ export async function guardToolCall<T>(
     tenant_id?: string;
     policy_hash?: string;
     audience_hash?: string;
+    expected_state_token?: string;
   } & Record<string, unknown> = {
     artifacts: detection.artifacts,
     context: { operation: config.operation ?? 'tool_call', environment: config.environment, audience: config.audience },

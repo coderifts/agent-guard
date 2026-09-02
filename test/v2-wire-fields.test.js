@@ -32,6 +32,7 @@ const full = {
   tenantId: 't-1',
   policyHash: 'sha256:pp',
   audienceHash: 'sha256:aa',
+  expectedStateToken: 'st-1',
 };
 
 describe('AUDIT P1 / RES-1 — the V2 field set on the authorize request', () => {
@@ -47,7 +48,7 @@ describe('AUDIT P1 / RES-1 — the V2 field set on the authorize request', () =>
   it('an UNCONFIGURED field is NAMED absent, never sent as a placeholder', () => {
     const r = v2WireFields({ executionGrant: { enabled: true, grantVersion: 'v2', executorId: 'exec-7' } });
     assert.deepEqual(Object.keys(r.fields), ['executor_id']);
-    assert.deepEqual(r.absent.sort(), ['adapter_id', 'audience_hash', 'policy_hash', 'target_uri', 'tenant_id']);
+    assert.deepEqual(r.absent.sort(), ['adapter_id', 'audience_hash', 'expected_state_token', 'policy_hash', 'target_uri', 'tenant_id']);
     for (const k of r.absent) {
       assert.ok(!(k in r.fields), `${k} was sent despite being unconfigured`);
     }
@@ -181,7 +182,7 @@ describe('AUDIT 1198 — the V2 identity has ONE source', () => {
     // know the value. What changed is that a SUPPLIED value can no longer be
     // reported absent.
     const r = v2WireFields({ executorId: 'exec-7', executionGrant: { enabled: true, grantVersion: 'v2' } });
-    assert.deepEqual(r.absent.sort(), ['adapter_id', 'audience_hash', 'policy_hash', 'target_uri', 'tenant_id']);
+    assert.deepEqual(r.absent.sort(), ['adapter_id', 'audience_hash', 'expected_state_token', 'policy_hash', 'target_uri', 'tenant_id']);
     for (const k of r.absent) assert.ok(!(k in r.fields));
   });
 
@@ -198,5 +199,43 @@ describe('AUDIT 1198 — the V2 identity has ONE source', () => {
     for (const c of [null, undefined, {}, { executionGrant: null }]) {
       assert.deepEqual(resolveV2Fields(c), {});
     }
+  });
+});
+
+describe('expected_state_token joins the wire set (1206 F2)', () => {
+  it('a configured expectedStateToken reaches the wire under its server spelling', () => {
+    const r = v2WireFields({
+      executionGrant: { enabled: true, grantVersion: 'v2', expectedStateToken: 'st-1' },
+    });
+    assert.equal(r.fields.expected_state_token, 'st-1');
+    assert.ok(!r.absent.includes('expected_state_token'));
+  });
+
+  it('unconfigured, it is NAMED absent — never sent as an empty string', () => {
+    // An empty expected_state_token on the wire is indistinguishable from a real one that
+    // happens to be blank, and the server would bind it.
+    const r = v2WireFields({ executionGrant: { enabled: true, grantVersion: 'v2', executorId: 'e' } });
+    assert.ok(r.absent.includes('expected_state_token'));
+    assert.ok(!('expected_state_token' in r.fields));
+  });
+
+  it('v1 does not send it — the field describes a v2 binding', () => {
+    const r = v2WireFields({ executionGrant: { enabled: true, expectedStateToken: 'st-1' } });
+    assert.deepEqual(r.fields, {});
+    assert.ok(r.absent.includes('expected_state_token'));
+  });
+
+  it('it goes through the SAME one-source resolution as the other six', () => {
+    // Top-level and nested must not diverge; a conflicting pair throws rather than picking one.
+    const top = v2WireFields({ expectedStateToken: 'st-top', executionGrant: { enabled: true, grantVersion: 'v2' } });
+    assert.equal(top.fields.expected_state_token, 'st-top');
+    // Asserted on the CODE, which is the stable contract; the message wording is not.
+    assert.throws(
+      () => v2WireFields({
+        expectedStateToken: 'st-top',
+        executionGrant: { enabled: true, grantVersion: 'v2', expectedStateToken: 'st-nested' },
+      }),
+      (err) => err.code === 'V2_FIELDS_CONFLICT' && /expectedStateToken/.test(err.message),
+    );
   });
 });
