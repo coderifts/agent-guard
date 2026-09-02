@@ -84,3 +84,63 @@ Offline checks (no network, stdlib only):
 ```
 python3 test_execution_action.py
 ```
+
+## The full atomic chain (requires an API key)
+
+Everything above stops at the **decision**: ask the zero-auth endpoint whether a
+contract change is safe, branch on `execution_action`, act. That is the whole of
+`coderifts_langgraph_guard.py`, and it needs no key.
+
+**A decision is not a grant.** A decision says "this looks safe". An execution
+grant says *this exact change, by this executor, against this target, once* — it
+binds the bytes, and an executor consumes it a single time. An executor can
+refuse to act without a grant. It has nothing to refuse on a decision.
+
+`coderifts_langgraph_atomic.py` is that second path, as a second node. It asks
+the **keyed** endpoint for a decision *and* a grant, and carries the grant to
+whatever performs the mutation. The server mints it; this module requests and
+carries it, and signs nothing itself.
+
+```python
+from coderifts_langgraph_atomic import build_app          # 1. atomic graph
+app = build_app(); app.invoke({..., "target_uri": "https://api.example.com/orders"})
+```
+
+```
+export CODERIFTS_API_KEY=cr_live_...
+python coderifts_langgraph_atomic.py
+```
+
+Without `CODERIFTS_API_KEY` it raises a named error and stops. It does **not**
+fall back to the zero-auth endpoint: that endpoint cannot mint a grant, so a
+fallback would hand you a verdict while your code believed it held a grant.
+
+The decision-only path is untouched by any of this — a separate file, a separate
+graph, and `test_atomic_wire_fields.py` asserts the two share nothing but the
+`evaluate_verdict` helper.
+
+Check the wire shape with no key, no network and no `langgraph` installed:
+
+```
+python3 -m unittest test_atomic_wire_fields
+```
+
+It asserts the request field set against the generated canonical fixture in
+`coderifts-app`, and skips with a named reason when that sibling checkout is
+absent rather than passing quietly.
+
+### Seeing the rest of the chain actually run
+
+This example ends where the grant is handed over. Two places show what happens
+after, and neither needs an API key:
+
+- **[capability-demo `examples/atomic-v2`](https://github.com/coderifts/capability-demo/tree/main/examples/atomic-v2)**
+  — `node examples/atomic-v2/run.js`. No network, no key, no database, about a
+  second. Four hops asserted end to end: the authorize request shape, grant
+  issuance, one-use consumption, and seal verification — plus a control that a
+  forged signature over identical bytes is refused.
+- **`node bin/prove-all.js`** in the same repository — boots a throwaway
+  Postgres, runs the six panel proofs and the ten chain points in one process,
+  and writes `transcript.json` and `TRANSCRIPT.md`. The tenth point re-verifies
+  that transcript with the network trapped, so the artifact's own offline claim
+  is demonstrated rather than asserted.
