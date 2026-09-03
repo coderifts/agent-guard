@@ -664,3 +664,12 @@ export type {
   ToolsetAttestationSigner,
   ToolsetDeclarationEntry,
 } from './toolset-attestation.js';
+
+// ── offline receipt verification (1307) ─────────────────────────────────────────────────────
+//
+// Exported so a host can build the verifier once and hand it in, and so the missing-receipt
+// posture is testable without constructing a whole guard run.
+export { offlineReceiptVerifier, missingReceiptDecision } from './offline-verify.js';
+// VerifyReceiptResultLike is already exported from the guard's own types; re-exporting the
+// vendor-shaped twin would be two names for one contract.
+export type { PinnedKeyring, MissingReceiptPolicy } from './offline-verify.js';

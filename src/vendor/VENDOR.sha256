@@ -1,0 +1,13 @@
+# Vendored verify core — the OFFLINE receipt verifier (1307).
+#
+# Byte copies from the public receipt-verifier, pinned. The guard used to verify over the
+# NETWORK via config.client.verifyReceipt(), which the other three enforcement points do not:
+# contract-gate, k8s-admission and gateway-verifier all verify offline against a pinned keyring.
+# A verifier that needs the network fails differently from one that does not, and the sentence
+# "the same proof at all four points, offline" was false because of this one.
+#
+# Do not edit these files here. Recopy from receipt-verifier and re-pin.
+# source: receipt-verifier e11d3f5d9f5444d8b2a07428c922d2040f4819ce
+
+verify.js  c9a6ceac411b9f9feefb7ff4447dd7f5cf2f02a817f35caace68037d0c8e0d02
+arity.js  721fcac58b960b5e2aa1af91edb6cfc87ebe828a6da73879967ef79a1ca474e8

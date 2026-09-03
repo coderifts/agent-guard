@@ -9,6 +9,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { missingReceiptDecision } from './offline-verify.js';
 import { readDecision, isClosedAction } from './read-decision.js';
 import type {
   GuardConfig, GuardOutcome, GuardVerdict, ApprovedVerdict, UnavailableCause, AvailabilityCause,
@@ -812,6 +813,24 @@ export async function guardToolCall<T>(
   if (config.verifyReceipts !== false && !receiptVerified && envelope.receipt?.token) {
     breakerRecord(config);
     return closedIntegrity(config, bindResult.cause ?? 'RECEIPT_UNVERIFIED', failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
+  }
+
+  // ── MISSING receipt (1307) ────────────────────────────────────────────────────────────────
+  //
+  // The branch above covers a receipt that is PRESENT and does not verify. An envelope carrying no
+  // receipt at all fell through it and proceeded on the unsigned envelope — reconciled by the gate
+  // below, but not cryptographically bound. That is the right default (the analyze path has no
+  // receipt by design), and the wrong one for a host that requires every action to be receipt-backed.
+  //
+  // OPT-IN, so nothing changes for an existing host: `requireReceipt: 'fail-closed'` is that
+  // decision, made once in configuration rather than inferred per call.
+  {
+    const miss = missingReceiptDecision(config.requireReceipt, !!envelope.receipt?.token);
+    if (miss.stop) {
+      emit(config, { type: 'receipt_unverified', at: iso(), decisionId: envelope.decision_id, cause: miss.detail });
+      breakerRecord(config);
+      return closedIntegrity(config, 'RECEIPT_UNVERIFIED', failPolicy, fctx, cwctx, redacted, detection.artifacts, undefined, undefined, grantObs);
+    }
   }
 
   // ── Client-side authorization gate (P0-b/c): mirror §106/§111/§115 before honoring any action. ──

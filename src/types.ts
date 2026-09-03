@@ -21,6 +21,25 @@ export type ReceiptVerifiedEnvelope =
 
 export interface GuardConfig {
   client: CodeRifts;
+  /**
+   * OFFLINE receipt verification (1307). When set, the guard verifies against these pinned keys
+   * instead of calling the SDK over the network — the same posture the other three enforcement
+   * points already have. Absent: the network path, exactly as before.
+   *
+   * NEVER FETCHED. A fetchable keyring would make "offline" a configuration detail rather than a
+   * property, and whoever could answer the fetch would choose the keys.
+   */
+  receiptKeyring?: string | { keys: unknown[] };
+  /**
+   * What to do when the envelope carries NO receipt token at all (1307).
+   *
+   *   'proceed'      default, and unchanged: act on the reconciled envelope, with `enforceable`
+   *                  recording that nothing was cryptographically bound.
+   *   'fail-closed'  stop. For a host that has decided every action must be receipt-backed.
+   *
+   * This is orthogonal to `verifyReceipts`, which governs a receipt that IS present.
+   */
+  requireReceipt?: 'proceed' | 'fail-closed';
   failPolicy?: 'closed' | 'open' | 'lkg';   // default 'closed'
   timeoutMs?: number;                        // per attempt; default 2000
   retries?: number;                          // transport retries; default 1
