@@ -311,15 +311,34 @@ describe('(f) S3 layer 1: defaultBinder lifts old_string/new_string and edits[]'
       old_string: 'old prose',
       new_string: 'new prose',
     });
-    // classifyByName(README.md) is null → no lift. Detector typically SKIPPED (prose).
+    // classifyByName(README.md) is null → no lift. This assertion is the point of the test and
+    // is unchanged: never fabricate a contract artifact to have something to preflight.
     assert.equal(seen.artifacts, null, 'preflight must not run with lifted README artifacts');
-    // Prefer SKIPPED (no contract surface) over a fabricated openapi artifact.
-    if (outcome.verdict.kind === 'SKIPPED') {
-      assert.equal(outcome.executed, true);
-      assert.equal(outcome.preflighted, false);
-    } else {
-      // If something else triggered, must still be fail-closed without host artifacts.
-      assert.equal(outcome.verdict.cause, 'MISSING_ARTIFACT_CONTENT');
+
+    // 1356 CHANGED WHAT HAPPENS NEXT, and the change is a strengthening. This edit carries
+    // old_string/new_string, so it is a MUTATION the detector does not recognise. It used to take
+    // the SKIPPED path and EXECUTE with nothing preflighted and nothing signed; by default it is
+    // now refused. The test's original intent — no fabricated artifact, no unguarded execution —
+    // is better served by the new outcome than by the old one.
+    assert.equal(outcome.verdict.cause, 'UNGUARDED_MUTATION');
+    assert.equal(outcome.executed, false, 'an unguarded mutation must not run by default');
+
+    // And the opt-out restores the old behaviour — deliberately, by name, never silently.
+    process.env.CODERIFTS_ADVISORY = '1';
+    try {
+      const { client: c2 } = recordingClient();
+      const reg2 = guardToolRegistry(
+        [{ name: 'Edit', mutationClass: 'mutating', execute: async () => 'X' }],
+        { guard: { client: c2, operation: 'merge' } },
+      );
+      const advisory = await reg2.tools[0].execute({
+        path: 'README.md', old_string: 'old prose', new_string: 'new prose',
+      });
+      assert.equal(advisory.verdict.kind, 'SKIPPED');
+      assert.equal(advisory.executed, true);
+      assert.equal(advisory.preflighted, false);
+    } finally {
+      delete process.env.CODERIFTS_ADVISORY;
     }
   });
 

@@ -10,6 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { missingReceiptDecision } from './offline-verify.js';
+import { decideUnguardedMutation } from './unguarded-mutation.js';
 import { readDecision, isClosedAction } from './read-decision.js';
 import type {
   GuardConfig, GuardOutcome, GuardVerdict, ApprovedVerdict, UnavailableCause, AvailabilityCause,
@@ -76,6 +77,18 @@ const iso = () => new Date().toISOString();
 
 function emit(config: GuardConfig, e: GuardEvent): void {
   if (config.onEvent) { try { config.onEvent(e); } catch { /* onEvent never throws out */ } }
+}
+
+/**
+ * 1356 — the advisory warning must reach a human even when the host wired no `onEvent`.
+ * Deduplicated per process: a loop of a thousand advisory writes should not bury the first one,
+ * and a warning nobody can read is the same as no warning.
+ */
+const advisoryWarned = new Set<string>();
+function warnAdvisory(message: string): void {
+  if (advisoryWarned.has(message)) return;
+  advisoryWarned.add(message);
+  try { console.warn(message); } catch { /* a host may have removed console */ }
 }
 
 /**
@@ -599,6 +612,26 @@ export async function guardToolCall<T>(
   // SKIPPED path: not a contract call => execute with enforced:false, preflighted:false.
   if (!detection.trigger || suppressedByStrict) {
     emit(config, { type: 'detection_skip', at: iso(), signals: detection.signals, detectorVersion: detector.version });
+
+    // ── 1356: SKIPPED is a statement about the ARTIFACT, not permission for the ACTION ────────
+    // Everything below this point (guard.ts:813/854/981) is already fail-closed by default, and
+    // every one of those depends on the detector having triggered. A mutating call it does not
+    // recognise used to execute here with nothing preflighted and nothing signed. It no longer
+    // does — unless the host names the opt-out, in which case it says so out loud.
+    const um = decideUnguardedMutation(isMutatingCall(redacted), config.requireGuardedMutation, process.env);
+    if (um.stop) {
+      emit(config, { type: 'unguarded_mutation_blocked', at: iso(), cause: um.detail });
+      breakerRecord(config);
+      return closedIntegrity(config, 'UNGUARDED_MUTATION', failPolicy, fctx, cwctx, redacted, detection.artifacts);
+    }
+    if (um.warn) {
+      // LOUD, and loud does not mean "emitted to a listener that may not exist". onEvent is
+      // optional, so an advisory execution with no host listener would otherwise be silent —
+      // which is the one thing this must never be.
+      emit(config, { type: 'unguarded_mutation_advisory', at: iso(), cause: um.warn, source: um.source });
+      warnAdvisory(um.warn);
+    }
+
     const verdict: GuardVerdict = { kind: 'SKIPPED', reason: 'NOT_A_CONTRACT_CALL', signals: detection.signals, detectorVersion: detector.version };
     const { basis } = freshnessFor(config, redacted, fctx);
     const { basis: cwBasis } = conditionalWriteFor(config, redacted, cwctx);

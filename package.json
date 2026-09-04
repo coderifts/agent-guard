@@ -56,11 +56,12 @@
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {
-    "@coderifts/sdk": "^3.10.0"
-  },
   "devDependencies": {
+    "@coderifts/sdk": "^3.10.0",
     "@types/node": "^20.0.0",
     "typescript": "^5.4.0"
+  },
+  "peerDependencies": {
+    "@coderifts/sdk": "^3.10.0"
   }
 }

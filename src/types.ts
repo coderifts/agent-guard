@@ -40,6 +40,19 @@ export interface GuardConfig {
    * This is orthogonal to `verifyReceipts`, which governs a receipt that IS present.
    */
   requireReceipt?: 'proceed' | 'fail-closed';
+  /**
+   * What to do when a MUTATING tool call reaches the guard with no verified receipt (1356).
+   *
+   * Default 'fail-closed': it does not execute. The host is the first gate in the inescapability
+   * order and it was the only one of the four that let this through.
+   *
+   * 'advisory' executes anyway and WARNS every time — the same posture as `verify_ssl=false`:
+   * a real option, named out loud, never silent. `CODERIFTS_ADVISORY=1` selects it from the
+   * environment, but CANNOT override an explicit 'fail-closed' here.
+   *
+   * Non-mutating calls are unaffected: the gate is on `isMutatingCall`, not on "was it preflighted".
+   */
+  requireGuardedMutation?: 'fail-closed' | 'advisory';
   failPolicy?: 'closed' | 'open' | 'lkg';   // default 'closed'
   timeoutMs?: number;                        // per attempt; default 2000
   retries?: number;                          // transport retries; default 1
@@ -385,6 +398,7 @@ export type IntegrityCause =
   | 'ANALYSIS_DEGRADED'           // analysis_complete=false / degraded_reasons / degraded / coverage_gap (§111)
   | 'ARTIFACT_MISMATCH'           // envelope artifact_digest / input_fingerprint ≠ locally-recomputed value
   | 'RECEIPT_MISSING'             // contract-triggering executable decision with no verifiable receipt (no unenforced execute)
+  | 'UNGUARDED_MUTATION'         // 1356: mutating call the detector did not recognise, no receipt, requireGuardedMutation fail-closed (the default)
   | 'MONITORING_UNWIRED'          // CONTINUE_WITH_MONITORING but monitoring not declared+callback-agreeing → cannot enforce monitoring
   | 'MISSING_ARTIFACT_CONTENT'   // detector triggered (preflight required) but no analyzable artifacts[] with before/after → fail closed LOCALLY (developer must supply content), never send an empty list to the server
   | 'FRESHNESS_REQUIRED'         // write-style (or requireFreshness) without ACTIVE measurement (NOT_CONFIGURED / DEGRADED)
@@ -424,6 +438,15 @@ export type GuardEvent =
       at: string; correlationId?: string; decisionId?: string;
       action?: ExecutionAction; cause?: string; durationMs?: number;
       signals?: string[]; detectorVersion?: string }
+  /**
+   * 1356 — a mutating tool call the detector did not recognise, with no receipt.
+   * `_blocked` is the default outcome; `_advisory` means the host NAMED the opt-out
+   * (CODERIFTS_ADVISORY / requireGuardedMutation:'advisory') and the call executed anyway.
+   * The advisory case ALSO goes to console.warn, because onEvent is optional and an advisory
+   * execution that nobody hears is the failure this closes.
+   */
+  | { type: 'unguarded_mutation_blocked' | 'unguarded_mutation_advisory'; at: string;
+      cause?: string; source?: 'config' | 'environment' }
   /** ID842 step 3a — warn-mode only: real T2 fingerprint drift observed; execution still proceeds. */
   | { type: 'execution_state_drift_observed'; at: string; decisionId?: string;
       current_fingerprint: string | null; authorized_fingerprint: string | null; reason: string }
