@@ -1,5 +1,18 @@
 # Changelog
 
+## 16.0.0
+
+Default fail-closed on unguarded mutations (breaking default change — major bump).
+
+A mutating tool call the detector does not recognise as a contract artifact is now BLOCKED by
+default with UNGUARDED_MUTATION unless a valid CONTINUE receipt is present. Previously such calls
+ran unguarded. The opt-out is explicit and loud: CODERIFTS_ADVISORY=1 proceeds with a logged
+warning, never silently. Reads and non-mutating tools are unaffected; the offline verify path is
+unchanged. This is a breaking change to the DEFAULT behaviour: a caller on ^15 that relied on
+unrecognised mutations running through will now be blocked unless it sets CODERIFTS_ADVISORY=1 or
+supplies a receipt. The ^15 range does not pull 16, so the change is opt-in by version.
+
+
 ## 15.1.0
 
 Additive on both counts — no field removed, no meaning changed, no signature widened —
