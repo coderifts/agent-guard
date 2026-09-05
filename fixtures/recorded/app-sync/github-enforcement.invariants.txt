@@ -1,0 +1,2 @@
+L1156: basis: inescapable
+L1157: ? 'all six layers VERIFIED (issuer-bound required check + active workflow jobs + correlated environment)'

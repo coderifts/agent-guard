@@ -34,13 +34,16 @@ function fixturePath() {
   return null;
 }
 
-const FIXTURE_PATH = fixturePath();
-const SKIP = FIXTURE_PATH
-  ? false
-  : 'coderifts-app checkout not found — set CODERIFTS_APP_ROOT. Request parity is UNPROVEN here, '
-    + 'not proven-by-absence.';
+// 1394 — this was the last honest SKIP in a clean room, and it guards exactly what 1402 fixed:
+// which fields the Guard puts on the wire vs which the handler reads. A skipped parity test is how
+// that drifted in the first place, so it now runs RECORDED against the pinned fixture instead.
+const rec = require('../lib/recorded-app-sync');
+const LIVE_FIXTURE = fixturePath();
+const LIVE = !!LIVE_FIXTURE;
+const MODE = LIVE ? 'LIVE' : 'RECORDED';
+const FIXTURE_PATH = LIVE_FIXTURE || rec.snapshotPath('v2-grant-canonical-request.json');
 
-describe('canonical v2 request parity (Guard)', { skip: SKIP }, () => {
+describe(`canonical v2 request parity (Guard) ${rec.modeBanner(MODE)}`, () => {
   const fixture = JSON.parse(fs.readFileSync(FIXTURE_PATH, 'utf8'));
   const { request, reading } = fixture;
 
@@ -93,10 +96,21 @@ describe('canonical v2 request parity (Guard)', { skip: SKIP }, () => {
     assert.equal(request.context.operation, reading.operation);
   });
 
-  it('audience_hash is NOT in the reading — the Guard sends an inert field', () => {
+  it('the RECORDED fixture is not stale (LIVE only)', { skip: LIVE ? false : 'RECORDED mode — nothing live to compare against' }, () => {
+    // A snapshot nobody re-checks rots into a second truth. Checked only where a live copy exists.
+    const snap = rec.snapshotBytes('v2-grant-canonical-request.json');
+    assert.ok(snap.equals(fs.readFileSync(LIVE_FIXTURE)),
+      'RECORDED v2-grant-canonical-request.json is STALE vs the app — regenerate fixtures/recorded/app-sync');
+  });
+
+  it('1402: the Guard no longer sends the inert audience_hash', () => {
+    // THIS TEST INVERTED. It used to assert "the Guard does send it" beside "the handler does not
+    // read it" — a correct measurement of a real bug, pinned but not fixed. The handler reads
+    // top-level `audience` (change-set.js:1138) and derives the hash itself
+    // (execution-grant-v2.js:166); the request schema says so outright. So the Guard sending
+    // audience_hash bound nothing, and it is gone.
     const sends = V2_WIRE_FIELDS.map(([w]) => w);
-    assert.ok(sends.includes('audience_hash'), 'the Guard does send it');
-    assert.equal('audience_hash' in reading, false, 'and the handler does not read it');
-    assert.match(fixture.reading_notes.audience_hash, /NOT in the reading/);
+    assert.equal(sends.includes('audience_hash'), false, 'an inert field must not be re-added');
+    assert.equal('audience_hash' in reading, false, 'the handler still does not read it');
   });
 });

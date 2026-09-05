@@ -1,0 +1,54 @@
+{
+  "schema": "cr.guard.recorded-app-sync.v1",
+  "note": "Vendored snapshot of the coderifts-app artifacts this suite compares against. LIVE when a checkout is present (byte-parity AND this snapshot is checked for staleness); RECORDED against these bytes when it is not. Never a silent skip. RECORDED is WEAKER than LIVE. TWO ENTRIES ARE EXTRACTED INVARIANTS, NOT SOURCE: change-set.js (74 kB governance engine) and github-enforcement.js (60 kB provider adapter, carries the permission detail behind the 1405 caution) are core product logic; publishing them whole in this PUBLIC repo is over-exposure and irreversible while the open-core position is undecided. Only what the parity tests assert is recorded, and each extract names what it no longer catches.",
+  "producer": {
+    "repo": "https://github.com/coderifts/coderifts-app (private)",
+    "commit": "addc2a0d4aae346e8e6ed19b8d34da8e319522c7"
+  },
+  "artifacts": [
+    {
+      "path": "EXTRACTED-INVARIANTS.md",
+      "source": "(this repo) documentation of what each extract records and loses",
+      "sha256": "5f724005b103247182c0647cab85826613d07beaf4a20ac322bf5641a8fdd990",
+      "bytes": 2510
+    },
+    {
+      "path": "change-set.fingerprints.json",
+      "source": "src/change-set.js computeBundleFingerprint() \u2014 EXTRACTED outputs",
+      "sha256": "24d2c65b98353ae7353621f3036ba7c09471bfb54d7d8e119c3fc22ad3f289a9",
+      "bytes": 1732,
+      "note": "extracted invariant: seven golden fingerprints, not the 74 kB engine"
+    },
+    {
+      "path": "crbundle-v1-parity.frozen.json",
+      "source": "test/fixtures/crbundle-v1-parity.frozen.json",
+      "sha256": "d16a33e0bd947ec119267dfe8e6e2dcf420c633590a205511202970c94ec3a01",
+      "bytes": 699
+    },
+    {
+      "path": "github-enforcement.invariants.txt",
+      "source": "packages/cli/src/provider/github-enforcement.js \u2014 EXTRACTED lines",
+      "sha256": "8f33b2949f08aad91593344cff95436417e7019ec10fd0186f15493d93031967",
+      "bytes": 139,
+      "note": "extracted invariant: the lines invariant #9 asserts on, not the 60 kB adapter. Prose lives in EXTRACTED-INVARIANTS.md \u2014 an explanation inside this file matched the pattern it described."
+    },
+    {
+      "path": "policy.txt",
+      "source": "src/agent-host-rule.js getCanonicalRuleText()",
+      "sha256": "da9558b445930c1b3b62432950f827e699ef8be02d509ab0ddf252e2c26c55f1",
+      "bytes": 4852
+    },
+    {
+      "path": "required-check-contract.js",
+      "source": "packages/cli/src/provider/required-check-contract.js",
+      "sha256": "1d110dff2753995caeb8ad1bd85d24052b4a305b36ff5be0e71d4e6213de31f1",
+      "bytes": 4145
+    },
+    {
+      "path": "v2-grant-canonical-request.json",
+      "source": "test/fixtures/v2-grant-canonical-request.json",
+      "sha256": "674ac0ff0a1aa6af4912ff244d93c06fb30bf7b5035ce828b502e0ae63f397a1",
+      "bytes": 3516
+    }
+  ]
+}

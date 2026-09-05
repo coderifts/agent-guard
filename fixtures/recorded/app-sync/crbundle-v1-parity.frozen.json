@@ -1,0 +1,19 @@
+{
+  "schema": "crbundle.v1.parity-fixture",
+  "version": 1,
+  "id": "id842-shared-parity-a",
+  "description": "Frozen cross-repo parity fixture for crbundle.v1 (ID842). expected_fingerprint is a CONTRACT value — bump only when deliberately changing the fingerprint algorithm in BOTH repos together (coderifts-app + coderifts-agent-guard).",
+  "domain": "crbundle.v1",
+  "artifacts": [
+    {
+      "id": "a",
+      "type": "openapi",
+      "before": "openapi: 3.0.0\ninfo: {title: A}",
+      "after": "openapi: 3.0.1\ninfo: {title: A}"
+    }
+  ],
+  "context": {
+    "operation": "tool_call"
+  },
+  "expected_fingerprint": "sha256:7298f7d99309d45b6bf0ad1eb66edc8921d2cdc80f396500bef9e1cfbdf024bc"
+}

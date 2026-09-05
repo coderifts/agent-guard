@@ -27,6 +27,12 @@ const readSrc = (rel) => fs.readFileSync(path.join(SRC, rel), 'utf8');
 /** Source with comments stripped — a rule must hold in CODE, not in prose about code. */
 const codeOnly = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
+// 1394 — LIVE when the app checkout is present, RECORDED against the pinned snapshot when it is
+// not. Never a silent skip: a comparison that did not happen must not read as one that passed.
+const rec = require('../lib/recorded-app-sync');
+const LIVE = rec.generatorsPresent();
+const MODE = LIVE ? 'LIVE' : 'RECORDED';
+
 describe('the file and its tests cannot drift apart', () => {
   it('every invariant that claims a test here is actually numbered here', () => {
     const claimed = [...INVARIANTS.matchAll(/^## (\d+)\.[\s\S]*?\*\*ENFORCED BY:\*\* ([^\n]+)/gm)]
@@ -124,9 +130,10 @@ describe('#4 the atomic profile — PARTLY fixed by _V1, and the remainder pinne
 describe('#5 the shared-issuer residual is stated where the app id is defined', () => {
   // Cross-repo read: the constant lives in the CLI. Skipping when the sibling is absent would let
   // the check disappear silently, so a missing checkout is reported rather than skipped.
-  const cliConstant = path.join(
-    os.homedir(), 'coderifts-app', 'packages', 'cli', 'src', 'provider', 'required-check-contract.js',
-  );
+  // 1394: LIVE reads the sibling CLI; RECORDED reads the pinned copy. Either way the check RUNS.
+  const cliConstant = LIVE
+    ? path.join(os.homedir(), 'coderifts-app', 'packages', 'cli', 'src', 'provider', 'required-check-contract.js')
+    : rec.snapshotPath('required-check-contract.js');
 
   it('app_id 15368 is documented as GitHub Actions, shared, and never as ours', () => {
     if (!fs.existsSync(cliConstant)) {
@@ -180,9 +187,10 @@ describe('#8 the commit label', () => {
 
 describe('#9 the inescapable claim', () => {
   it('the basis names LAYERS and never claims unreachability', () => {
-    const cli = path.join(
-      os.homedir(), 'coderifts-app', 'packages', 'cli', 'src', 'provider', 'github-enforcement.js',
-    );
+      // 1394: LIVE reads the sibling CLI; RECORDED reads the pinned copy. Either way the check RUNS.
+  const cli = LIVE
+    ? path.join(os.homedir(), 'coderifts-app', 'packages', 'cli', 'src', 'provider', 'github-enforcement.js')
+    : rec.snapshotPath('github-enforcement.invariants.txt');
     if (!fs.existsSync(cli)) {
       assert.fail(`sibling CLI checkout missing at ${cli} — cannot verify #9`);
     }

@@ -138,7 +138,21 @@ export const V2_WIRE_FIELDS = Object.freeze([
   ['target_uri', 'targetUri'],
   ['tenant_id', 'tenantId'],
   ['policy_hash', 'policyHash'],
-  ['audience_hash', 'audienceHash'],
+  // 1402 — `audience_hash` IS NOT ON THIS LIST, and its absence is the fix.
+  //
+  // MEASURED 2026-09-06 against the server, read-only:
+  //   src/change-set.js:1138            reads TOP-LEVEL `input.audience`, strict /^v:[0-9a-f]{12}$/
+  //   execution-grant-v2.js:166         derives `audience_hash: sha256pref(audience)` ITSELF
+  //   execution-grant-request.v2.producer.json  states it outright: "`audience_hash` is NOT a
+  //                                     request field of its own … sending it separately has no
+  //                                     effect and it stays out of this schema"
+  //
+  // So the Guard was sending a field nobody reads. Worse, it was ALSO sending the audience under
+  // `context.audience`, which the handler does not read either (it reads `input.audience`) — both
+  // channels were severed, and the binding a host configured reached the server through neither.
+  // A field that looks bound and is not is the exact failure the server's own 1206 note describes.
+  //
+  // The fix is to send what the server consumes: top-level `audience`. See guard.ts.
   ['expected_state_token', 'expectedStateToken'],
 ] as const);
 

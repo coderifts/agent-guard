@@ -42,13 +42,16 @@ describe('AUDIT P1 / RES-1 — the V2 field set on the authorize request', () =>
     assert.deepEqual(r.absent, []);
     assert.equal(r.fields.executor_id, 'exec-7');
     assert.equal(r.fields.target_uri, 'postgres://articles');
-    assert.equal(r.fields.audience_hash, 'sha256:aa');
+    // 1402: audience_hash left this list. The server never read it — it derives the hash from
+    // `audience`, which the Guard now sends top-level (guard.ts). Asserting its ABSENCE here is
+    // what stops it being re-added as a field that looks bound and is not.
+    assert.equal('audience_hash' in r.fields, false);
   });
 
   it('an UNCONFIGURED field is NAMED absent, never sent as a placeholder', () => {
     const r = v2WireFields({ executionGrant: { enabled: true, grantVersion: 'v2', executorId: 'exec-7' } });
     assert.deepEqual(Object.keys(r.fields), ['executor_id']);
-    assert.deepEqual(r.absent.sort(), ['adapter_id', 'audience_hash', 'expected_state_token', 'policy_hash', 'target_uri', 'tenant_id']);
+    assert.deepEqual(r.absent.sort(), ['adapter_id', 'expected_state_token', 'policy_hash', 'target_uri', 'tenant_id']);
     for (const k of r.absent) {
       assert.ok(!(k in r.fields), `${k} was sent despite being unconfigured`);
     }
@@ -182,7 +185,7 @@ describe('AUDIT 1198 — the V2 identity has ONE source', () => {
     // know the value. What changed is that a SUPPLIED value can no longer be
     // reported absent.
     const r = v2WireFields({ executorId: 'exec-7', executionGrant: { enabled: true, grantVersion: 'v2' } });
-    assert.deepEqual(r.absent.sort(), ['adapter_id', 'audience_hash', 'expected_state_token', 'policy_hash', 'target_uri', 'tenant_id']);
+    assert.deepEqual(r.absent.sort(), ['adapter_id', 'expected_state_token', 'policy_hash', 'target_uri', 'tenant_id']);
     for (const k of r.absent) assert.ok(!(k in r.fields));
   });
 

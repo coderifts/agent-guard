@@ -45,13 +45,31 @@ function assertAppCheckoutAvailable(root = resolveAppRoot()) {
   return abs;
 }
 
-describe('CODERIFTS_POLICY vendored-sync (agent-guard ↔ app)', () => {
-  it('constant is byte-identical to app getCanonicalRuleText()', () => {
+// 1394 — LIVE when the app checkout is present, RECORDED against the pinned snapshot when it is
+// not. Never a silent skip: a comparison that did not happen must not read as one that passed.
+const rec = require('../lib/recorded-app-sync');
+const LIVE = rec.generatorsPresent();
+const MODE = LIVE ? 'LIVE' : 'RECORDED';
+
+describe(`CODERIFTS_POLICY vendored-sync (agent-guard ↔ app) ${rec.modeBanner(MODE)}`, () => {
+  it('constant matches LIVE app text or the RECORDED snapshot', () => {
+    const snap = rec.snapshotText('policy.txt');
+    if (!LIVE) {
+      // RECORDED is WEAKER and says so: it proves the constant matches what was recorded at the
+      // pinned app commit, not what the server serves today.
+      assert.equal(CODERIFTS_POLICY, snap,
+        'CODERIFTS_POLICY drifted from the RECORDED snapshot. ' + rec.modeBanner('RECORDED'));
+      assert.ok(CODERIFTS_POLICY.includes(POLICY_MARKER));
+      return;
+    }
     const appRoot = assertAppCheckoutAvailable();
     const rulePath = path.join(appRoot, 'src', 'agent-host-rule.js');
     assert.ok(fs.existsSync(rulePath), `app canonical missing at ${rulePath}`);
     const { getCanonicalRuleText } = require(rulePath);
     const appText = getCanonicalRuleText();
+    // LIVE also checks the RECORDING: a snapshot nobody re-checks rots into a second truth.
+    assert.equal(snap, appText,
+      'RECORDED snapshot STALE vs live getCanonicalRuleText() — regenerate fixtures/recorded/app-sync');
     assert.equal(
       CODERIFTS_POLICY,
       appText,

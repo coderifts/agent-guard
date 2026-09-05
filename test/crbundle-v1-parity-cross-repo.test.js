@@ -69,6 +69,12 @@ function loadFixture(filePath = GUARD_FIXTURE) {
   return doc;
 }
 
+// 1394 — LIVE when the app checkout is present, RECORDED against the pinned snapshot when it is
+// not. Never a silent skip: a comparison that did not happen must not read as one that passed.
+const rec = require('../lib/recorded-app-sync');
+const LIVE = rec.generatorsPresent();
+const MODE = LIVE ? 'LIVE' : 'RECORDED';
+
 describe('crbundle.v1 frozen parity fixture (guard computeCanonicalBundleFingerprint)', () => {
   it('fixture exists and pins the CONTRACT expected_fingerprint', () => {
     const doc = loadFixture();
@@ -109,10 +115,12 @@ describe('crbundle.v1 frozen parity fixture (guard computeCanonicalBundleFingerp
   });
 });
 
-describe('crbundle.v1 parity fixture vendored-sync (agent-guard ↔ app)', () => {
+describe(`crbundle.v1 parity fixture vendored-sync (agent-guard ↔ app) ${rec.modeBanner(MODE)}`, () => {
   it('agent-guard fixture is byte-identical to app fixture', () => {
-    const appRoot = assertAppCheckoutAvailable();
-    const appFixture = path.join(appRoot, FIXTURE_REL);
+    // 1394: RECORDED reads the pinned snapshot; LIVE reads the app and ALSO checks the snapshot.
+    const appFixture = LIVE
+      ? path.join(assertAppCheckoutAvailable(), FIXTURE_REL)
+      : rec.snapshotPath('crbundle-v1-parity.frozen.json');
     assert.ok(
       fs.existsSync(appFixture),
       `app frozen fixture missing at ${appFixture} — copy ${FIXTURE_REL} into both repos`,
@@ -151,8 +159,10 @@ describe('crbundle.v1 parity fixture vendored-sync (agent-guard ↔ app)', () =>
   });
 
   it('one-byte fixture-file divergence would fail the byte-identity gate', () => {
-    const appRoot = assertAppCheckoutAvailable();
-    const appFixture = path.join(appRoot, FIXTURE_REL);
+    // 1394: RECORDED reads the pinned snapshot; LIVE reads the app and ALSO checks the snapshot.
+    const appFixture = LIVE
+      ? path.join(assertAppCheckoutAvailable(), FIXTURE_REL)
+      : rec.snapshotPath('crbundle-v1-parity.frozen.json');
     const guardBytes = fs.readFileSync(GUARD_FIXTURE);
     const appBytes = fs.readFileSync(appFixture);
     assert.equal(guardBytes.equals(appBytes), true, 'precondition: fixtures already in sync');

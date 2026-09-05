@@ -1,5 +1,26 @@
 # Changelog
 
+## 17.1.0
+
+Fix the audience binding, and make the public test suite hermetic (RECORDED fallback).
+
+AUDIENCE (wire change): the Guard sent context.audience and audience_hash — the server reads
+NEITHER (it reads top-level `audience`, strict /^v:[0-9a-f]{12}$/, and derives audience_hash
+itself). Both channels were inert: a host that configured an audience was getting a grant bound
+under sha256('') and could not see it. The Guard now sends top-level `audience` (what the server
+consumes) on EVERY authorize, and drops audience_hash from the wire; a free-text audience emits an
+audience_not_bindable event rather than a binding that looks real but isn't. IF YOU CONFIGURED
+audienceHash: you were binding NOTHING before this release — now a v:-form audience actually binds.
+
+CLEAN-ROOM: the public suite was red (parity/policy/bundle-sync tests needed a private app
+checkout). It now runs LIVE against the checkout when present and RECORDED against a sha256-pinned
+vendored snapshot when absent, never silent-skip. The snapshot vendors EXTRACTED INVARIANTS of the
+two app engines (change-set.js, github-enforcement.js), not their full source — 134 kB of engine
+became 1.9 kB of golden fingerprints, so the public repo carries no governance engine and no
+permission list. A verified-snapshot check gates every read (missing pin/file or sha mismatch →
+throw, never fallback).
+
+
 ## 17.0.0
 
 Raw shell carrying a mutation is now blocked (breaking default change).

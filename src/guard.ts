@@ -712,14 +712,42 @@ export async function guardToolCall<T>(
     target_uri?: string;
     tenant_id?: string;
     policy_hash?: string;
-    audience_hash?: string;
     expected_state_token?: string;
+    /**
+     * 1402 — TOP-LEVEL, because that is where the handler reads it (change-set.js:1138).
+     * `context.audience` below is kept: it is what LKG matching binds on locally, and removing it
+     * would change a local comparison to fix a wire bug. Both carry the same value.
+     */
+    audience?: string;
   } & Record<string, unknown> = {
     artifacts: detection.artifacts,
     context: { operation: config.operation ?? 'tool_call', environment: config.environment, audience: config.audience },
     previous_receipt: resolvePreviousReceipt(config),
     idempotency_key: undefined as string | undefined,
   };
+
+  // 1402 — the audience the host configured, on the field the server actually reads
+  // (change-set.js:1138 reads TOP-LEVEL `input.audience`). Sent on EVERY authorize, not only when
+  // a grant is requested: the handler reads it for the decision path too, and scoping it to the
+  // grant branch was the first version of this fix — it left the binding severed for every call
+  // that did not ask for a grant, which is most of them.
+  //
+  // ONLY THE MEASURED FORM. The handler discards anything that is not `v:<12 hex>` to null, so a
+  // free-form name would look like a binding and produce none — the bug being fixed, not a smaller
+  // version of it. A non-conforming value is NAMED instead of sent.
+  if (typeof config.audience === 'string' && config.audience.length > 0) {
+    if (/^v:[0-9a-f]{12}$/.test(config.audience)) {
+      request.audience = config.audience;
+    } else {
+      emit(config, {
+        type: 'audience_not_bindable',
+        at: iso(),
+        cause: `audience ${JSON.stringify(config.audience)} is not the measured v:<12 hex> form; `
+          + 'the server discards any other string to null, so it would NOT be bound. '
+          + 'Nothing was sent for it.',
+      });
+    }
+  }
 
   let grantObs: ExecutionGrantObservation | undefined;
   let grantForCall: string | null = null;
@@ -747,6 +775,7 @@ export async function guardToolCall<T>(
       request.grant_version = 'v2';
       for (const [k, v] of Object.entries(wire.fields)) request[k] = v;
     }
+
     // Recorded ONLY for v2. On v1 these fields are not "absent" — they are not
     // part of that grant shape at all, and stamping six absences onto every v1
     // observation would report a gap where there is no field. It also keeps the

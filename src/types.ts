@@ -460,6 +460,11 @@ export type GuardEvent =
    * The advisory case ALSO goes to console.warn, because onEvent is optional and an advisory
    * execution that nobody hears is the failure this closes.
    */
+  /**
+   * 1402 — the host configured an audience the server cannot bind. Emitted instead of sending it,
+   * because a value the handler discards to null would look like a binding and be none.
+   */
+  | { type: 'audience_not_bindable'; at: string; cause?: string }
   | { type: 'unguarded_mutation_blocked' | 'unguarded_mutation_advisory'; at: string;
       cause?: string; source?: 'config' | 'environment' }
   /** ID842 step 3a — warn-mode only: real T2 fingerprint drift observed; execution still proceeds. */

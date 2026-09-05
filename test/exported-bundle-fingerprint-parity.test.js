@@ -31,8 +31,32 @@ function resolveAppRoot() {
   return path.join(process.env.HOME || os.homedir(), 'coderifts-app');
 }
 
-/** The app's REAL producer. Never a copy, never a frozen constant — the thing itself. */
+/**
+ * The app side of the comparison.
+ *
+ * LIVE — the app's REAL producer, required and called. Never a copy, never a frozen constant.
+ *
+ * RECORDED — the seven GOLDEN OUTPUTS that producer emitted at the pinned commit. The 74 kB
+ * governance engine is NOT vendored into this public repo (1394 revised): it is core product
+ * logic, and publishing it is irreversible while the open-core position is undecided.
+ *
+ * WHAT RECORDED NO LONGER CATCHES, said plainly: a change in the app AFTER the recording. It
+ * proves the Guard still agrees with what the app produced at that commit, not with what the app
+ * produces today. LIVE catches that, and LIVE also fails if this recording went stale — so the
+ * drift is caught wherever a checkout exists, which is every place that could act on it.
+ */
 function loadAppProducer() {
+  if (!LIVE) {
+    const recorded = JSON.parse(rec.snapshotText('change-set.fingerprints.json'));
+    const byName = new Map(recorded.vectors.map((v) => [v.name, v.fingerprint]));
+    assert.equal(byName.size, CASES.length,
+      'the recorded vectors and the case list disagree — regenerate scripts/extract-app-invariants.js');
+    return (artifacts, context, name) => {
+      const fp = byName.get(name);
+      assert.ok(fp, `no recorded fingerprint for case ${JSON.stringify(name)}`);
+      return fp;
+    };
+  }
   const root = resolveAppRoot();
   const mod = path.join(root, 'src', 'change-set.js');
   if (!fs.existsSync(mod)) {
@@ -49,47 +73,14 @@ function loadAppProducer() {
   return appFn;
 }
 
-const OPENAPI_BEFORE = JSON.stringify({
-  openapi: '3.0.0', info: { title: 't', version: '1.0.0' },
-  paths: { '/u': { get: { responses: { 200: { description: 'ok' } } } } },
-});
-const OPENAPI_AFTER = JSON.stringify({
-  openapi: '3.0.0', info: { title: 't', version: '1.0.0' }, paths: {},
-});
+const { CASES } = require('./lib/bundle-fingerprint-cases.js');
 
-/** Cases chosen so every element of the preimage is exercised at least once. */
-const CASES = Object.freeze([
-  { name: 'operation only (the live authorize shape)',
-    artifacts: [{ id: 'openapi.yaml', type: 'openapi', before: OPENAPI_BEFORE, after: OPENAPI_AFTER }],
-    context: { operation: 'merge' } },
-  { name: 'no context at all',
-    artifacts: [{ id: 'openapi.yaml', type: 'openapi', before: OPENAPI_BEFORE, after: OPENAPI_AFTER }],
-    context: undefined },
-  { name: 'empty context object',
-    artifacts: [{ id: 'openapi.yaml', type: 'openapi', before: OPENAPI_BEFORE, after: OPENAPI_AFTER }],
-    context: {} },
-  { name: 'every context field populated',
-    artifacts: [{ id: 'openapi.yaml', type: 'openapi', before: OPENAPI_BEFORE, after: OPENAPI_AFTER }],
-    context: {
-      operation: 'merge', environment: 'production', repository: 'acme/api',
-      branch: 'main', pull_request: 42, policy_profile: 'strict',
-    } },
-  { name: 'multiple artifacts, submitted out of order',
-    artifacts: [
-      { id: 'b.yaml', type: 'openapi', before: OPENAPI_BEFORE, after: OPENAPI_AFTER },
-      { id: 'a.yaml', type: 'openapi', before: OPENAPI_AFTER, after: OPENAPI_BEFORE },
-    ],
-    context: { operation: 'deploy' } },
-  { name: 'mixed artifact types',
-    artifacts: [
-      { id: 'x', type: 'graphql', before: 'type Q { a: Int }', after: 'type Q { }' },
-      { id: 'x', type: 'openapi', before: OPENAPI_BEFORE, after: OPENAPI_AFTER },
-    ],
-    context: { operation: 'merge', repository: 'acme/api' } },
-  { name: 'null and empty artifact sides',
-    artifacts: [{ id: 'n', type: 'openapi', before: null, after: '' }],
-    context: { operation: 'merge' } },
-]);
+
+// 1394 — LIVE when the app checkout is present, RECORDED against the pinned snapshot when it is
+// not. Never a silent skip: a comparison that did not happen must not read as one that passed.
+const rec = require('../lib/recorded-app-sync');
+const LIVE = rec.generatorsPresent();
+const MODE = LIVE ? 'LIVE' : 'RECORDED';
 
 describe('exported computeBundleFingerprint ↔ app producer (cross-repo, unskippable)', () => {
   const appFn = loadAppProducer();
@@ -97,7 +88,7 @@ describe('exported computeBundleFingerprint ↔ app producer (cross-repo, unskip
   for (const c of CASES) {
     it(`matches the app byte for byte — ${c.name}`, () => {
       const mine = computeBundleFingerprint(c.artifacts, c.context);
-      const theirs = appFn(c.artifacts, c.context);
+      const theirs = appFn(c.artifacts, c.context, c.name);
       assert.equal(mine, theirs,
         `exported computeBundleFingerprint diverged from the app producer for: ${c.name}`);
       assert.match(mine, /^sha256:[0-9a-f]{64}$/);
@@ -127,9 +118,9 @@ describe('exported computeBundleFingerprint ↔ app producer (cross-repo, unskip
       return `sha256:${sha(parts.join(NUL))}`;
     };
     const c = CASES[0];
-    assert.notEqual(stale(c.artifacts), appFn(c.artifacts, c.context),
+    assert.notEqual(stale(c.artifacts), appFn(c.artifacts, c.context, c.name),
       'if the old form matched, this whole fix would be unnecessary — the fixture must exercise the defect');
-    assert.equal(computeBundleFingerprint(c.artifacts, c.context), appFn(c.artifacts, c.context));
+    assert.equal(computeBundleFingerprint(c.artifacts, c.context), appFn(c.artifacts, c.context, c.name));
   });
 
   it('THE CONTEXT IS LOAD-BEARING: omitting it changes the digest', () => {

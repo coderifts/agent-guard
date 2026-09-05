@@ -1,0 +1,33 @@
+{
+  "$comment": "GOLDEN OUTPUTS, not the producer. The parity test calls the app's computeBundleFingerprint on seven fixed inputs and compares byte-for-byte with the Guard's exported copy. In RECORDED mode the app side is these recorded outputs. WHAT IS LOST: a drift introduced in the app AFTER this recording is invisible until a LIVE run regenerates it — RECORDED proves the Guard still matches what the app produced at the pinned commit, never what it produces today. WHAT IS NOT LOST: every one of the seven cases still runs and still compares, including the ordering and null-side cases the engine is easiest to break on.",
+  "vectors": [
+    {
+      "name": "operation only (the live authorize shape)",
+      "fingerprint": "sha256:049650f2d0496f39ad0ec09e57fa1841e9636255f031e99751435b1bc70443df"
+    },
+    {
+      "name": "no context at all",
+      "fingerprint": "sha256:19343f50c97acd9f0c342fd364687977ff5e83a56cccf4d0236b12415c76a832"
+    },
+    {
+      "name": "empty context object",
+      "fingerprint": "sha256:19343f50c97acd9f0c342fd364687977ff5e83a56cccf4d0236b12415c76a832"
+    },
+    {
+      "name": "every context field populated",
+      "fingerprint": "sha256:53e7c10671589b954e91155899707ca72d3ae4f7ca310983739339cc80fdd361"
+    },
+    {
+      "name": "multiple artifacts, submitted out of order",
+      "fingerprint": "sha256:9eba7798bb990198b9ea77296c33cca0cc0ee725a466076ff8e859c09ec5e744"
+    },
+    {
+      "name": "mixed artifact types",
+      "fingerprint": "sha256:35f4ac9fab9f559f0d75d99c2b4799c669376600d21ce4b9630b5ae3e2209009"
+    },
+    {
+      "name": "null and empty artifact sides",
+      "fingerprint": "sha256:6413c42fa8a414048fc2f41e8ed9bec9b9de17645f126faf2bd264504d809d53"
+    }
+  ]
+}
