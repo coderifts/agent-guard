@@ -1,5 +1,26 @@
 # Changelog
 
+## 17.0.0
+
+Raw shell carrying a mutation is now blocked (breaking default change).
+
+A host-declared mutating capability (mutationClass: 'mutating_shell') now reaches the
+UNGUARDED_MUTATION decision — previously the class was computed by the registry but had no field
+on ToolCallDescriptor, so it died at the boundary and raw Bash mutations (kubectl apply, terraform
+apply, helm upgrade, rm -rf, gh pr merge, curl to a deploy webhook) SLIPPED THROUGH with
+verdict=SKIPPED, executed=true, even when the host explicitly declared mutating_shell. Now they are
+BLOCKED, executionAttempted=false.
+
+REMOVE RAW SHELL FROM THE GUARDED HOST, OR NAME THE OPT-OUT. A raw shell is undecidable by
+construction — the guard does NOT read the command string (sh -c, alias, wrapper, base64 would win
+that race while looking like it lost). So any host-declared mutating shell blocks, including ls -la
+under a mutating_shell descriptor: that is correct, not collateral. The safe architecture is
+capability-narrowing — take raw shell off the guarded host. A host that keeps it gets a block on
+every shell call after upgrading; the escape is explicit and loud: CODERIFTS_ADVISORY=1 proceeds
+with a warning. This is a breaking change to the DEFAULT: a caller on ^16 that relied on raw shell
+running through will now be blocked unless it sets CODERIFTS_ADVISORY=1 or declares the class.
+
+
 ## 16.0.0
 
 Default fail-closed on unguarded mutations (breaking default change — major bump).

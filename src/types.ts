@@ -220,6 +220,21 @@ export interface ToolCallDescriptor {
   intent?: string;                           // UNTRUSTED: adds triggers, never removes
   filesTouched?: string[];
   diff?: string;
+  /**
+   * 1375 — the capability class the HOST declared (or the registry classified) for this tool.
+   *
+   * MEASURED 2026-09-05, and this field exists because of it: `guardToolRegistry` already resolves
+   * `Bash` to `mutating_shell` and marks it `guarded: true`, with or without an explicit
+   * declaration — the classification was right all along. It simply had nowhere to travel: the
+   * descriptor carried no field for it, so `decideUnguardedMutation` never saw it and a raw
+   * `Bash { command: 'kubectl apply -f prod.yaml' }` took the SKIPPED path and EXECUTED.
+   *
+   * NOT A COMMAND CLASSIFIER. Nothing here reads the command string, and nothing should: that is
+   * an arms race (`sh -c`, aliases, base64, a wrapper script) the guard cannot win. The claim is
+   * narrower and holdable — the host declares what a capability IS, and a declared mutator that
+   * reaches the end of the guard without a verified receipt does not run.
+   */
+  mutationClass?: string;
 }
 
 // D1 — the mutating work is created ONLY after the verdict, by the factory.

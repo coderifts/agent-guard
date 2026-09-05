@@ -671,7 +671,7 @@ export type {
 // posture is testable without constructing a whole guard run.
 export { offlineReceiptVerifier, missingReceiptDecision } from './offline-verify.js';
 export {
-  decideUnguardedMutation, ADVISORY_ENV_VAR,
+  decideUnguardedMutation, isDeclaredMutatingClass, ADVISORY_ENV_VAR,
   type GuardedMutationPolicy, type UnguardedMutationDecision,
 } from './unguarded-mutation.js';
 // VerifyReceiptResultLike is already exported from the guard's own types; re-exporting the

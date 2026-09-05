@@ -300,7 +300,13 @@ function wrapWithGuard(tool: RawTool, cls: ToolMutationClass, config: GuardToolR
     meta: tool.meta,
     execute: async (args: unknown) => {
       const deriveCfg = normalizeAutoDerive(guardCfg.autoDerive);
-      const rebindRaw = () => binder(tool, args, cls);
+      // 1375 — stamp the class the registry ALREADY resolved onto the descriptor. A custom binder
+      // may legitimately rebuild the descriptor and drop it, so it is applied after the binder, not
+      // inside it; a binder that deliberately sets its own class keeps it.
+      const rebindRaw = () => {
+        const c = binder(tool, args, cls);
+        return c && c.mutationClass === undefined ? { ...c, mutationClass: cls } : c;
+      };
       let lastDerivation: AutoDeriveObservation['derivation'] | null = null;
       const rebind = async () => {
         const c = rebindRaw();

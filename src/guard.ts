@@ -10,7 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { missingReceiptDecision } from './offline-verify.js';
-import { decideUnguardedMutation } from './unguarded-mutation.js';
+import { decideUnguardedMutation, isDeclaredMutatingClass } from './unguarded-mutation.js';
 import { readDecision, isClosedAction } from './read-decision.js';
 import type {
   GuardConfig, GuardOutcome, GuardVerdict, ApprovedVerdict, UnavailableCause, AvailabilityCause,
@@ -618,7 +618,13 @@ export async function guardToolCall<T>(
     // every one of those depends on the detector having triggered. A mutating call it does not
     // recognise used to execute here with nothing preflighted and nothing signed. It no longer
     // does — unless the host names the opt-out, in which case it says so out loud.
-    const um = decideUnguardedMutation(isMutatingCall(redacted), config.requireGuardedMutation, process.env);
+    // 1375 — the ARGUMENTS say nothing about a raw shell (`command` is not content), so the
+    // host's declared capability class is consulted alongside them. Either is sufficient; neither
+    // reads a command string.
+    const declaredMutating = isDeclaredMutatingClass((redacted as { mutationClass?: unknown }).mutationClass);
+    const um = decideUnguardedMutation(
+      isMutatingCall(redacted) || declaredMutating, config.requireGuardedMutation, process.env,
+    );
     if (um.stop) {
       emit(config, { type: 'unguarded_mutation_blocked', at: iso(), cause: um.detail });
       breakerRecord(config);

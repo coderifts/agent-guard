@@ -84,6 +84,16 @@ const RISK =
  * @param policy     host configuration; undefined means the new default.
  * @param env        process.env, injected so this stays a pure function and is testable.
  */
+/**
+ * 1375 — a capability class the host declared as mutating. Prefix match, so a future
+ * `mutating_*` class is covered the day it is added rather than the day someone remembers to
+ * update a list. `readonly` and an absent class are NOT mutating here: absence is decided by
+ * `isMutatingCall` on the arguments, exactly as before.
+ */
+export function isDeclaredMutatingClass(cls: unknown): boolean {
+  return typeof cls === 'string' && cls.startsWith('mutating');
+}
+
 export function decideUnguardedMutation(
   mutating: boolean,
   policy: GuardedMutationPolicy | undefined,

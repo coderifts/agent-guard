@@ -138,14 +138,32 @@ describe('1356 — the opt-out is an option, not a bypass', () => {
 });
 
 describe('1356 — what this change does NOT close', () => {
-  it('MEASURED RESIDUAL: a mutating shell command is still not classified mutating', async () => {
-    // isMutatingCall (freshness.ts:433) reads contents/content/new_string/old_string/patch/edits.
-    // `command` is not among them, and widening the predicate here would silently move the
-    // conditional-write gate that shares it (guard.ts:495). Pinned so the limit is visible in the
-    // suite rather than only in a comment — and so it fails loudly if someone closes it elsewhere.
+  it('RESIDUAL NARROWED (1375): a bare descriptor with no declared class still slips', async () => {
+    // This test asked to be updated when the residual closed, and half of it has. What closed is
+    // the REGISTRY path (see registry-shell-boundary.test.js): guardToolRegistry resolves Bash to
+    // mutating_shell and now stamps it on the descriptor, so every raw-shell call through the
+    // supported wrapper is refused by default.
+    //
+    // WHAT REMAINS, and it is narrower than before: a caller who builds a ToolCallDescriptor BY
+    // HAND and declares nothing. isMutatingCall still reads contents/content/new_string/old_string/
+    // patch/edits, and `command` is deliberately NOT among them — widening it would silently move
+    // the conditional-write gate that shares the predicate (guard.ts:495), and no string test can
+    // survive `sh -c`, an alias or a wrapper script anyway. Such a caller declares the class
+    // themselves (descriptor.mutationClass) — the assertion below is the un-declared case.
     const { outcome } = await run({ toolName: 'Bash', arguments: { command: 'kubectl apply -f prod.yaml' } });
     assert.equal(outcome.executed, true,
-      'if this now blocks, the residual is CLOSED — update this test and the module header');
+      'undeclared bare descriptor: the host said nothing about this capability');
+  });
+
+  it('...and declaring the class on that same bare descriptor closes it', async () => {
+    // The escape from the residual is a declaration, not a cleverer parser.
+    const { outcome } = await run({
+      toolName: 'Bash',
+      arguments: { command: 'kubectl apply -f prod.yaml' },
+      mutationClass: 'mutating_shell',
+    });
+    assert.equal(outcome.executed, false);
+    assert.equal(outcome.verdict.cause, 'UNGUARDED_MUTATION');
   });
 
   it('the three contract-path refusals were already the default, and still are', async () => {
