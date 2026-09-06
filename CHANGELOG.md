@@ -1,5 +1,12 @@
 # Changelog
 
+## 17.2.0
+
+Authenticate the execution grant before treating it as a kernel binding, and close the bare-fallback bypass.
+
+Under an enforcing profile, a forged grant with a bare receipt_digest or grant_fields no longer marks a kernel binding (it read authorized_and_committed before). A real signed grant plus the issuer keyring commits; a real grant without the keyring is fail-closed; a forged grant is rejected. The canonical evidence-verifier core is vendored (verification-only public keyring, no private material), so the grant is authenticated against the issuer's key. Advisory (no profile) is unchanged. Bundles the grant-authentication fix (was HEAD-only in 17.1.0) so the published package matches the source.
+
+
 ## 17.1.0
 
 Fix the audience binding, and make the public test suite hermetic (RECORDED fallback).
