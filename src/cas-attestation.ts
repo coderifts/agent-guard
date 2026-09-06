@@ -155,9 +155,97 @@ export type EvaluateCasEvidenceOpts = {
     state_nonce?: string;
     receipt_digest?: string;
   } | null;
+  /**
+   * ISSUER keyring for the execution grant — the pinned CodeRifts public keys, NOT the executor
+   * registry above. Supplied, a grant is AUTHENTICATED before it counts as a kernel binding.
+   *
+   * ── WHY THIS EXISTS (1431) ───────────────────────────────────────────────────────────────
+   *
+   * MEASURED, then closed. The guard authenticated the receipt (vendored verify.js) and the
+   * executor attestation (SDK verifyExecutionAttestation) and never the grant. The SDK's
+   * cross-check DECODES the grant (`parseGrantFields`) to compare jti / scope_hash / state_nonce
+   * against the attestation's payload, so a token whose payload simply copied those three values
+   * — with the literal word NEM-ALAIRAS in the signature slot — passed, and ENFORCING_STRICT
+   * went from `authorized_not_committed` to `authorized_and_committed` on the strength of it.
+   *
+   * A binding checked against an unauthenticated document is not a binding.
+   *
+   * OMITTED IS FAIL-CLOSED, and this is a behaviour change worth stating: a caller who supplies a
+   * grant but no issuer keyring can no longer have it counted as a kernel binding, because
+   * nothing here can tell a real grant from a copied one. The observation degrades to
+   * `authorized_not_committed` / `commit_evidence_missing` — the honest name for "we could not
+   * check" — rather than keeping the old, unearned upgrade.
+   */
+  grant_keyring?: { keys?: Array<{ kid?: string; public_key_pem?: string; status?: string }> } | null;
+  /** Clock injection for grant expiry, tests only. */
+  now?: number;
   /** Strict-only tightening of derived.authorized_and_committed. Absent = 9.0.0 formula. */
   profile?: 'ENFORCING_STRICT' | 'ENFORCING_ATOMIC';
 };
+
+/** Result of authenticating a supplied grant against the pinned issuer keyring. */
+export type GrantAuthentication = {
+  /** true only when a signature verified against a pinned issuer key. */
+  authenticated: boolean;
+  /** The verifier's status, or why authentication was not even attempted. */
+  status: string;
+  reason: string | null;
+};
+
+/**
+ * Authenticate an execution grant against the pinned ISSUER keyring, through the vendored
+ * canonical core (receipt-verifier verify-grant.js — cr.exec.v1 AND cr.exec.v2).
+ *
+ * Loaded lazily and behind try/catch so a host that never supplies a keyring never pays for it,
+ * and so a packaging fault surfaces as NOT authenticated rather than as a crash inside the guard.
+ */
+export function authenticateGrant(
+  token: string | null | undefined,
+  keyring: EvaluateCasEvidenceOpts['grant_keyring'],
+  now?: number,
+): GrantAuthentication {
+  if (typeof token !== 'string' || token.length === 0) {
+    return { authenticated: false, status: 'NO_GRANT', reason: 'no_grant_supplied' };
+  }
+  if (!keyring || !Array.isArray(keyring.keys) || keyring.keys.length === 0) {
+    return { authenticated: false, status: 'NO_KEYRING', reason: 'grant_keyring_not_supplied' };
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { createPublicKey } = require('node:crypto');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const core = require('./vendor/verify-grant.js');
+    const ring = new Map<string, unknown>();
+    for (const k of keyring.keys) {
+      if (!k || typeof k.kid !== 'string' || typeof k.public_key_pem !== 'string') continue;
+      ring.set(k.kid, {
+        publicKey: createPublicKey(k.public_key_pem),
+        status: k.status || 'active',
+        retired_at: null,
+        compromised_at: null,
+      });
+    }
+    if (ring.size === 0) {
+      return { authenticated: false, status: 'NO_KEYRING', reason: 'grant_keyring_has_no_usable_key' };
+    }
+    const r = core.verifyExecutionGrant(token, {
+      ctx: { keyring: ring, expectedKid: null },
+      ...(Number.isFinite(now) ? { now } : {}),
+    });
+    return {
+      authenticated: r.valid === true,
+      status: String(r.status || 'UNKNOWN'),
+      reason: r.reason ? String(r.reason) : null,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      authenticated: false,
+      status: 'VERIFIER_UNAVAILABLE',
+      reason: message || 'the vendored grant verifier could not run',
+    };
+  }
+}
 
 /** Existing CasAttestation.derived name and its honest sibling — not a parallel taxonomy. */
 export type CommitLabel = 'authorized_and_committed' | 'authorized_not_committed' | 'authorized_and_host_reported_committed';
@@ -168,10 +256,24 @@ export type StrictCommitObservation = {
   commit_evidence_reason?: typeof COMMIT_EVIDENCE_MISSING;
 };
 
+/**
+ * Was a kernel binding supplied that this guard can actually STAND BEHIND?
+ *
+ * 1431 — a grant counts only when its signature verified against the pinned issuer keyring. It
+ * used to count on being a non-empty string, which is how a token reading NEM-ALAIRAS in the
+ * signature slot upgraded ENFORCING_STRICT to authorized_and_committed.
+ *
+ * `grant_fields` and a bare `receipt_digest` are UNCHANGED and still count. They are host-asserted
+ * values that were never claimed to be authenticated — the attestation cross-check is what gives
+ * them meaning, and narrowing them here would change a contract nobody complained about. The grant
+ * is different precisely because it LOOKS like a signed document.
+ */
 function bindingIntendedSupplied(outcome: unknown, opts: EvaluateCasEvidenceOpts): boolean {
   const from = intendedFromOutcome(outcome);
-  if (opts.grant && String(opts.grant).length > 0) return true;
-  if (from.grant && String(from.grant).length > 0) return true;
+  const grant = (opts.grant && String(opts.grant)) || (from.grant && String(from.grant)) || '';
+  if (grant.length > 0 && authenticateGrant(grant, opts.grant_keyring, opts.now).authenticated) {
+    return true;
+  }
   if (opts.receipt_digest && String(opts.receipt_digest).length > 0) return true;
   if (from.receipt_digest && String(from.receipt_digest).length > 0) return true;
   const gf = opts.grant_fields;

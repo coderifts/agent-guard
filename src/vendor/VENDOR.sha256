@@ -1,4 +1,4 @@
-# Vendored verify core — the OFFLINE receipt verifier (1307).
+# Vendored verify core — the OFFLINE receipt verifier (1307) and the CANONICAL EVIDENCE core (1423).
 #
 # Byte copies from the public receipt-verifier, pinned. The guard used to verify over the
 # NETWORK via config.client.verifyReceipt(), which the other three enforcement points do not:
@@ -6,8 +6,31 @@
 # A verifier that needs the network fails differently from one that does not, and the sentence
 # "the same proof at all four points, offline" was false because of this one.
 #
+# 1431 ADDS THE GRANT. Measured before it was changed: the guard authenticated the receipt (this
+# verify.js) and the executor attestation (SDK verifyExecutionAttestation), and NEVER the
+# execution grant. `parseGrantFields` in the SDK DECODES a grant to cross-check jti/scope_hash
+# against the attestation, so a forged token whose payload copies those fields — with the word
+# NEM-ALAIRAS where the signature belongs — was accepted as a kernel binding and upgraded
+# ENFORCING_STRICT from authorized_not_committed to authorized_and_committed. A binding checked
+# against an unauthenticated document is not a binding.
+#
 # Do not edit these files here. Recopy from receipt-verifier and re-pin.
-# source: receipt-verifier e11d3f5d9f5444d8b2a07428c922d2040f4819ce
+# PER-FILE PROVENANCE, mixed on purpose. Collapsing this to one revision would lie: verify.js is
+# pinned at 6048195 and has NOT been recopied, because 1306's keyring-shape fix is the behaviour
+# this guard was tested against and recopying HEAD would change a verifier nobody measured again.
+# The 1423 evidence core is vendored at HEAD. test/vendor-parity.test.js checks each file against
+# ITS OWN revision, not against HEAD, so an honest mixed pin does not read as drift.
+#
+#   verify.js                   6048195c0bcf7e2594a2d78e83cfc082ea615790
+#   arity.js                    724aa9ae8171f1acf629c3c6b4879dc056575f20
+#   verify-grant.js             724aa9ae8171f1acf629c3c6b4879dc056575f20
+#   verify-prove-transcript.js  724aa9ae8171f1acf629c3c6b4879dc056575f20
+#   verify-evidence.js          724aa9ae8171f1acf629c3c6b4879dc056575f20
+#   keys/coderifts-keys.json    724aa9ae8171f1acf629c3c6b4879dc056575f20
 
 verify.js  363e52c72ec4b913e1f3edc8e2029848feaeacb1efa6c07960fe5e5f195c23b3
 arity.js  721fcac58b960b5e2aa1af91edb6cfc87ebe828a6da73879967ef79a1ca474e8
+verify-grant.js  a285b021b32cc9c70c963de042154dc6be7175cdeaf722a88cc7699651a7c1ea
+verify-prove-transcript.js  3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
+verify-evidence.js  7ca498fad4b23e4ae8f28c42c30058bc3526a00d5cc6d6f36380335bf25d3288
+keys/coderifts-keys.json  bfe0c898cda3c3a4c8141726d0adb4cdb7eb9762de6264e430eff6469b90422e

@@ -132,11 +132,18 @@ describe('offline verification against a pinned keyring', () => {
     }
   });
 
-  it('the pin names the upstream revision, so a reader can reproduce the copy', () => {
+  it('the pin names a revision PER FILE, so a reader can reproduce each copy', () => {
+    // 1431: the pin became MIXED when the 1423 evidence core was vendored at HEAD while verify.js
+    // stayed at 6048195 (the 1306 keyring-shape fix this guard was tested against). One
+    // `receipt-verifier <sha>` line would now be a tidier lie, so provenance is per file —
+    // test/vendor-parity.test.js verifies each vendored file against its OWN named revision.
     const pin = fs.readFileSync(
       path.join(__dirname, '..', 'src', 'vendor', 'VENDOR.sha256'), 'utf8',
     );
-    assert.match(pin, /receipt-verifier [0-9a-f]{40}/, 'the pin does not name a source revision');
+    for (const f of ['verify.js', 'arity.js', 'verify-grant.js', 'verify-evidence.js']) {
+      assert.match(pin, new RegExp(`#\\s+${f.replace('.', '\\.')}\\s+[0-9a-f]{40}`),
+        `the pin does not name a source revision for ${f}`);
+    }
   });
 });
 
