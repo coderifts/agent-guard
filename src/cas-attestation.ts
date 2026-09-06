@@ -196,6 +196,28 @@ export type EvaluateCasEvidenceOpts = {
   profile?: 'ENFORCING_STRICT' | 'ENFORCING_ATOMIC';
 };
 
+/**
+ * THE CORE PREDICATE, quoted rather than recomputed (1459).
+ *
+ * MEASURED before this wiring: the guard reached the right answer with a formula of its own —
+ * `receipt_verified && committed && class === 'executor_attested' && strictCommitObservation(...)`.
+ * Correct, and bespoke. The auditor's point is that a predicate written twice is a predicate that
+ * drifts, and the Atomic bypass was exactly that: two formulas for one question, disagreeing.
+ *
+ * So the guard now shapes its inputs and QUOTES `verifiedExecutionBinding`. The named shortfall
+ * states (UNAUTHORIZED / COMMIT_UNPROVEN / ONE_RUN_UNPROVEN / …) surface here as a result, so an
+ * operator reads the same vocabulary the CLI, Prove and conformance print.
+ *
+ * Loaded lazily and behind try/catch: a packaging fault must surface as NOT authorized, never as a
+ * crash inside the guard, and never as a silent fallback to the old local formula.
+ */
+function coreBinding(): { verifiedExecutionBinding: Function } | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+    return require('./vendor/verified-execution-binding.js');
+  } catch (_) { return null; }
+}
+
 /** Result of authenticating a supplied grant against the pinned issuer keyring. */
 export type GrantAuthentication = {
   /** true only when a signature verified against a pinned issuer key. */
@@ -554,13 +576,57 @@ export function buildCasAttestation(
   const indeterminate = cas.status === 'indeterminate';
   const cas_evidence = evaluateCasEvidence(outcome, opts);
   let authorized_and_committed = receipt_verified && cas.status === 'committed';
+  let binding: { state?: string; shortfalls?: string[] } | null = null;
   let authorized_and_host_reported_committed = false;
   // ENFORCING_STRICT: the existing derived name now requires executor_attested + kernel
   // cross-check. Non-strict keeps the 9.0.0 formula (receipt verified + clean commit).
-  if (opts.profile === 'ENFORCING_STRICT') {
-    const obs = strictCommitObservation(outcome, cas_evidence, opts);
-    authorized_and_committed = authorized_and_committed
-      && obs.commit_label === 'authorized_and_committed';
+  // ── ONE PREDICATE FOR BOTH ENFORCING PROFILES ────────────────────────────────────────────
+  //
+  // The intersection is computed by the vendored core; this block only SHAPES the guard's inputs
+  // into the core's vocabulary. `required` names the two authorities an enforcing guard can
+  // actually establish from a tool outcome: it holds a grant and an attestation, and it does not
+  // hold a prove artifact or a provider readback — asking the core for `one_run_root` here would
+  // report a shortfall about evidence this surface never receives.
+  const enforcingProfile = opts.profile === 'ENFORCING_STRICT' || opts.profile === 'ENFORCING_ATOMIC';
+  if (enforcingProfile) {
+    const core = coreBinding();
+    const from = intendedFromOutcome(outcome);
+    const grantToken = (opts.grant && String(opts.grant)) || (from.grant && String(from.grant)) || '';
+    const attToken = extractExecutorAttestationToken(outcome);
+    if (!core) {
+      // FAIL-CLOSED, and named. Falling back to the local formula would recreate the second
+      // predicate this change exists to remove.
+      authorized_and_committed = false;
+      binding = { state: 'UNAUTHORIZED', shortfalls: ['the vendored core predicate could not be loaded'] };
+    } else {
+      const keyring = opts.grant_keyring && Array.isArray(opts.grant_keyring.keys)
+        ? new Map(opts.grant_keyring.keys
+          .filter((k) => k && typeof k.kid === 'string' && typeof k.public_key_pem === 'string')
+          .map((k) => [k.kid, {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+            publicKey: require('node:crypto').createPublicKey(k.public_key_pem),
+            status: k.status || 'active',
+            retired_at: null,
+            compromised_at: null,
+          }]))
+        : null;
+      const r = core.verifiedExecutionBinding({
+        receipt: { verified: receipt_verified },
+        grant: { token: grantToken, keyring, expectedKid: null, ...(Number.isFinite(opts.now) ? { now: opts.now } : {}) },
+        attestation: {
+          token: attToken,
+          registry: opts.registry,
+          // The SDK's verifier, handed in rather than reimplemented — the core holds no
+          // attestation format knowledge of its own.
+          // eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+          verify: (t: string, o: unknown) => require('@coderifts/sdk').verifyExecutionAttestation(t, o),
+        },
+        committed: cas.status === 'committed',
+        required: ['issuer_grant', 'executor_attestation'],
+      });
+      binding = { state: r.state, shortfalls: r.shortfalls };
+      authorized_and_committed = r.authorized_and_committed === true;
+    }
   }
   if (opts.profile === 'ENFORCING_ATOMIC') {
     // ── REPRODUCED THEN CLOSED (1447 / 1459) ────────────────────────────────────────────
@@ -583,13 +649,11 @@ export function buildCasAttestation(
     // BOTH branches now QUOTE the same predicate rather than each computing a formula. Strict is
     // unchanged in behaviour and Atomic is brought up to it, which is the direction a disagreement
     // between two enforcing profiles has to be resolved in.
+    // The verdict itself now comes from the core above — both enforcing profiles quote it, which
+    // is what makes them incapable of disagreeing. This branch keeps only the ATOMIC-only
+    // OBSERVATION name, which is a different fact and was never part of the bypass.
     const hostClaimed = cas_evidence.class === 'host_claimed';
     authorized_and_host_reported_committed = receipt_verified && cas.status === 'committed' && hostClaimed;
-    const obs = strictCommitObservation(outcome, cas_evidence, opts);
-    authorized_and_committed = receipt_verified
-      && cas.status === 'committed'
-      && cas_evidence.class === 'executor_attested'
-      && obs.commit_label === 'authorized_and_committed';
   }
 
   const attestation: CasAttestation = {
@@ -611,6 +675,8 @@ export function buildCasAttestation(
       ...(opts.profile === 'ENFORCING_ATOMIC'
         ? { authorized_and_host_reported_committed }
         : {}),
+      // The core's NAMED state, carried so an operator reads why rather than only whether.
+      ...(binding ? { authorization_state: binding.state } : {}),
     }),
     cas_evidence,
     limits: LIMITS,

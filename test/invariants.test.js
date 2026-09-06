@@ -175,11 +175,37 @@ describe('#8 the commit label', () => {
 
   it('DEFAULT PROFILE: a host-claimed commit still earns the name — the violation, pinned', () => {
     // Measured: authorized_and_committed = receipt_verified && cas.status === 'committed', where
-    // cas.status comes from the host-supplied outcome. The strict AND is applied only when the
+    // cas.status comes from the host-supplied outcome. The enforcing AND is applied only when a
     // profile is set. Deleting this test is how the fix announces itself.
+    //
+    // 1459 MOVED THE PATTERN, NOT THE VIOLATION. The source used to branch on
+    // `opts.profile === 'ENFORCING_STRICT'`; both enforcing profiles now go through ONE branch
+    // that quotes the vendored core predicate, which is what makes them incapable of disagreeing.
+    // The default profile is untouched and still earns the name on a host claim — verified at
+    // RUNTIME below, so this test pins the BEHAVIOUR and not only the text that produces it.
     const cas = codeOnly(readSrc('cas-attestation.ts'));
     assert.match(cas, /let authorized_and_committed = receipt_verified && cas\.status === 'committed'/);
-    assert.match(cas, /if \(opts\.profile === 'ENFORCING_STRICT'\)/);
+    assert.match(cas, /const enforcingProfile = opts\.profile === 'ENFORCING_STRICT' \|\| opts\.profile === 'ENFORCING_ATOMIC'/);
+    assert.match(cas, /verifiedExecutionBinding\(/,
+      'the enforcing verdict must QUOTE the core predicate, not recompute a formula');
+
+    // THE VIOLATION ITSELF, executed rather than read.
+    // eslint-disable-next-line global-require
+    const { buildCasAttestation } = require('../dist/cjs/cas-attestation.js');
+    const built = buildCasAttestation(
+      {
+        proof_spec: 'guard-execution-proof.v1',
+        decision_id: 'd',
+        binds_to: { change_fp: 'f', operation: 'merge' },
+        receipt: { token: 'T', verified: true },
+        execution_result_hash: { value: `sha256:${'0'.repeat(64)}`, algo: 'sha256' },
+        receipt_verified: true,
+      },
+      { status: 'committed', version_token: 'vt' },
+      {},
+    );
+    assert.equal(built.derived.authorized_and_committed, true,
+      'the default-profile violation is what this test records; if it is gone, rewrite the entry');
     assert.match(INVARIANTS, /## 8\.[\s\S]*?WE DO NOT HOLD THIS AS STATED/,
       'INVARIANTS.md must record #8 as holding only under strict');
   });
