@@ -22,6 +22,15 @@ const {
 } = require('../dist/cjs/index.js');
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
+/** A separate ISSUER key: the guard authenticates grants against this, not against the executor's. */
+const ISSUER = crypto.generateKeyPairSync('ed25519');
+const ISSUER_KEYRING = {
+  keys: [{
+    kid: 'gk',
+    public_key_pem: ISSUER.publicKey.export({ type: 'spki', format: 'pem' }),
+    status: 'active',
+  }],
+};
 const KID = 'exec-strict-k1';
 const PEM = publicKey.export({ type: 'spki', format: 'pem' });
 const ATTEST_VERSION = 'cr.exec.attest.v1';
@@ -122,7 +131,21 @@ function matchingGrant(over = {}) {
     iat: COMMITTED,
     exp: '2099-01-01T00:00:00Z',
   };
-  return `${b64url(Buffer.from(JSON.stringify(grantBody), 'utf8'))}.${b64url(Buffer.from('x'))}`;
+  // GENUINELY SIGNED (1433). This used to end `.${b64url('x')}` — a grant with the letter x where
+  // the signature belongs — and the strict test was green on it, because the OR in
+  // bindingIntendedSupplied let the bare receipt_digest beside it carry the binding. The forged
+  // token was never the thing being checked. It is now.
+  const parts = ['crexec.v1', grantBody.kid, grantBody.receipt_digest, grantBody.scope_hash,
+    grantBody.audience, grantBody.operation, grantBody.target_id, grantBody.jti,
+    grantBody.iat, grantBody.exp];
+  const sig = crypto.sign(null, Buffer.from(parts.join('|'), 'utf8'), ISSUER.privateKey);
+  return `${b64url(Buffer.from(JSON.stringify(grantBody), 'utf8'))}.${b64url(sig)}`;
+}
+
+/** The same body with the letter x for a signature — what this file used to call a grant. */
+function unsignedGrant(over = {}) {
+  const token = matchingGrant(over);
+  return `${token.split('.')[0]}.${b64url(Buffer.from('x'))}`;
 }
 
 function casCommitted(extra = {}) {
@@ -181,12 +204,34 @@ async function runStrict(factory, extraCfg = {}) {
   return guardToolCall(TRIGGER, factory, {
     client: mockClient(),
     profile: 'ENFORCING_STRICT',
-    executorAttestation: { registry: registry() },
+    // 1433 — an enforcing profile needs the ISSUER keyring, or no grant can be authenticated and
+    // nothing counts as a kernel binding. Absent is fail-closed, which the case below pins.
+    executorAttestation: { registry: registry(), issuerKeyring: ISSUER_KEYRING },
     ...extraCfg,
   });
 }
 
 describe('P0-3 ENFORCING_STRICT — authorized_and_committed requires executor attestation', () => {
+  it('REPRODUCED THEN CLOSED (1433): an UNSIGNED grant + bare receipt_digest is not a binding', async () => {
+    // The exact input this file used to assert was authorized_and_committed.
+    const o = await runStrict(async () => casCommitted({
+      executor_attestation: issueAttest(),
+      grant: unsignedGrant(),
+      receipt_digest: RD,
+    }));
+    assert.equal(o.cas_evidence.class, 'executor_attested', 'the attestation itself is still valid');
+    assert.equal(o.commit_label, 'authorized_not_committed');
+    assert.equal(o.commit_evidence_reason, 'commit_evidence_missing');
+  });
+
+  it('FAIL-CLOSED: a genuinely signed grant with NO issuer keyring is not a binding', async () => {
+    const o = await runStrict(
+      async () => casCommitted({ executor_attestation: issueAttest(), grant: matchingGrant(), receipt_digest: RD }),
+      { executorAttestation: { registry: registry() } },
+    );
+    assert.equal(o.commit_label, 'authorized_not_committed');
+  });
+
   it('strict + valid attestation (jti/scope/receipt_digest match) → authorized_and_committed', async () => {
     const tok = issueAttest();
     const grant = matchingGrant();
@@ -315,10 +360,22 @@ describe('P0-3 buildCasAttestation — strict tightens derived.authorized_and_co
     const att = buildCasAttestation(
       proofVerified(),
       casCommitted({ executor_attestation: tok, grant, receipt_digest: RD }),
-      { registry: registry(), profile: 'ENFORCING_STRICT' },
+      // 1433 — the issuer keyring is what lets the grant be authenticated. Without it this call
+      // would build an attestation whose binding nobody checked, which is what the case below pins.
+      { registry: registry(), grant_keyring: ISSUER_KEYRING, profile: 'ENFORCING_STRICT' },
     );
     assert.equal(att.cas_evidence.class, 'executor_attested');
     assert.equal(att.derived.authorized_and_committed, true);
+  });
+
+  it('strict committed + UNSIGNED grant + bare receipt_digest → NOT committed', () => {
+    const att = buildCasAttestation(
+      proofVerified(),
+      casCommitted({ executor_attestation: issueAttest(), grant: unsignedGrant(), receipt_digest: RD }),
+      { registry: registry(), grant_keyring: ISSUER_KEYRING, profile: 'ENFORCING_STRICT' },
+    );
+    assert.equal(att.cas_evidence.class, 'executor_attested');
+    assert.equal(att.derived.authorized_and_committed, false);
   });
 });
 

@@ -173,6 +173,48 @@ describe('the guard authenticates the execution grant', () => {
     }
   });
 
+  it('REPRODUCED THEN CLOSED (1433): a bare receipt_digest cannot rescue a forged grant', () => {
+    // 1431 stopped an unauthenticated grant counting ON ITS OWN. `bindingIntendedSupplied` is an
+    // OR, so the same forged token plus a host-asserted `receipt_digest` went straight back to
+    // authorized_and_committed. Measured, all four rows, before this closed:
+    //
+    //   forged grant + issuer keyring          authorized_not_committed   (1431 held)
+    //   forged grant + bare receipt_digest     authorized_and_committed   <- the bypass
+    //   forged grant + bare grant_fields       authorized_and_committed   <- the bypass
+    //   bare receipt_digest alone              authorized_and_committed
+    const STRICT = { registry: att.registry, profile: 'ENFORCING_STRICT' };
+    const rows = [
+      ['forged grant + bare receipt_digest', { grant: FORGED, grant_keyring: good.keyring, receipt_digest: `sha256:${sha('receipt')}` }],
+      ['forged grant + bare grant_fields', { grant: FORGED, grant_keyring: good.keyring, grant_fields: { jti: JTI, scope_hash: SCOPE } }],
+      ['bare receipt_digest alone', { receipt_digest: `sha256:${sha('receipt')}` }],
+      ['bare grant_fields alone', { grant_fields: { jti: JTI, scope_hash: SCOPE } }],
+    ];
+    for (const [name, extra] of rows) {
+      const opts = { ...STRICT, ...extra };
+      const so = cas.strictCommitObservation(outcome, cas.evaluateCasEvidence(outcome, opts), opts);
+      assert.equal(so.commit_label, 'authorized_not_committed', `${name} still counted`);
+      assert.equal(so.commit_evidence_reason, 'commit_evidence_missing');
+    }
+  });
+
+  it('POSITIVE under STRICT: an authenticated grant is still the one thing that counts', () => {
+    // Otherwise the fix would be indistinguishable from disabling the feature.
+    const opts = {
+      registry: att.registry, profile: 'ENFORCING_STRICT',
+      grant: good.token, grant_keyring: good.keyring,
+    };
+    const so = cas.strictCommitObservation(outcome, cas.evaluateCasEvidence(outcome, opts), opts);
+    assert.equal(so.commit_label, 'authorized_and_committed');
+  });
+
+  it('ADVISORY (no enforcing profile) is UNCHANGED — host-asserted values still corroborate', () => {
+    // Narrowing this too would change a contract nobody complained about. The label outside an
+    // enforcing profile does not claim the guard checked a signature, and it still does not.
+    const opts = { registry: att.registry, receipt_digest: `sha256:${sha('receipt')}` };
+    const so = cas.strictCommitObservation(outcome, cas.evaluateCasEvidence(outcome, opts), opts);
+    assert.equal(so.commit_label, 'authorized_and_committed');
+  });
+
   it('MUTATION SUBSET: a grant signed by the WRONG key fails', () => {
     const other = signedGrant({ jti: JTI, scope_hash: SCOPE });
     // Right shape, right fields, a key nobody pinned.

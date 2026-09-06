@@ -143,6 +143,19 @@ export type CasEvidence = {
 export type ExecutorAttestationConfig = {
   /** Customer-pinned executor key registry. Required to attempt verification. */
   registry: ExecutorKeyRegistry;
+  /**
+   * The PINNED CodeRifts ISSUER keyring, used to AUTHENTICATE an execution grant before it can
+   * count as a kernel binding under an enforcing profile (1433).
+   *
+   * IT LIVES HERE, not on `executionGrant`, and the difference matters: `executionGrant` gates
+   * whether the guard REQUESTS a grant, and setting `enabled: true` merely to supply a key would
+   * turn on a request path the caller never asked for. This section is the verification side, and
+   * a key for checking evidence belongs with the other key for checking evidence.
+   *
+   * Absent under an enforcing profile is FAIL-CLOSED: a grant that cannot be authenticated does
+   * not become a binding.
+   */
+  issuerKeyring?: { keys?: Array<{ kid?: string; public_key_pem?: string; status?: string }> } | null;
 };
 
 export type EvaluateCasEvidenceOpts = {
@@ -271,9 +284,28 @@ export type StrictCommitObservation = {
 function bindingIntendedSupplied(outcome: unknown, opts: EvaluateCasEvidenceOpts): boolean {
   const from = intendedFromOutcome(outcome);
   const grant = (opts.grant && String(opts.grant)) || (from.grant && String(from.grant)) || '';
-  if (grant.length > 0 && authenticateGrant(grant, opts.grant_keyring, opts.now).authenticated) {
-    return true;
-  }
+  const grantAuthenticated = grant.length > 0
+    && authenticateGrant(grant, opts.grant_keyring, opts.now).authenticated;
+  if (grantAuthenticated) return true;
+
+  // ── UNDER AN ENFORCING PROFILE, NOTHING WEAKER COUNTS (1433) ─────────────────────────────
+  //
+  // MEASURED, then closed. 1431 made an unauthenticated grant stop counting ON ITS OWN, and this
+  // predicate is an OR — so the same forged token plus a bare `receipt_digest` went straight back
+  // to authorized_and_committed. Reproduced:
+  //
+  //   forged grant + issuer keyring                → authorized_not_committed   (1431 held)
+  //   forged grant + bare receipt_digest           → authorized_and_committed   (the bypass)
+  //   forged grant + bare grant_fields             → authorized_and_committed   (the bypass)
+  //   bare receipt_digest alone, no grant          → authorized_and_committed
+  //
+  // `receipt_digest` and `grant_fields` are HOST-ASSERTED values: a caller writes them, nothing
+  // signs them. They are legitimate as ADVISORY corroboration and they stay legitimate outside an
+  // enforcing profile, where the label is weaker and says so. Inside one they cannot stand in for
+  // a signature, because the whole meaning of ENFORCING_STRICT is that the guard checked.
+  const enforcing = opts.profile === 'ENFORCING_STRICT' || opts.profile === 'ENFORCING_ATOMIC';
+  if (enforcing) return false;
+
   if (opts.receipt_digest && String(opts.receipt_digest).length > 0) return true;
   if (from.receipt_digest && String(from.receipt_digest).length > 0) return true;
   const gf = opts.grant_fields;

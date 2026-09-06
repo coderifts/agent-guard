@@ -395,8 +395,16 @@ async function finishExecuted<T>(
       token: commit_observation.token,
     });
   }
+  // 1433 — THE KEYRING REACHES THE BINDING CHECK. This object used to carry the executor registry
+  // and the profile and nothing else, so the grant authentication added in 1431 could never run
+  // from here: `authenticateGrant` needs an ISSUER keyring, and none was ever passed. The grant
+  // token still arrives the way it always did (read off the outcome by intendedFromOutcome); what
+  // changes is that under an enforcing profile it now has to survive a signature check.
   const casOpts = {
     registry: config.executorAttestation && config.executorAttestation.registry,
+    ...(config.executorAttestation && config.executorAttestation.issuerKeyring
+      ? { grant_keyring: config.executorAttestation.issuerKeyring }
+      : {}),
     ...(config.profile === 'ENFORCING_STRICT' ? { profile: 'ENFORCING_STRICT' as const } : {}),
     ...(config.profile === 'ENFORCING_ATOMIC' ? { profile: 'ENFORCING_ATOMIC' as const } : {}),
   };
