@@ -25,6 +25,11 @@
 #   arity.js                    724aa9ae8171f1acf629c3c6b4879dc056575f20
 #   verify-grant.js             724aa9ae8171f1acf629c3c6b4879dc056575f20
 #   verify-prove-transcript.js  724aa9ae8171f1acf629c3c6b4879dc056575f20
+#   verified-execution-binding.js  WORKING-TREE  (1459 — NOT YET COMMITTED upstream. A pin cannot
+#                                 name a revision that does not exist, so this file is declared
+#                                 pending: the parity test compares it against receipt-verifier's
+#                                 WORKING TREE instead of `git show`, and fails if it drifts.
+#                                 Replace WORKING-TREE with the sha the moment it lands.)
 #   verify-evidence.js          724aa9ae8171f1acf629c3c6b4879dc056575f20
 #   keys/coderifts-keys.json    724aa9ae8171f1acf629c3c6b4879dc056575f20
 
@@ -33,4 +38,5 @@ arity.js  721fcac58b960b5e2aa1af91edb6cfc87ebe828a6da73879967ef79a1ca474e8
 verify-grant.js  a285b021b32cc9c70c963de042154dc6be7175cdeaf722a88cc7699651a7c1ea
 verify-prove-transcript.js  3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
 verify-evidence.js  7ca498fad4b23e4ae8f28c42c30058bc3526a00d5cc6d6f36380335bf25d3288
+verified-execution-binding.js  98973d19c582eb8f2a2ffc363c0a7981ac57d673e5830443217ceffb1afb5f3c
 keys/coderifts-keys.json  bfe0c898cda3c3a4c8141726d0adb4cdb7eb9762de6264e430eff6469b90422e

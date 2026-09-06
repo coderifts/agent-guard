@@ -563,10 +563,33 @@ export function buildCasAttestation(
       && obs.commit_label === 'authorized_and_committed';
   }
   if (opts.profile === 'ENFORCING_ATOMIC') {
-    const executorOk = cas_evidence.class === 'executor_attested';
+    // ── REPRODUCED THEN CLOSED (1447 / 1459) ────────────────────────────────────────────
+    //
+    // This branch used to read:
+    //
+    //     authorized_and_committed = receipt_verified && committed && class === 'executor_attested'
+    //
+    // and never asked whether the GRANT was signed by anyone. Measured on the public 17.2.0, with
+    // a forged-signature grant and a REAL attestation from a trusted executor bound to that
+    // grant's jti and scope:
+    //
+    //     ENFORCING_STRICT  authorized_and_committed = false
+    //     ENFORCING_ATOMIC  authorized_and_committed = true
+    //
+    // Two profiles of one product, one set of bytes, opposite answers. The attestation was doing
+    // all the work, and an attestation only ever says "I committed the grant with these ids" — it
+    // cannot say the ids belonged to a grant anyone authorized.
+    //
+    // BOTH branches now QUOTE the same predicate rather than each computing a formula. Strict is
+    // unchanged in behaviour and Atomic is brought up to it, which is the direction a disagreement
+    // between two enforcing profiles has to be resolved in.
     const hostClaimed = cas_evidence.class === 'host_claimed';
     authorized_and_host_reported_committed = receipt_verified && cas.status === 'committed' && hostClaimed;
-    authorized_and_committed = receipt_verified && cas.status === 'committed' && executorOk;
+    const obs = strictCommitObservation(outcome, cas_evidence, opts);
+    authorized_and_committed = receipt_verified
+      && cas.status === 'committed'
+      && cas_evidence.class === 'executor_attested'
+      && obs.commit_label === 'authorized_and_committed';
   }
 
   const attestation: CasAttestation = {

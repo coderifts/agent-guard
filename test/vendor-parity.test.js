@@ -68,7 +68,11 @@ describe('vendored receipt-verifier core', () => {
     // revision — otherwise an honest mixed pin reads as drift and the check gets disabled.
     const header = fs.readFileSync(path.join(SRC, 'VENDOR.sha256'), 'utf8');
     for (const { file } of pinned()) {
-      assert.match(header, new RegExp(`#\\s+${file.replace(/[./]/g, '\\$&')}\\s+[0-9a-f]{40}`),
+      // WORKING-TREE is an allowed revision token for a file that is vendored before it lands
+      // upstream. It is a NAMED state, not a gap: the next test compares those bytes against the
+      // sibling working tree rather than skipping them, so "not committed yet" never means
+      // "not checked".
+      assert.match(header, new RegExp(`#\\s+${file.replace(/[./]/g, '\\$&')}\\s+([0-9a-f]{40}|WORKING-TREE)`),
         `${file} has no revision in the pin header`);
     }
   });
@@ -81,8 +85,15 @@ describe('vendored receipt-verifier core', () => {
     }
     const header = fs.readFileSync(path.join(SRC, 'VENDOR.sha256'), 'utf8');
     for (const { file } of pinned()) {
-      const m = header.match(new RegExp(`#\\s+${file.replace(/[./]/g, '\\$&')}\\s+([0-9a-f]{40})`));
+      const m = header.match(new RegExp(`#\\s+${file.replace(/[./]/g, '\\$&')}\\s+([0-9a-f]{40}|WORKING-TREE)`));
       assert.ok(m, `${file} has no revision in the pin header`);
+      if (m[1] === 'WORKING-TREE') {
+        const up = path.join(SOURCE_REPO, file);
+        assert.ok(fs.existsSync(up), `${file} is pinned WORKING-TREE but is absent upstream`);
+        assert.ok(fs.readFileSync(path.join(SRC, file)).equals(fs.readFileSync(up)),
+          `${file} has drifted from receipt-verifier's working tree`);
+        continue;
+      }
       const r = spawnSync('git', ['-C', SOURCE_REPO, 'show', `${m[1]}:${file}`], { maxBuffer: 1 << 24 });
       assert.equal(r.status, 0, `${file}@${m[1]} is not in receipt-verifier's history`);
       assert.ok(fs.readFileSync(path.join(SRC, file)).equals(r.stdout),
