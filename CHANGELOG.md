@@ -1,5 +1,12 @@
 # Changelog
 
+## 17.3.0
+
+The Atomic branch authenticates the issuer grant, and the authorization decision comes from the shared verified-execution-binding core.
+
+Under an enforcing profile, the Atomic branch used a success formula (receipt verified, write ran, executor-attested) that did not verify the issuer grant's signature — a forged grant with a real executor attestation read authorized_and_committed on the Atomic path while Strict refused it. Both profiles now quote one predicate: authorized_and_committed requires a valid issuer-grant signature under the pinned keyring, and the attestation must bind the SAME receipt the grant was issued against (a grant and an attestation from different receipts read COMMIT_UNPROVEN). A caller boolean can no longer reach success (a bare provider_witness assertion reads RECORDED_UNWITNESSED). The v1 grant now admits the optional signed ATOMIC fields (state_nonce, deployment_id). The vendored core is pinned per file via git show. Release-blocking negative matrix across Strict and Atomic.
+
+
 ## 17.2.0
 
 Authenticate the execution grant before treating it as a kernel binding, and close the bare-fallback bypass.
