@@ -140,8 +140,12 @@ describe('offline verification against a pinned keyring', () => {
     const pin = fs.readFileSync(
       path.join(__dirname, '..', 'src', 'vendor', 'VENDOR.sha256'), 'utf8',
     );
+    // WORKING-TREE is an allowed revision token for a file vendored before it lands upstream. It
+    // is a NAMED state, not a gap: test/vendor-parity.test.js compares those bytes against the
+    // sibling working tree rather than skipping them, so "not committed yet" never means
+    // "not checked".
     for (const f of ['verify.js', 'arity.js', 'verify-grant.js', 'verify-evidence.js']) {
-      assert.match(pin, new RegExp(`#\\s+${f.replace('.', '\\.')}\\s+[0-9a-f]{40}`),
+      assert.match(pin, new RegExp(`#\\s+${f.replace('.', '\\.')}\\s+([0-9a-f]{40}|WORKING-TREE)`),
         `the pin does not name a source revision for ${f}`);
     }
   });
