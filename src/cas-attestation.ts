@@ -190,6 +190,15 @@ export type EvaluateCasEvidenceOpts = {
    * check" — rather than keeping the old, unearned upgrade.
    */
   grant_keyring?: { keys?: Array<{ kid?: string; public_key_pem?: string; status?: string }> } | null;
+  /**
+   * The decision receipt's own bytes, and the keyring that signs them.
+   *
+   * Optional, and their ABSENCE is what it looks like: the core marks the result caller-asserted
+   * and says so in its shortfalls. Supplying them moves the receipt from "this guard's own bind
+   * step said so" to "the shared predicate verified a signature".
+   */
+  receipt_token?: string | null;
+  receipt_keyring?: { keys?: Array<{ kid?: string; public_key_pem?: string; status?: string }> } | null;
   /** Clock injection for grant expiry, tests only. */
   now?: number;
   /** Strict-only tightening of derived.authorized_and_committed. Absent = 9.0.0 formula. */
@@ -599,6 +608,18 @@ export function buildCasAttestation(
       authorized_and_committed = false;
       binding = { state: 'UNAUTHORIZED', shortfalls: ['the vendored core predicate could not be loaded'] };
     } else {
+      // eslint-disable-next-line global-require, @typescript-eslint/no-var-requires
+      const { createPublicKey: createPk } = require('node:crypto');
+      const receiptKeyring = opts.receipt_keyring && Array.isArray(opts.receipt_keyring.keys)
+        ? new Map(opts.receipt_keyring.keys
+          .filter((k: any) => k && k.kid && k.public_key_pem)
+          .map((k: any) => [k.kid, {
+            publicKey: createPk(k.public_key_pem),
+            status: k.status || 'active',
+            retired_at: null,
+            compromised_at: null,
+          }]))
+        : null;
       const keyring = opts.grant_keyring && Array.isArray(opts.grant_keyring.keys)
         ? new Map(opts.grant_keyring.keys
           .filter((k) => k && typeof k.kid === 'string' && typeof k.public_key_pem === 'string')
@@ -611,7 +632,24 @@ export function buildCasAttestation(
           }]))
         : null;
       const r = core.verifiedExecutionBinding({
-        receipt: { verified: receipt_verified },
+        // ── THE RECEIPT, HANDED OVER WHEN THE CALLER HAS IT ─────────────────────────────
+        //
+        // `proof.receipt` records the guard's OWN bind step — it carries no token, by design. So
+        // when a caller supplies the receipt bytes and a keyring, the core verifies them; when it
+        // does not, `verified` is still passed and the core marks the result caller-asserted.
+        //
+        // That marking is not cosmetic any more: a caller-asserted receipt can no longer reach the
+        // global success token. It does not change THIS surface's answer, because this surface
+        // asks a CUSTOM authority set and reads `requirements_satisfied` — but the distinction is
+        // now visible in the state rather than only in a boolean nobody branched on.
+        receipt: opts.receipt_token
+          ? {
+            token: opts.receipt_token,
+            keyring: receiptKeyring,
+            expectedKid: null,
+            ...(Number.isFinite(opts.now) ? { now: opts.now } : {}),
+          }
+          : { verified: receipt_verified },
         grant: { token: grantToken, keyring, expectedKid: null, ...(Number.isFinite(opts.now) ? { now: opts.now } : {}) },
         attestation: {
           token: attToken,
@@ -625,7 +663,16 @@ export function buildCasAttestation(
         required: ['issuer_grant', 'executor_attestation'],
       });
       binding = { state: r.state, shortfalls: r.shortfalls };
-      authorized_and_committed = r.authorized_and_committed === true;
+      // ── THE FIELD THIS SURFACE IS ENTITLED TO ────────────────────────────────────────
+      //
+      // This asks a CUSTOM authority set (issuer_grant + executor_attestation), and the core no
+      // longer lets a custom set reach `authorized_and_committed` — asking for less must not
+      // produce the word every consumer reads as the answer. `requirements_satisfied` is "the set
+      // I asked for is met", which is exactly the question this surface asks.
+      //
+      // MEASURED: reading `authorized_and_committed` after the core change would have made this
+      // permanently false, and a guard that refuses everything looks like a guard that works.
+      authorized_and_committed = r.requirements_satisfied === true;
     }
   }
   if (opts.profile === 'ENFORCING_ATOMIC') {

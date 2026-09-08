@@ -92,7 +92,17 @@ function bothWays(grantToken, { keyring = issuerKeyring, committed = true } = {}
     committed,
     required: ['issuer_grant', 'executor_attestation'],
   });
-  return { guard: guard.derived.authorized_and_committed, core: core.authorized_and_committed, state: core.state };
+  // BOTH SIDES ASK A CUSTOM AUTHORITY SET, so both read `requirements_satisfied`.
+  //
+  // The core no longer lets a custom set reach `authorized_and_committed` — asking for less must
+  // not produce the word every consumer reads as the answer. Comparing the guard's verdict against
+  // the core's GLOBAL field would have made this parity test assert that the guard equals a value
+  // that is now false for every custom caller, which is agreement on refusing everything.
+  return {
+    guard: guard.derived.authorized_and_committed,
+    core: core.requirements_satisfied,
+    state: core.state,
+  };
 }
 
 const CASES = {
@@ -117,7 +127,8 @@ describe('the guard quotes the core predicate', () => {
     const r = bothWays(REAL, {});
     assert.equal(r.guard, true);
     assert.equal(r.core, true);
-    assert.equal(r.state, 'AUTHORIZED_AND_COMMITTED');
+    // A satisfied CUSTOM set, named as such. Not the global claim, and it must not read as one.
+    assert.equal(r.state, 'CUSTOM_REQUIREMENTS_SATISFIED');
   });
 
   it('the guard SURFACES the core\'s named state, not only a boolean', () => {

@@ -25,7 +25,9 @@
 #   arity.js                    724aa9ae8171f1acf629c3c6b4879dc056575f20
 #   verify-grant.js             a472bf9073781cba25d83c7d1406b1a7c4af0b94
 #   verify-prove-transcript.js  724aa9ae8171f1acf629c3c6b4879dc056575f20
-#   verified-execution-binding.js  1e41542296551139c41e2d4b4cff2e67bc42aa06
+#   verified-execution-binding.js  WORKING-TREE (the core now VERIFIES the decision receipt
+#                                  instead of believing a caller's `verified: true`, and a
+#                                  custom authority set reads CUSTOM_REQUIREMENTS_SATISFIED)
 #   verify-evidence.js          724aa9ae8171f1acf629c3c6b4879dc056575f20
 #   keys/coderifts-keys.json    724aa9ae8171f1acf629c3c6b4879dc056575f20
 
@@ -34,5 +36,5 @@ arity.js  721fcac58b960b5e2aa1af91edb6cfc87ebe828a6da73879967ef79a1ca474e8
 verify-grant.js  127b53de3be77196862c10a8812221de0a5112cf1d3feae12d347a6021852df7
 verify-prove-transcript.js  3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
 verify-evidence.js  7ca498fad4b23e4ae8f28c42c30058bc3526a00d5cc6d6f36380335bf25d3288
-verified-execution-binding.js  e48ea29b9f8b0c5b1754187788cbaf78cdaf0b505848c05d1ae3ffebb30218f2
+verified-execution-binding.js  9d0259e916f2bcd32029744c3e9ec81448bcefa46e6ad3f054c8a650dc0482b7
 keys/coderifts-keys.json  bfe0c898cda3c3a4c8141726d0adb4cdb7eb9762de6264e430eff6469b90422e
