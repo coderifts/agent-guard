@@ -75,8 +75,14 @@ describe('vendored receipt-verifier core', () => {
     const header = fs.readFileSync(path.join(SRC, 'VENDOR.sha256'), 'utf8');
     assert.match(header, /source_commit: 51a8224439959a5b46c0b09e9a2cd67117f05d56/,
       'the pin does not name the released commit');
-    assert.match(header, /receipt-verifier \*\*v1\.0\.0\*\*/,
+    assert.match(header, /receipt-verifier \*\*v1\.0\.1\*\*/,
       'the pin does not name the release tag');
+    // AND THE SIGNER, because that is what v1.0.1 added over v1.0.0. The tag itself is verified
+    // below; this asserts the pin RECORDS which key must have signed it. Without the record, the
+    // check below would accept any good signature by anyone, and "signed" would mean "somebody
+    // signed something" rather than "this releaser signed this release".
+    assert.match(header, /SHA256:7yRXTm9zKGicfFpzL\+7lpwFoPaoSwxAJlabB3jwxw2Y/,
+      'the pin names a signed tag but records no signer fingerprint to check it against');
     // THE PIN ROW, not the word. A per-file `#   <file>  WORKING-TREE` row IS a pin nobody outside
     // this machine can resolve; prose recording that the pin USED to be one is history, and a
     // check that cannot tell them apart forces the history to be deleted to stay green.
@@ -86,13 +92,13 @@ describe('vendored receipt-verifier core', () => {
     }
   });
 
-  it('each vendored core file is byte-identical to receipt-verifier v1.0.0', (t) => {
+  it('each vendored core file is byte-identical to the SIGNED receipt-verifier v1.0.1', (t) => {
     if (!fs.existsSync(SOURCE_REPO)) {
       t.skip(`receipt-verifier is not checked out beside this repo (${SOURCE_REPO}) — `
         + 'the pin and the three-copy comparison ran; upstream parity did NOT (not passed)');
       return;
     }
-    const TAG = 'v1.0.0';
+    const TAG = 'v1.0.1';
     // The sibling checkout is still where the bytes come from — nothing here reaches a network —
     // but the comparison is against the TAG, so a sibling parked on another branch, or carrying
     // uncommitted edits, can no longer make this pass.
@@ -102,6 +108,28 @@ describe('vendored receipt-verifier core', () => {
       `receipt-verifier has no ${TAG} tag — the vendored core cannot be traced to a release`);
     assert.equal(peeled.stdout.trim(), '51a8224439959a5b46c0b09e9a2cd67117f05d56',
       `${TAG} points somewhere other than the commit this pin names`);
+    // ── THE TAG IS VERIFIED, NOT MERELY RESOLVED ────────────────────────────────────────────
+    //
+    // `rev-parse` proves the tag points where the pin says. It does not prove the tag is the one
+    // the releaser cut: an unsigned tag is a name anyone with push access can move, and this check
+    // would keep passing after it moved, as long as the bytes were moved with it.
+    //
+    // v1.0.1 is annotated and SSH-signed, so the pin now resolves to an IDENTITY. This asserts the
+    // signature verifies AND that it verifies against the fingerprint recorded in VENDOR.sha256 —
+    // "signed" alone would accept a signature by anyone at all, which is not what a pin is for.
+    //
+    // MEASURED: `git tag -v` exits 0 and writes the verdict to STDERR, not stdout. A gate that
+    // read stdout would find nothing and could be written to pass on an unsigned tag without ever
+    // noticing it was reading the wrong stream.
+    const SIGNER_FPR = 'SHA256:7yRXTm9zKGicfFpzL+7lpwFoPaoSwxAJlabB3jwxw2Y';
+    const v = spawnSync('git', ['-C', SOURCE_REPO, 'tag', '-v', TAG], { encoding: 'utf8' });
+    const verdict = `${v.stdout || ''}${v.stderr || ''}`;
+    assert.equal(v.status, 0, `${TAG} does not verify as a signed tag:\n${verdict}`);
+    assert.match(verdict, /Good .*signature/,
+      `${TAG} carries no good signature — the vendored core cannot be traced to a signed release`);
+    assert.ok(verdict.includes(SIGNER_FPR),
+      `${TAG} is signed, but NOT by the key this pin records (${SIGNER_FPR}):\n${verdict}`);
+
     let compared = 0;
     for (const { file } of pinned()) {
       const r = spawnSync('git', ['-C', SOURCE_REPO, 'show', `${TAG}:${file}`], { maxBuffer: 1 << 24 });
