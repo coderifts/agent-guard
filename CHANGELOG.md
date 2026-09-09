@@ -1,5 +1,10 @@
 # Changelog
 
+## 17.3.1
+
+The vendored verification core is re-pinned to receipt-verifier v1.0.0 (51a8224) and re-vendored to match the released tag. verify-grant.js now admits a grant carrying the reserved inert v2 fields (call_hash, executor_image_digest) instead of returning MALFORMED, verify-evidence.js exports verifyEvidenceRootBinding, and evidence-root.js is vendored so the core loads. vendor-parity checks every core file against git show v1.0.0:<file>.
+
+
 ## 17.3.0
 
 The Atomic branch authenticates the issuer grant, and the authorization decision comes from the shared verified-execution-binding core.
