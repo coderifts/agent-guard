@@ -36,8 +36,18 @@ const crypto = require('node:crypto');
 const { verifyReceipt, keyringFromDocument } = require('./verify.js');
 const { verifyExecutionGrant } = require('./verify-grant.js');
 const { verifyProveTranscript } = require('./verify-prove-transcript.js');
+const {
+  ROOT_V, SLOTS, SLOT_NAMES, digestToken, verifyEvidenceRoot, canonicalJson,
+} = require('./evidence-root.js');
 
 const CORRELATION_V = 'cr.exec.correlation.v1';
+
+/**
+ * The version four consumers must agree on. `verifyEvidenceRootBinding` returns it, so "prove,
+ * conformance, the guard and the provider all ran the same library" is something a report can
+ * SHOW rather than assert. Bump it when a check is added, removed or changed in meaning.
+ */
+const LIBRARY_VERSION = 'cr.evidence-verifier.1';
 const US = '\x1f';
 
 /** The slots this verifier knows how to authenticate. */
@@ -227,7 +237,169 @@ function verifyEvidenceEnvelope(artifact, o = {}) {
   return { ok: failures.length === 0, slots, failures };
 }
 
+/**
+ * THE ROOT CHECK — is this set of tokens ONE run?
+ *
+ * Ten questions, in the order a reader would ask them. Each is answered against something the
+ * producer signed, never against a value copied out of the thing being checked.
+ *
+ *  1  the root's own signature verifies against the executor key
+ *  2  every mandatory slot is present in the root (absence is refused, not skipped)
+ *  3  every token PRESENT in the envelope has the EXACT byte digest the root recorded
+ *  4  every token the root records is present to be checked, or named as unavailable
+ *  5  the grant's claims match the root's claims (grant_id, scope, policy)
+ *  6  grant.receipt_hash === sha256(the chain_receipt bytes actually carried)
+ *  7  grant_id === the consumed jti === the attested jti
+ *  8  run_id === the transcript's run_id === the correlation's scope binding
+ *  9  the outer artifact's summaries agree with what the tokens say
+ * 10  the verifier reports its own version, so four consumers can be shown to run one library
+ *
+ * @param {object} artifact
+ * @param {object} o
+ * @param {import('crypto').KeyObject} o.executorKey  the key the root and correlation are signed with
+ * @param {object} [o.sidecars]  tokens the artifact does not carry but the caller holds, by slot
+ *                               name (e.g. provider_readback bytes, atomic_attestation token)
+ */
+function verifyEvidenceRootBinding(artifact, o = {}) {
+  const failures = [];
+  const checks = [];
+  const note = (id, ok, detail) => { checks.push({ id, ok, detail }); if (!ok) failures.push(detail); };
+
+  const root = artifact && artifact.evidence_root;
+  if (!root) {
+    return {
+      ok: false,
+      present: false,
+      library: LIBRARY_VERSION,
+      checks: [],
+      failures: ['cross_run_collage: the artifact carries no cr.evidence.root.v1, so nothing binds '
+        + 'its tokens to ONE run'],
+    };
+  }
+
+  // 1 — the root's own signature.
+  const rv = verifyEvidenceRoot(root, o.executorKey);
+  note('root_signature', rv.valid,
+    rv.valid ? 'the evidence root is signed by the executor key'
+      : `the evidence root signature does not verify (${rv.status}: ${rv.reason})`);
+  // Everything below reads the root. A root that does not verify is not a source of truth about
+  // anything, so the remaining checks are not run rather than run against unsigned values.
+  if (!rv.valid) return { ok: false, present: true, library: LIBRARY_VERSION, checks, failures };
+
+  // The tokens as they travel, by slot. Sidecars are tokens the artifact does not republish but
+  // the caller holds — the provider readback is one, and binding it is what stops a readback from
+  // another run being paired with this artifact.
+  const carried = {
+    chain_receipt: artifact.issuance && artifact.issuance.chain_receipt,
+    execution_grant: artifact.issuance && artifact.issuance.execution_grant,
+    transcript_token: artifact.transcript_token,
+    correlation: artifact.correlation || null,
+    atomic_attestation: null,
+    provider_readback: null,
+    ...(o.sidecars || {}),
+  };
+
+  // 2 — mandatory slots. A root that omits a token would make deletion look like "not applicable".
+  for (const name of SLOT_NAMES) {
+    if (!SLOTS[name].mandatory) continue;
+    note(`root_slot_${name}`, root.artifact_digests && root.artifact_digests[name] != null,
+      `the root records no digest for the mandatory ${name}`);
+  }
+
+  // 3 & 4 — EXACT BYTES. This is the check the collage fails: a substituted token is authentic and
+  // has different bytes, so its digest cannot match whatever it says inside.
+  for (const name of SLOT_NAMES) {
+    const want = root.artifact_digests ? root.artifact_digests[name] : null;
+    const got = digestToken(carried[name]);
+    if (want == null && got == null) continue;
+    if (want == null) {
+      note(`digest_${name}`, false,
+        `the envelope carries a ${name} the root does not account for — an extra token is not evidence`);
+      continue;
+    }
+    if (got == null) {
+      // Not a failure for an optional slot the caller simply did not supply: it is UNCHECKED, and
+      // saying so beats grading a token nobody looked at.
+      note(`digest_${name}`, !SLOTS[name].mandatory,
+        `the root records a ${name} digest but no such token was supplied to check it`);
+      continue;
+    }
+    note(`digest_${name}`, got === want,
+      got === want ? `${name} bytes match the root`
+        : `${name} does not match the root's digest — these bytes were not emitted by run ${root.run_id}`);
+  }
+
+  // 5 — the grant's own claims vs the root's.
+  const grantBody = (() => {
+    const t = carried.execution_grant;
+    if (typeof t !== 'string') return null;
+    try { return JSON.parse(Buffer.from(t.split('.')[0], 'base64url').toString('utf8')); } catch (_) { return null; }
+  })();
+  if (grantBody) {
+    const gid = grantBody.grant_id || grantBody.jti || null;
+    note('claim_grant_id', root.grant_id == null || root.grant_id === gid,
+      `the root names grant ${root.grant_id} but the grant it carries is ${gid}`);
+    const scope = grantBody.after_payload_hash || grantBody.scope_hash || null;
+    note('claim_scope_hash', root.scope_hash == null || root.scope_hash === scope,
+      `the root names scope ${root.scope_hash} but the grant scopes ${scope}`);
+    note('claim_policy_hash', root.policy_hash == null || grantBody.policy_hash == null
+      || root.policy_hash === grantBody.policy_hash,
+      'the root and the grant disagree about policy_hash');
+
+    // 6 — grant → receipt, by the digest of the receipt actually carried, not by a copied string.
+    const rh = grantBody.receipt_hash || grantBody.receipt_digest || null;
+    if (rh && typeof carried.chain_receipt === 'string') {
+      const actual = digestToken(carried.chain_receipt);
+      note('grant_binds_receipt', rh === actual,
+        `the grant was issued against receipt ${rh}, but the receipt carried here hashes to ${actual}`);
+    }
+  }
+
+  // 7 — one grant, through consume and attestation. Read from the continuity block the producer
+  // signed into the transcript, re-derived rather than trusted: the identities must agree with the
+  // root's grant_id too, or the root and the chain are describing different executions.
+  const ids = (artifact.continuity && artifact.continuity.identities) || {};
+  if (root.grant_id != null && ids.issued_jti != null) {
+    const oneGrant = ids.issued_jti === root.grant_id
+      && ids.consumed_jti === root.grant_id
+      && ids.attestation_jti === root.grant_id;
+    note('identity_chain', oneGrant,
+      `the root names grant ${root.grant_id}, the chain records issued ${ids.issued_jti} / `
+      + `consumed ${ids.consumed_jti} / attested ${ids.attestation_jti}`);
+  }
+
+  // 8 — one run, through the transcript and the correlation.
+  note('run_id_artifact', artifact.run_id === root.run_id,
+    `the artifact says run ${artifact.run_id}, the root says ${root.run_id}`);
+  if (carried.correlation && root.scope_hash != null) {
+    note('run_id_correlation', carried.correlation.scope_hash === root.scope_hash,
+      `the correlation binds scope ${carried.correlation.scope_hash}, the root ${root.scope_hash}`);
+  }
+  if (root.contract_commit != null && carried.correlation) {
+    note('contract_commit', carried.correlation.contract_commit === root.contract_commit,
+      `the correlation names commit ${carried.correlation.contract_commit}, the root ${root.contract_commit}`);
+  }
+
+  // 9 — the outer summary vs the tokens. The artifact is a wrapper; a wrapper that disagrees with
+  // what it wraps is the thing that is wrong.
+  const tv = typeof carried.transcript_token === 'string'
+    ? verifyProveTranscript(carried.transcript_token, { keyring: null, publicKey: o.executorKey })
+    : null;
+  if (tv && tv.valid && tv.payload) {
+    const claimed = tv.payload.run_id || tv.payload.deployment_id || null;
+    if (claimed && tv.payload.run_id) {
+      note('transcript_run_id', tv.payload.run_id === root.run_id,
+        `the signed transcript is run ${tv.payload.run_id}, the root says ${root.run_id}`);
+    }
+  }
+
+  return { ok: failures.length === 0, present: true, library: LIBRARY_VERSION, checks, failures };
+}
+
 module.exports = {
+  verifyEvidenceRootBinding,
+  LIBRARY_VERSION,
+  ROOT_V,
   verifyEvidenceEnvelope,
   verifyCorrelation,
   verifyAtomicAttestationToken,

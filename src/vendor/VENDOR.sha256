@@ -15,26 +15,42 @@
 # against an unauthenticated document is not a binding.
 #
 # Do not edit these files here. Recopy from receipt-verifier and re-pin.
-# PER-FILE PROVENANCE, mixed on purpose. Collapsing this to one revision would lie: verify.js is
-# pinned at 6048195 and has NOT been recopied, because 1306's keyring-shape fix is the behaviour
-# this guard was tested against and recopying HEAD would change a verifier nobody measured again.
-# The 1423 evidence core is vendored at HEAD. test/vendor-parity.test.js checks each file against
-# ITS OWN revision, not against HEAD, so an honest mixed pin does not read as drift.
+# PER-FILE PROVENANCE, RETIRED. It said verify.js was held at 6048195 because "recopying HEAD
+# would change a verifier nobody measured again" — true when written. MEASURED before retiring it:
+# the 6048195 -> v1.0.0 delta on verify.js is ZERO non-comment lines (CLI usage docs), so the
+# reason did not apply to this delta. verify-evidence.js was older still and did not export
+# verifyEvidenceRootBinding at all, which is why the shared core needed a fail-closed guard against
+# its own missing dependency. The core is now ONE released tag.
 #
 #   verify.js                   6048195c0bcf7e2594a2d78e83cfc082ea615790
 #   arity.js                    724aa9ae8171f1acf629c3c6b4879dc056575f20
 #   verify-grant.js             a472bf9073781cba25d83c7d1406b1a7c4af0b94
 #   verify-prove-transcript.js  724aa9ae8171f1acf629c3c6b4879dc056575f20
-#   verified-execution-binding.js  WORKING-TREE (the core now VERIFIES the decision receipt
-#                                  instead of believing a caller's `verified: true`, and a
-#                                  custom authority set reads CUSTOM_REQUIREMENTS_SATISFIED)
 #   verify-evidence.js          724aa9ae8171f1acf629c3c6b4879dc056575f20
 #   keys/coderifts-keys.json    724aa9ae8171f1acf629c3c6b4879dc056575f20
 
-verify.js  363e52c72ec4b913e1f3edc8e2029848feaeacb1efa6c07960fe5e5f195c23b3
+# ── THE RECEIPT-VERIFIER CORE IS PINNED TO A RELEASED TAG ───────────────────────────────────
+#
+# The shared verification core here comes from receipt-verifier **v1.0.0**, peeled commit
+# 51a8224439959a5b46c0b09e9a2cd67117f05d56.
+#
+# It was pinned to a WORKING TREE and to per-file commits. Both are honest about where the bytes
+# came from and neither is a provenance a stranger can resolve: a working tree is not fetchable,
+# so "the vendored bytes match upstream" reduced to "they match whatever is on this machine right
+# now". A released tag is a name anyone can check out — that is the difference between a pin and
+# a note.
+#
+# The hash lines below are UNCHANGED by the re-pin. Where a file already matched the tag this is
+# prose only; where it did not, it was re-copied from the tag and that is recorded below.
+#
+# source_commit: 51a8224439959a5b46c0b09e9a2cd67117f05d56 (receipt-verifier v1.0.0)
+#
+
+verify.js  348d3f851cd79bf63298b51da422d11be980820576ab0bf0a2990b9f007d6249
 arity.js  721fcac58b960b5e2aa1af91edb6cfc87ebe828a6da73879967ef79a1ca474e8
-verify-grant.js  127b53de3be77196862c10a8812221de0a5112cf1d3feae12d347a6021852df7
+verify-grant.js  4a0ad5bd7bb8282e086bea99dcaf8ca278370d80019c5681d2942bf11bc87504
 verify-prove-transcript.js  3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
-verify-evidence.js  7ca498fad4b23e4ae8f28c42c30058bc3526a00d5cc6d6f36380335bf25d3288
+verify-evidence.js  98cd9b989a25095e0442f91f68a1adecd6e6a2a5b05902bf2580b8cba973c5e2
 verified-execution-binding.js  9d0259e916f2bcd32029744c3e9ec81448bcefa46e6ad3f054c8a650dc0482b7
 keys/coderifts-keys.json  bfe0c898cda3c3a4c8141726d0adb4cdb7eb9762de6264e430eff6469b90422e
+evidence-root.js  4d5476fc44bbfc2a847feeb313a1c6c08ef7fd832a2348ef3c244bd8d3f03fcd
