@@ -73,9 +73,9 @@ describe('vendored receipt-verifier core', () => {
     // from and unresolvable by anyone else: "the vendored bytes match upstream" meant "they match
     // whatever is on this machine right now".
     const header = fs.readFileSync(path.join(SRC, 'VENDOR.sha256'), 'utf8');
-    assert.match(header, /source_commit: 51a8224439959a5b46c0b09e9a2cd67117f05d56/,
+    assert.match(header, /source_commit: ac683b16c19662c9124c8cdab785223b28d2d0c6/,
       'the pin does not name the released commit');
-    assert.match(header, /receipt-verifier \*\*v1\.0\.1\*\*/,
+    assert.match(header, /receipt-verifier \*\*v1\.0\.2\*\*/,
       'the pin does not name the release tag');
     // AND THE SIGNER, because that is what v1.0.1 added over v1.0.0. The tag itself is verified
     // below; this asserts the pin RECORDS which key must have signed it. Without the record, the
@@ -92,13 +92,13 @@ describe('vendored receipt-verifier core', () => {
     }
   });
 
-  it('each vendored core file is byte-identical to the SIGNED receipt-verifier v1.0.1', (t) => {
+  it('each vendored core file is byte-identical to the SIGNED receipt-verifier v1.0.2', (t) => {
     if (!fs.existsSync(SOURCE_REPO)) {
       t.skip(`receipt-verifier is not checked out beside this repo (${SOURCE_REPO}) — `
         + 'the pin and the three-copy comparison ran; upstream parity did NOT (not passed)');
       return;
     }
-    const TAG = 'v1.0.1';
+    const TAG = 'v1.0.2';
     // The sibling checkout is still where the bytes come from — nothing here reaches a network —
     // but the comparison is against the TAG, so a sibling parked on another branch, or carrying
     // uncommitted edits, can no longer make this pass.
@@ -106,7 +106,7 @@ describe('vendored receipt-verifier core', () => {
       { encoding: 'utf8' });
     assert.equal(peeled.status, 0,
       `receipt-verifier has no ${TAG} tag — the vendored core cannot be traced to a release`);
-    assert.equal(peeled.stdout.trim(), '51a8224439959a5b46c0b09e9a2cd67117f05d56',
+    assert.equal(peeled.stdout.trim(), 'ac683b16c19662c9124c8cdab785223b28d2d0c6',
       `${TAG} points somewhere other than the commit this pin names`);
     // ── THE TAG IS VERIFIED, NOT MERELY RESOLVED ────────────────────────────────────────────
     //
