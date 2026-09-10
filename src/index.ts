@@ -22,6 +22,9 @@
  * ```
  */
 
+export { buildDenyTeaching, mappedCauses, NEXT_ACTION } from './deny-teaching.js';
+export type { DenyTeaching, NextAction } from './deny-teaching.js';
+
 export { guardToolCall } from './guard.js';
 export {
   CODERIFTS_POLICY,

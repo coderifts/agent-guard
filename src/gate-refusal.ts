@@ -11,6 +11,8 @@ import type { GuardOutcome, GuardVerdict } from './types.js';
 import type { FreshnessBasis } from './freshness.js';
 
 /** One-line fix — same vocabulary as withCodeRifts / README / createFsPriorContentResolver. */
+import { buildDenyTeaching } from './deny-teaching.js';
+
 export const FRESHNESS_RESOLVER_FIX =
   'pass resolvePriorContent (e.g. createFsPriorContentResolver()) to withCodeRifts / GuardConfig';
 
@@ -79,6 +81,19 @@ export function formatGateRefusalBody(outcome: GuardOutcome<unknown>): string {
     + 'No tool result was produced.';
   const teach = freshnessRefusalTeaching(outcome);
   if (teach) body += ` ${teach}`;
+  // ── THE MACHINE BLOCK (1535) ──────────────────────────────────────────────────────────────
+  //
+  // The sentence above tells a person what happened. It tells a model nothing it can act on, and
+  // MEASURED, that was the whole refusal surface: a cause and a full stop. A deny with no
+  // next_action is a dead gate — the loop stops and a human is summoned.
+  //
+  // Fenced, so a foreign renderer shows it verbatim, and appended rather than substituted: the
+  // human sentence stays, the block is the contract.
+  const cause = verdictCause(outcome);
+  if (cause) {
+    const t = buildDenyTeaching(cause, body);
+    body += `\n\n\`\`\`coderifts-deny\n${JSON.stringify(t, null, 2)}\n\`\`\``;
+  }
   return body;
 }
 

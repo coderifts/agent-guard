@@ -277,6 +277,19 @@ export type SurfacedEnvelopeFields = {
   required_action?: string | null;
   next_actions?: unknown;
   breaking_changes?: number | null;
+  /**
+   * ── THE CITABLE PAIR (1534) ────────────────────────────────────────────────────────────
+   *
+   * `grant_id` and `receipt_digest` already exist on a decision this guard has already verified.
+   * MEASURED before they were added: this surface lifted decision_id / decision /
+   * execution_action / required_action / next_actions / breaking_changes and NEITHER of them, so
+   * the block a model actually reads carried no token it could quote.
+   *
+   * Lifted, never computed. Both are read off the envelope the guard verified; a value this
+   * function derived would be a number the guard published rather than one it checked.
+   */
+  grant_id?: string | null;
+  receipt_digest?: string | null;
 };
 
 export function surfaceEnvelopeFields(
@@ -297,6 +310,24 @@ export function surfaceEnvelopeFields(
       typeof e.breaking_changes === 'number' ? e.breaking_changes : e.breaking_changes === null ? null : undefined;
     if (out.breaking_changes === undefined) delete out.breaking_changes;
   }
+  // ── grant_id, from wherever the producer put it ───────────────────────────────────────────
+  //
+  // MEASURED on real envelopes: the id appears as `execution_grant.grant_id` when a grant was
+  // requested, and some producers echo a flat `grant_id`. Both are read; neither is invented, and
+  // when there is no grant the key is simply absent rather than null-filled — a caller must be
+  // able to tell "no grant was issued" from "a grant was issued and I lost its id".
+  const grantObj = e.execution_grant && typeof e.execution_grant === 'object'
+    ? (e.execution_grant as Record<string, unknown>) : null;
+  const grantId = (grantObj && typeof grantObj.grant_id === 'string') ? grantObj.grant_id
+    : (typeof e.grant_id === 'string' ? e.grant_id : null);
+  if (grantId) out.grant_id = grantId;
+  // The receipt digest as the producer recorded it. This surface does not hash the token itself:
+  // a digest computed here could differ from the one the gate quotes, and two different digests
+  // for one receipt is worse than one missing digest.
+  const receiptObj = e.receipt && typeof e.receipt === 'object' ? (e.receipt as Record<string, unknown>) : null;
+  const digest = (receiptObj && typeof receiptObj.digest === 'string') ? receiptObj.digest
+    : (typeof e.receipt_digest === 'string' ? e.receipt_digest : null);
+  if (digest) out.receipt_digest = digest;
   return Object.keys(out).length > 0 ? out : null;
 }
 
