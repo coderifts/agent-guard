@@ -192,6 +192,45 @@ const { tools, coverage } = guardToolRegistry(rawTools, { guard: { client } });
 // observed this run, read `composition_assurance.observed_class`.
 ```
 
+### Reading a decision: `readDecision` — and why you must read `reason`
+
+`readDecision(response)` never throws and resolves in one documented order:
+
+| Body carries | Result |
+|---|---|
+| `execution_action` in the closed set | that action |
+| `execution_action` PRESENT but **not** in the closed set | the **raw arrived string** + `reason: 'EXECUTION_ACTION_UNRECOGNISED'` |
+| `execution_action` MISSING, body is explicit `decision_spec_version: "1.0"` and not v2 | legacy `decision` → action map |
+| anything else | `'STOP'` + `reason: 'UNREADABLE_DECISION'` |
+
+The closed set is `CONTINUE | CONTINUE_WITH_MONITORING | REQUEST_APPROVAL | STOP`. A body is **v2**
+when it carries `decision_result`, carries `preflight_mode`, or its `decision_spec_version` starts
+`"2."`. A **missing** version is not legacy.
+
+**The caller MUST read `reason`.** On `EXECUTION_ACTION_UNRECOGNISED` the raw arrived string is
+returned as `executionAction` on purpose, so you can log and reconcile what the server actually
+sent. It is not a control-set action:
+
+```typescript
+const r = readDecision(response);
+
+// WRONG — an unrecognised action is not STOP, so this proceeds on it.
+if (r.executionAction !== 'STOP') proceed();
+
+// RIGHT — branch on the closed set, or check reason first.
+if (r.reason) { halt(r.reason, r.executionAction); }
+else switch (r.executionAction) { /* CONTINUE | CONTINUE_WITH_MONITORING | REQUEST_APPROVAL | STOP */ }
+```
+
+This reader deliberately does **not** normalise an unrecognised action to `STOP`: that would erase
+the arrived value, which is the only evidence a reconciliation has. `gateDecision` — the merge gate
+— is unconditionally fail-closed and needs no such care.
+
+> Interop note (1565/1585): `@coderifts/sdk` ≤ 3.14.1 mapped `decision` → action on **any** bare
+> body, so `{ decision: 'ALLOW' }` read as `CONTINUE` there and `STOP` here. `@coderifts/sdk@3.14.2`
+> gates its legacy arm exactly as this reader does. The two readers still differ by design on one
+> case: a **present-but-unrecognised** action is raw-plus-`reason` here and `STOP` in the SDK.
+
 ### One-call orchestration with `withCodeRifts` (S1 + S2)
 
 `withCodeRifts` wraps `guardToolRegistry` behind a single call that takes a **mandatory** `operation`

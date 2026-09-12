@@ -2,10 +2,18 @@
  * Decision reading for the guard — envelope-first, fail-closed.
  *
  * Differs from the SDK ladder in one critical respect: a PRESENT execution_action outside the
- * closed set is NOT treated as missing. The SDK falls through to decision→action mapping, which
- * reinvents permission from the decision and makes reconciliation impossible (there is nothing
+ * closed set is NOT treated as missing. Mapping from `decision` at that point reinvents
+ * permission from the governance label and makes reconciliation impossible (there is nothing
  * known to reconcile against). Future restrictive actions (e.g. QUARANTINE) would be silently
- * ignored the same way.
+ * ignored the same way. (@coderifts/sdk <= 3.14.1 did exactly this on a bare body; 3.14.2 gates
+ * its legacy arm the same way this reader does. 1565/1585.)
+ *
+ * THE CALLER MUST READ `reason`. On EXECUTION_ACTION_UNRECOGNISED this function returns the RAW
+ * present string as `executionAction` — deliberately, so a caller can log or reconcile what
+ * actually arrived. That value is NOT a control-set action, and a caller that branches only on
+ * `executionAction !== 'STOP'` will proceed on it. Branch on the closed set, or check `reason`
+ * first. This reader does not normalise an unrecognised action to STOP: doing so would erase
+ * the arrived value, which is the one piece of evidence the reconciliation needs.
  *
  *   - PRESENT + closed set  → use that action
  *   - PRESENT + not closed  → halt reason EXECUTION_ACTION_UNRECOGNISED (do not map from decision)
