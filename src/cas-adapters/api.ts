@@ -134,6 +134,11 @@ export async function writeApiIfUnchanged<T = unknown>(
     expected_token: args.expected_token,
     current_token: async () => createApiVersionToken(await args.current_etag()),
     detect_stale_during_commit: detect,
+    // 1587 — the same condition the fallback below turns on, reported to the core so the
+    // outcome can say `no_op_no_intended_token` instead of leaving the caller to infer it from
+    // a comment. One expression, two uses: the behaviour and the report cannot drift apart.
+    intended_post_state_known: (written) => typeof written.new_etag === 'string'
+      && written.new_etag.trim().length > 0,
     expected_after_commit: detect
       ? async (written) => {
           if (typeof written.new_etag === 'string' && written.new_etag.trim().length > 0) {

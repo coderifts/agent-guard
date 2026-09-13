@@ -238,8 +238,39 @@ export function conditionalWriteResidual(input: {
  *   re-check found the resource no longer matches the write's expected post-state
  *   (detection only — not a rollback)
  */
+/** Whether post-commit detection compared anything. See ExecuteIfUnchangedOutcome.detection. */
+export type DetectionState = 'ran' | 'no_op_no_intended_token';
+
 export type ExecuteIfUnchangedOutcome<T> =
-  | { status: 'committed'; result: T; version_token: VersionToken; observed_token?: VersionToken | null }
+  | {
+      status: 'committed';
+      result: T;
+      version_token: VersionToken;
+      observed_token?: VersionToken | null;
+      /**
+       * 1577/1587 — DID POST-COMMIT DETECTION ACTUALLY RUN?
+       *
+       * `detect_stale_during_commit` can be true and still do nothing: an adapter whose host did
+       * not return an intended post-state has no token to compare against, so its
+       * expected_after_commit falls back to a live re-read and tokensEqual is tautologically
+       * true. That is documented in cas-adapters/api.ts, in a comment — and a comment is not in
+       * the outcome. A caller reading `committed` could not tell a detection that ran from one
+       * that was a no-op.
+       *
+       *   'ran'                      an intended post-state was compared
+       *   'no_op_no_intended_token'  requested, but the host supplied no intended post-state
+       *   absent                     detection was not requested
+       *
+       * ABSENT WHEN NOT REQUESTED, deliberately. cas-fs.test.js pins that the successful path
+       * WITHOUT the detect flag keeps a byte-identical committed shape; a field that appeared
+       * there anyway would break a guarantee someone named on purpose. A caller who did not ask
+       * for detection already knows it did not run — the states worth reporting are the two that
+       * only arise when it was asked for.
+       *
+       * Additive and verdict-neutral: no comparison, status or reason changes with it.
+       */
+      detection?: DetectionState;
+    }
   | {
       status: 'refused';
       reason: 'stale_version_token';
@@ -308,6 +339,17 @@ export type ExecuteIfUnchangedArgs<T> = {
    */
   detect_stale_during_commit?: boolean;
   /**
+   * Optional: did the host give an intended post-state for THIS write?
+   *
+   * Only the adapter knows. cas-adapters/api.ts answers it with the same condition it already
+   * uses to decide whether to build a real token or fall back to a live re-read, so the reported
+   * state and the behaviour come from one expression rather than two that can drift.
+   *
+   * Absent → detection is reported as 'ran' when requested, which is what it was before this
+   * field existed.
+   */
+  intended_post_state_known?: (written: T) => boolean;
+  /**
    * Token that should hold after a successful write (the written state's token).
    * Required when detect_stale_during_commit is true; ignored otherwise.
    */
@@ -370,7 +412,13 @@ export async function executeIfUnchanged<T>(
   }
 
   // Post-commit detection (best-effort honesty, not prevention).
+  // `detection` records WHETHER it compared anything — the verdict below is unchanged by it.
+  let detection: DetectionState | undefined;
   if (args.detect_stale_during_commit === true && typeof args.expected_after_commit === 'function') {
+    detection = typeof args.intended_post_state_known === 'function'
+      && args.intended_post_state_known(result) === false
+      ? 'no_op_no_intended_token'
+      : 'ran';
     const want = await args.expected_after_commit(result);
     if (!tokensEqual(want, observed_token)) {
       return {
@@ -384,5 +432,12 @@ export async function executeIfUnchanged<T>(
     }
   }
 
-  return { status: 'committed', result, version_token: expected, observed_token };
+  return {
+    status: 'committed',
+    result,
+    version_token: expected,
+    observed_token,
+    // Spread, not a key set to undefined: the off path must stay byte-identical.
+    ...(detection === undefined ? {} : { detection }),
+  };
 }
