@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Clarified provenance for all host-supplied atomic-profile inputs. These values are
+classified by the guard; they are not independently observed or attested by it.
+No runtime semantics changed.
+
 ## 17.3.3
 
 The MCP envelope cites the grant_id and receipt-digest (lifted from the verified decision; a grant-absent key is missing, not null), and a deny carries a machine next_action. A new deny-teaching.v1 sits beside the pinned deny-remedy.v1: each refusal carries reason + next_action + payload_shape + retryable. Only the transient class is retryable; REPREFLIGHT is a different call, not a retry; an unmapped cause escalates to a human rather than guessing. 15 causes, 19 mapped, none uncovered.

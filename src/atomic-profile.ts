@@ -279,17 +279,63 @@ export function throwAtomicUnsatisfied(problems: string[]): never {
 
 /**
  * Per-call outcome union. Host-claimed commit never AUTHORIZED_COMMITTED.
+ *
+ * Every required boolean below is supplied by the host. The guard classifies
+ * the conjunction; it does not independently observe or attest the events.
  */
 export function atomicOutcome(input: {
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   */
   receiptVerified: boolean;
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   */
   grantV2Valid: boolean;
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   */
   executorMatch: boolean;
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   */
   targetMatch: boolean;
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   */
   nonceFresh: boolean;
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   * The executor is a remote party; the guard never witnesses nonce consumption.
+   */
   nonceConsumedOnce: boolean;
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   */
   casCommitted: boolean;
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   */
   readBackOk: boolean;
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   */
   executorAttested: boolean;
+  /**
+   * Supplied by the host. The guard classifies this assertion; it does not
+   * independently observe or attest the underlying event.
+   * Construction can inspect the mutator register; this classifier input is
+   * still host-supplied, not re-read here.
+   */
   mutatorRegistered: boolean;
   authUnavailable?: boolean;
   nonceStoreUnavailable?: boolean;
