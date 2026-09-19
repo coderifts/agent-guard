@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 17.3.4 - 2026-09-18
 
 Clarified provenance for all host-supplied atomic-profile inputs. These values are
 classified by the guard; they are not independently observed or attested by it.
