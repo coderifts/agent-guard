@@ -273,9 +273,15 @@ outside the returned table — residual `calls_outside_guarded_path_invisible`. 
 
 ### Production enforcement (`ENFORCING_STRICT` + freshness / CAS)
 
+| | What | Bound |
+|---|---|---|
+| **DEFAULT** | `requireExecutionStateMatch` (T2 execution-state recheck). Absent → `true` (enforce). | Detects drift between authorize-time and execute-time artifacts. Not an atomic CAS. |
+| **OPT-IN** | Freshness, conditional-write, complete-coverage. An absent `profile` does **not** lock these. | `profile: 'ENFORCING_STRICT'` is what locks the fail-closed conjunction. |
+| **OPEN** | TOCTOU. The recheck is not an atomic compare-and-swap. | Measurement-to-commit and host-side unconditional writes remain. |
+
 The `withCodeRifts` example above is the **entry point** (absent profile: freshness and
 conditional-write stay opt-in). For production, lock the fail-closed conjunction with
-`profile: 'ENFORCING_STRICT'` (shipped guard@8.1.0; current package 13.0.0). Construction
+`profile: 'ENFORCING_STRICT'` (introduced in guard 8.x; current version: see npm). Construction
 **aborts** if you opt down any locked flag, omit `resolvePriorContent`, or omit the execution
 chain (`executionGrant: { enabled: true }`, required since 9.8.0).
 
