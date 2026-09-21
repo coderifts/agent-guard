@@ -71,6 +71,22 @@ try {
   ], { cwd: installDir });
   process.stdout.write(smoke.stdout);
   if (smoke.status !== 0) fail(`documented require failed:\n${smoke.stderr}`);
+
+  // 17.3.5 / 1942: the tarball, not the working tree, must carry the inert-admit vendor.
+  const packedGrant = path.join(
+    installDir, 'node_modules', '@coderifts', 'agent-guard', 'dist', 'cjs', 'vendor', 'verify-grant.js',
+  );
+  if (!fs.existsSync(packedGrant)) {
+    fail('packed tarball is missing dist/cjs/vendor/verify-grant.js — the grant verifier would not ship');
+  }
+  const grantSrc = fs.readFileSync(packedGrant, 'utf8');
+  if (!grantSrc.includes('applied_policy_hash')) {
+    fail('packed verify-grant.js does not mention applied_policy_hash — v1.0.3 inert-admit is not in the tarball');
+  }
+  if (!/V2_RESERVED_INERT\s*=\s*Object\.freeze\(\[[^\]]*applied_policy_hash/.test(grantSrc.replace(/\s+/g, ' '))) {
+    fail('packed V2_RESERVED_INERT does not name applied_policy_hash');
+  }
+  process.stdout.write('packed vendor inert-admit: applied_policy_hash is in dist/cjs/vendor/verify-grant.js\n');
   process.stdout.write('packed install smoke: OK\n');
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });

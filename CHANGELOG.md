@@ -1,5 +1,9 @@
 # Changelog
 
+## 17.3.5 - 2026-09-21
+
+The vendored verification core is re-pinned to the signed receipt-verifier **v1.0.3** (tag object `bb57536`, peeled commit `523e0a2`). `verify-grant.js` admits `applied_policy_hash` on `V2_RESERVED_INERT` (1942 verifier-admits: the field is not interpreted, not bound, not required). A grant without the field still verifies; a truly unknown field is still `MALFORMED/unknown_field`. `verify.js` moved with the tag. vendor-parity checks every core file against `git show v1.0.3:<file>` and verifies the SSH-signed tag against fingerprint `SHA256:7yRXTm9zKGicfFpzL+7lpwFoPaoSwxAJlabB3jwxw2Y`.
+
 ## 17.3.4 - 2026-09-18
 
 Clarified provenance for all host-supplied atomic-profile inputs. These values are
