@@ -1,5 +1,9 @@
 # Changelog
 
+## 17.3.6 - 2026-09-27
+
+The vendored `CODERIFTS_POLICY` (`src/policy.ts`) follows the app's canonical rule text again: the verify sentence names the intended-context fields at the top level of the `verify_receipt` call, sets `target_id` to `decision_result.artifact_digest`, and says that without it the answer is `currently_authorized: false` with `target_not_stated`. Policy text only — no runtime semantics changed. Byte-equal to the app's `getCanonicalRuleText()` at `6c5e1f0`.
+
 ## 17.3.5 - 2026-09-21
 
 The vendored verification core is re-pinned to the signed receipt-verifier **v1.0.3** (tag object `bb57536`, peeled commit `523e0a2`). `verify-grant.js` admits `applied_policy_hash` on `V2_RESERVED_INERT` (1942 verifier-admits: the field is not interpreted, not bound, not required). A grant without the field still verifies; a truly unknown field is still `MALFORMED/unknown_field`. `verify.js` moved with the tag. vendor-parity checks every core file against `git show v1.0.3:<file>` and verifies the SSH-signed tag against fingerprint `SHA256:7yRXTm9zKGicfFpzL+7lpwFoPaoSwxAJlabB3jwxw2Y`.

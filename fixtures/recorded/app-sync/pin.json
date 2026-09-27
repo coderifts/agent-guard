@@ -3,7 +3,7 @@
   "note": "Vendored snapshot of the coderifts-app artifacts this suite compares against. LIVE when a checkout is present (byte-parity AND this snapshot is checked for staleness); RECORDED against these bytes when it is not. Never a silent skip. RECORDED is WEAKER than LIVE. TWO ENTRIES ARE EXTRACTED INVARIANTS, NOT SOURCE: change-set.js (74 kB governance engine) and github-enforcement.js (60 kB provider adapter, carries the permission detail behind the 1405 caution) are core product logic; publishing them whole in this PUBLIC repo is over-exposure and irreversible while the open-core position is undecided. Only what the parity tests assert is recorded, and each extract names what it no longer catches.",
   "producer": {
     "repo": "https://github.com/coderifts/coderifts-app (private)",
-    "commit": "addc2a0d4aae346e8e6ed19b8d34da8e319522c7"
+    "commit": "6c5e1f08de04f53f15dadc8ef95c144db83aac12"
   },
   "artifacts": [
     {
@@ -35,8 +35,8 @@
     {
       "path": "policy.txt",
       "source": "src/agent-host-rule.js getCanonicalRuleText()",
-      "sha256": "da9558b445930c1b3b62432950f827e699ef8be02d509ab0ddf252e2c26c55f1",
-      "bytes": 4852
+      "sha256": "4c7753684bc1a28c6b0874390c07d9bf9385bc01c0430a64d22958458919fec8",
+      "bytes": 5139
     },
     {
       "path": "required-check-contract.js",
