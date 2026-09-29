@@ -1,7 +1,7 @@
 {
   "name": "@coderifts/agent-guard",
   "version": "17.3.6",
-  "description": "Fail-closed guard for AI agent tool calls — preflight contract changes before they execute. Security core frozen (agent-guard-api v1.0); v1.1 adds client-side enforcement: receipt→envelope binding, decision↔action reconciliation, safe_for_agent + degraded fail-closed, and enforced⟺executed (P0 client-enforcement pack).",
+  "description": "Signed, offline-verifiable authorization for API-contract changes. Only a granted change can proceed. This package is the fail-closed guard that wraps an agent’s tool calls.",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
   "types": "./dist/cjs/index.d.ts",
@@ -45,7 +45,11 @@
     "ai-agent",
     "tool-safety",
     "fail-closed",
-    "preflight"
+    "preflight",
+    "api-contract-preflight",
+    "offline-verifiable-authorization",
+    "agent-authorization",
+    "mcp"
   ],
   "author": "CodeRifts <hello@coderifts.com>",
   "license": "MIT",
