@@ -1,6 +1,6 @@
 {
   "name": "@coderifts/agent-guard",
-  "version": "17.3.6",
+  "version": "17.3.7",
   "description": "Signed, offline-verifiable authorization for API-contract changes. Only a granted change can proceed. This package is the fail-closed guard that wraps an agent’s tool calls.",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",

@@ -222,19 +222,31 @@ describe('the guard authenticates the execution grant', () => {
   });
 
   it('the vendored core verifies the REAL server v2 grant, when it is beside this repo', (t) => {
+    // 2026-10-25: the grant was recorded 2026-09-10 under 2026-07-k1. The registry rotated on
+    // 2026-10-21 (2026-10-k1 active, 2026-07-k1 retired), and a grant under a retired kid is refused
+    // (verify-grant.js: UNKNOWN_KEY / retired_kid) — grants are short-lived, that is the rule, not a
+    // regression. So the grant is checked against the registry AS IT WAS when it was issued (the
+    // keyring at the signed receipt-verifier v1.0.3), and the current registry is asserted to refuse it.
     const F = path.join(process.env.HOME || '', 'coderifts-conformance', 'fixtures', 'recorded', 'end-to-end', 'transcript.json');
-    const K = path.join(process.env.HOME || '', 'receipt-verifier', 'keys', 'coderifts-keys.json');
+    const RV = path.join(process.env.HOME || '', 'receipt-verifier');
+    const K = path.join(RV, 'keys', 'coderifts-keys.json');
     if (!fs.existsSync(F) || !fs.existsSync(K)) {
       t.skip('the conformance fixture or the issuer keyring is not beside this repo');
       return;
     }
+    const { spawnSync } = require('node:child_process');
+    const atIssue = spawnSync('git', ['-C', RV, 'show', 'v1.0.3:keys/coderifts-keys.json'], { encoding: 'utf8' });
+    if (atIssue.status !== 0) {
+      t.skip('receipt-verifier has no v1.0.3 tag here — the registry at issuance cannot be read');
+      return;
+    }
     const tr = JSON.parse(fs.readFileSync(F, 'utf8'));
-    const r = cas.authenticateGrant(
-      tr.issuance.execution_grant,
-      JSON.parse(fs.readFileSync(K, 'utf8')),
-      Date.parse(tr.issuance.grant.not_before) + 1000,
-    );
+    const at = Date.parse(tr.issuance.grant.not_before) + 1000;
+    const r = cas.authenticateGrant(tr.issuance.execution_grant, JSON.parse(atIssue.stdout), at);
     assert.equal(r.authenticated, true, `${r.status}/${r.reason}`);
     assert.equal(r.status, 'GRANT_CURRENT');
+    const now = cas.authenticateGrant(tr.issuance.execution_grant, JSON.parse(fs.readFileSync(K, 'utf8')), at);
+    assert.equal(now.authenticated, false, 'the current registry has retired the grant\'s key');
+    assert.equal(`${now.status}/${now.reason}`, 'UNKNOWN_KEY/retired_kid');
   });
 });

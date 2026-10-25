@@ -31,8 +31,8 @@
 
 # ── THE RECEIPT-VERIFIER CORE IS PINNED TO A RELEASED TAG ───────────────────────────────────
 #
-# The shared verification core here comes from receipt-verifier **v1.0.3**, peeled commit
-# 523e0a2b822088990f500b9eea3868309439c53c.
+# The shared verification core here comes from receipt-verifier **v1.1.5**, peeled commit
+# f7eb51f681de95e52c817fd7f035bf1838219d67.
 #
 # It was pinned to a WORKING TREE and to per-file commits. Both are honest about where the bytes
 # came from and neither is a provenance a stranger can resolve: a working tree is not fetchable,
@@ -40,8 +40,8 @@
 # now". A released tag is a name anyone can check out — that is the difference between a pin and
 # a note.
 #
-# Hash lines that moved: verify.js, verify-grant.js (v1.0.3 admits applied_policy_hash).
-# Every other hash line is unchanged because those files are byte-identical to v1.0.2.
+# Hash lines that moved (v1.0.3 -> v1.1.5): verify.js, keys/coderifts-keys.json.
+# Every other hash line is unchanged because those files are byte-identical to v1.0.3.
 #
 #
 # ── AND THE TAG IS SIGNED, WHICH IS THE PART A STRANGER CAN CHECK ───────────────────────────
@@ -50,30 +50,31 @@
 # can move. v1.0.1 is annotated and SSH-signed, so the pin now resolves to an identity and not
 # only to bytes.
 #
-#   tag object   bb5753681275920e7e23351c6b41632957e6238f
-#   peeled commit 523e0a2b822088990f500b9eea3868309439c53c
+#   tag object   d2e8097b5a26d2fab776c8b0d876cf5bed5f2e99
+#   peeled commit f7eb51f681de95e52c817fd7f035bf1838219d67
 #   signer       zsobpeter@gmail.com
 #   fingerprint  SHA256:7yRXTm9zKGicfFpzL+7lpwFoPaoSwxAJlabB3jwxw2Y
 #
 # Verify it yourself, in a checkout of receipt-verifier:
 #
-#   git tag -v v1.0.3
+#   git tag -v v1.1.5
 #   -> Good "git" signature for zsobpeter@gmail.com with ED25519 key SHA256:7yRXTm9zKGicfFpzL+7lpwFoPaoSwxAJlabB3jwxw2Y
 #
-# WHY v1.0.3 AND NOT v1.0.2: the CORE IS NOT byte-identical. verify-grant.js admits
-# applied_policy_hash on V2_RESERVED_INERT (1942 verifier-admits; fail-closed otherwise
-# unchanged) and verify.js moved with it. This re-pin copies those bytes from the signed
-# tag, not from a working tree.
+# WHY v1.1.5 (2026-10-25): verify.js and keys/coderifts-keys.json are NOT byte-identical to v1.0.3.
+# verify.js reads the key algorithm from the SPKI OID and verifies with Ed25519 only, and a bad
+# keyring entry is skipped instead of failing the whole keyring; the keyring is the live registry
+# (2026-10-k1 active, 2026-07-k1 retired 2026-10-21). Every other vendored file is byte-identical
+# to v1.0.3. This re-pin copies those bytes from the signed tag, not from a working tree.
 #
-# The peeled commit is 523e0a2 — the K-phase-1 inert-admit commit the tag names.
-# source_commit: 523e0a2b822088990f500b9eea3868309439c53c (receipt-verifier v1.0.3, signed)
+# The peeled commit is f7eb51f — the receipt-verifier 1.1.5 release commit the tag names.
+# source_commit: f7eb51f681de95e52c817fd7f035bf1838219d67 (receipt-verifier v1.1.5, signed)
 #
 
-verify.js  52d7c37611f9eecc862e3678d1ffcb4fd860ea4c5faf9a9df6d6d5b290bd8197
+verify.js  6768ea2af5d34d64c95f04bd232dd1bab855131b0faa0b280db6fe02f58fc0e3
 arity.js  721fcac58b960b5e2aa1af91edb6cfc87ebe828a6da73879967ef79a1ca474e8
 verify-grant.js  ea55b8611d6f3bba2cb9c84d765ade15bb2afe2418499e2da6358ffb3faf6ad6
 verify-prove-transcript.js  3bb17bd4f16d5ee3cf3fbb754b4df9aa570a615ca94ff2a97b751c4fabd3bd0d
 verify-evidence.js  98cd9b989a25095e0442f91f68a1adecd6e6a2a5b05902bf2580b8cba973c5e2
 verified-execution-binding.js  9d0259e916f2bcd32029744c3e9ec81448bcefa46e6ad3f054c8a650dc0482b7
-keys/coderifts-keys.json  bfe0c898cda3c3a4c8141726d0adb4cdb7eb9762de6264e430eff6469b90422e
+keys/coderifts-keys.json  0981898b8bd3fc5745be183f1cd021f355b1bbd8f37fc30b493e225a763928dd
 evidence-root.js  4d5476fc44bbfc2a847feeb313a1c6c08ef7fd832a2348ef3c244bd8d3f03fcd

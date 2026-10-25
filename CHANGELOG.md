@@ -1,5 +1,9 @@
 # Changelog
 
+## 17.3.7 - 2026-10-25
+
+The vendored verification core is re-pinned to the signed receipt-verifier **v1.1.5** (tag object `d2e8097`, peeled commit `f7eb51f`, same signer fingerprint `SHA256:7yRXTm9zKGicfFpzL+7lpwFoPaoSwxAJlabB3jwxw2Y`). Two files move: `verify.js` (the key algorithm is read from the SPKI OID and only an Ed25519 key verifies a receipt; a bad keyring entry is skipped instead of failing the whole keyring) and `keys/coderifts-keys.json`, now the live registry bytes (sha256 `0981898b8bd3fc5745be183f1cd021f355b1bbd8f37fc30b493e225a763928dd`: `2026-10-k1` active, `2026-07-k1` retired at `2026-10-21T00:00:00.000Z`). A receipt under `2026-07-k1` signed before that instant is `RETIRED_KEY_VALID_AT_ISSUE`; at or after it, `KEY_RETIRED_AFTER_SIGNING`. A grant under the retired kid is refused (`UNKNOWN_KEY/retired_kid`, `verify-grant.js` unchanged); the real-grant test now checks the recorded 2026-09-10 grant against the registry as it was at issuance (`v1.0.3:keys/coderifts-keys.json`). The README states that the package keeps no state across processes and that a stop does not undo an external side effect already sent. The package description is the canonical sentence. The published 17.3.6 tarball was built from `4163594` (its npm `gitHead`), the child of the `v17.3.6` tag commit `b687ccc`, which adds the 17.3.6 changelog entry and re-records the app-sync policy snapshot. npm test: 1279 tests, 1279 pass, 0 fail.
+
 ## 17.3.6 - 2026-09-27
 
 The vendored `CODERIFTS_POLICY` (`src/policy.ts`) follows the app's canonical rule text again: the verify sentence names the intended-context fields at the top level of the `verify_receipt` call, sets `target_id` to `decision_result.artifact_digest`, and says that without it the answer is `currently_authorized: false` with `target_not_stated`. Policy text only — no runtime semantics changed. Byte-equal to the app's `getCanonicalRuleText()` at `6c5e1f0`.
