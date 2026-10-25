@@ -1040,7 +1040,9 @@ Pass claim+lifecycle on `withCodeRifts({ …, onEvent, monitoringSinkWired: true
   (`EXECUTION_STATE_UNMEASURABLE`). Opt-down: `'warn'` / `false`. No atomic CAS at commit;
   T3 observes the result after the write (not atomic). See the subsection above.
 - **Retry-safe** — `executionAttempted` is the only safe-to-retry signal; a post-authorization throw
-  is `executionAttempted:true` (the remote side effect may have landed).
+  is `executionAttempted:true` (the remote side effect may have landed). The package keeps no state
+  across processes: recording a `GuardOutcome` and an `INDETERMINATE` result is the host's job. A
+  stop or kill request does not undo an external side effect that has already gone out.
 - **`enforced:true` only on a LIVE, receipt-verified `ALLOW`/`MONITOR`** — never on cached/LKG,
   SKIPPED, observeOnly, or fail-open paths (unrepresentable at compile time).
 - **Integrity failures never fail open** — a bad signature, schema-invalid response, detector/config
